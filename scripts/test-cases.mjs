@@ -81,6 +81,7 @@ const cases = [
 ];
 const extraRuns = {
   'TC-030': [{ kind: 'e2e', file: 'tests/e2e/trust.spec.ts', testName: 'TC-030 应用重启自动登录并在退出后撤销' }],
+  'TC-032': [{ kind: 'unit', file: 'tests/next-server.test.ts', testName: 'TC-032 临时 CA 严格验证非回环服务与证书失败路径' }],
   'TC-038': [{ kind: 'e2e', file: 'tests/e2e/upload.spec.ts', testName: 'TC-038 应用扫描后自动上报到独立本机服务' }],
   'TC-010': [{ kind: app[0], file: app[1], testName: app[2] }],
   'TC-017': [{ kind: collector[0], file: collector[1], testName: '空目录、错误字段及不可读文件显示可辨认的状态' }],
@@ -90,7 +91,10 @@ const extraRuns = {
     { kind: 'unit', file: 'tests/server-ownership.test.ts', testName: 'TC-074 切换服务器时不向新地址发送旧设备令牌' },
     { kind: 'unit', file: 'tests/next-sync.test.ts', testName: 'TC-074 管理员重新配置后可立即重试待传快照' }
   ],
-  'TC-047': [{ kind: 'unit', file: 'tests/next-server.test.ts', testName: 'TC-047 非回环 HTTPS 监听仍执行清单与上报鉴权' }],
+  'TC-047': [
+    { kind: 'unit', file: 'tests/next-server.test.ts', testName: 'TC-047 非回环 HTTPS 监听仍执行清单与上报鉴权' },
+    { kind: 'unit', file: 'tests/next-server.test.ts', testName: 'TC-047 严格 TLS 下保护接口维持鉴权' }
+  ],
   'TC-021': [
     { kind: app[0], file: app[1], testName: app[2] },
     { kind: 'unit', file: 'tests/report-pagination.test.ts', testName: 'TC-021 明细翻页不漏记录且筛选和用户权限贯穿每页' },
