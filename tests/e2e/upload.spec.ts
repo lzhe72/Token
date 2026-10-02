@@ -19,18 +19,18 @@ test('TC-038 应用扫描后自动上报到独立本机服务', async () => {
     env: { ...process.env, TOKEN_CODEX_SESSIONS_DIR: workspace.codexDir, TOKEN_CLAUDE_PROJECTS_DIR: workspace.claudeDir } });
   try {
     const page = await app.firstWindow();
-    await page.getByPlaceholder('例如 lzhe72').fill('owner');
     await page.getByPlaceholder('至少 10 位').fill('safe-password-123');
     await page.getByRole('button', { name: '创建并进入' }).click();
     await expect(page.getByRole('heading', { name: '用量概览' })).toBeVisible();
     await page.screenshot({ path: path.join('test-results', 'overview.png'), fullPage: true });
-    await page.getByRole('button', { name: /数据来源/ }).click();
-    await expect(page.getByRole('heading', { name: '本机服务与自动上报' })).toBeVisible();
+    await page.getByRole('button', { name: /系统设置/ }).click();
+    await expect(page.getByRole('heading', { name: '服务器与自动上报' })).toBeVisible();
     const status = await page.evaluate(() => window.tokenApi.getServerStatus());
     expect(status.online).toBe(true);
     expect(status.url).toContain('127.0.0.1');
+    await page.getByRole('button', { name: /数据来源/ }).click();
     await page.getByRole('button', { name: '立即扫描' }).click();
-    await page.getByRole('row', { name: /Codex · 本机账户/ }).getByRole('combobox').selectOption({ label: 'owner' });
+    await page.getByRole('row', { name: /Codex · 本机账户/ }).getByRole('combobox').selectOption({ label: 'admin' });
     await page.getByRole('button', { name: '立即扫描' }).click();
     await expect.poll(() => readFileSync(path.join(workspace.root, 'server', 'server.sqlite')).includes(Buffer.from('gpt-upload'))).toBe(true);
     await expect.poll(async () => (await page.evaluate(() => window.tokenApi.getUploadStatus())).lastSuccess).not.toBeNull();

@@ -30,11 +30,13 @@ export class ServerConnection {
   private error: string | null = null;
   private readonly configFile: string;
   private readonly secretFile: string;
+  private readonly adminSecretFile: string;
   private readonly serverDirectory: string;
 
   constructor(private readonly userData: string, private readonly cipher: SecretCipher) {
     this.configFile = path.join(userData, 'server-connection.json');
     this.secretFile = path.join(userData, 'server-access.secret');
+    this.adminSecretFile = path.join(userData, 'server-admin-access.secret');
     this.serverDirectory = path.join(userData, 'server');
     try {
       const saved = JSON.parse(fs.readFileSync(this.configFile, 'utf8')) as { url: string };
@@ -82,19 +84,41 @@ export class ServerConnection {
     try { return this.cipher.decryptString(fs.readFileSync(this.secretFile)); } catch { return null; }
   }
 
-  setConfiguration(inputUrl: unknown, inputToken: unknown): void {
-    if (typeof inputUrl !== 'string' || typeof inputToken !== 'string') throw new Error('服务器配置无效');
+  setConfiguration(inputUrl: unknown, inputToken: unknown, inputAdminToken: unknown = ''): void {
+    if (typeof inputUrl !== 'string' || typeof inputToken !== 'string' || typeof inputAdminToken !== 'string') throw new Error('服务器配置无效');
     const url = validUrl(inputUrl);
     if (inputToken && (!/^[a-f0-9]{64}$/.test(inputToken) || !this.cipher.isEncryptionAvailable())) throw new Error('服务密钥无效或安全存储不可用');
+    if (inputAdminToken && (!/^[a-f0-9]{64}$/.test(inputAdminToken) || !this.cipher.isEncryptionAvailable())) throw new Error('服务管理密钥无效或安全存储不可用');
     const savedUrl = url === this.url && this.child ? `http://127.0.0.1:${DEFAULT_PORT}` : url;
     fs.writeFileSync(this.configFile, JSON.stringify({ url: savedUrl }), { mode: 0o600 });
     if (inputToken) fs.writeFileSync(this.secretFile, this.cipher.encryptString(inputToken), { mode: 0o600 });
+    if (inputAdminToken) fs.writeFileSync(this.adminSecretFile, this.cipher.encryptString(inputAdminToken), { mode: 0o600 });
     this.url = url;
     this.error = null;
   }
 
   getUrl(): string { return this.url; }
   getToken(): string | null { return this.token(); }
+
+  private adminToken(): string | null {
+    try {
+      const info = JSON.parse(fs.readFileSync(path.join(this.serverDirectory, 'server-port.json'), 'utf8')) as { port: number };
+      if (this.url === `http://127.0.0.1:${info.port}`) {
+        return fs.readFileSync(path.join(this.serverDirectory, 'server-admin.secret'), 'utf8').trim();
+      }
+    } catch { /* configured external server */ }
+    if (!this.cipher.isEncryptionAvailable() || !fs.existsSync(this.adminSecretFile)) return null;
+    try { return this.cipher.decryptString(fs.readFileSync(this.adminSecretFile)); } catch { return null; }
+  }
+
+  adminRequest(endpoint: string, init: RequestInit = {}, timeout = 5000): Promise<Response> {
+    if (!endpoint.startsWith('/v1/admin/')) throw new Error('管理接口无效');
+    const adminToken = this.adminToken();
+    if (!adminToken) throw new Error('尚未配置服务管理密钥');
+    const headers = new Headers(init.headers);
+    headers.set('x-token-admin', adminToken);
+    return this.request(endpoint, { ...init, headers }, timeout);
+  }
 
   private async pingOwned(): Promise<boolean> {
     try {

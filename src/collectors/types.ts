@@ -14,9 +14,13 @@ export interface UsageFact {
   cacheReadTokens: number;
   cacheCreationTokens: number;
   totalTokens: number;
+  projectKey?: string;
+  projectLabel?: string;
 }
 
 export interface ParserState {
+  projectKey?: string;
+  projectLabel?: string;
   sessionId?: string;
   identityKey?: string;
   identityLabel?: string;

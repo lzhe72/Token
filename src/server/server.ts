@@ -1,4 +1,4 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import https from 'node:https';
@@ -36,6 +36,19 @@ export interface UsageSnapshot {
   rows: UsageAggregate[];
 }
 
+export interface FeedbackRecord {
+  id: string;
+  username: string;
+  category: 'missing_usage' | 'report' | 'update' | 'other';
+  title: string;
+  message: string;
+  diagnostics: string | null;
+  appVersion: string;
+  platform: string;
+  status: 'open' | 'resolved';
+  createdAt: string;
+}
+
 const MAX_BODY = 16 * 1024 * 1024;
 const MAX_PACKAGE = 2 * 1024 * 1024 * 1024;
 
@@ -46,6 +59,47 @@ function send(res: ServerResponse, status: number, body: unknown): void {
 
 function safeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function validFeedback(value: unknown): Omit<FeedbackRecord, 'status' | 'createdAt'> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('反馈格式无效');
+  const item = value as Record<string, unknown>;
+  if (Object.keys(item).some(key => !['id', 'username', 'category', 'title', 'message', 'diagnostics', 'appVersion', 'platform'].includes(key)) ||
+    typeof item.id !== 'string' || !/^[a-f0-9-]{36}$/.test(item.id) ||
+    typeof item.username !== 'string' || !/^[\p{L}\p{N}_.-]{3,32}$/u.test(item.username) ||
+    !['missing_usage', 'report', 'update', 'other'].includes(String(item.category)) ||
+    typeof item.title !== 'string' || !item.title.trim() || item.title.length > 120 ||
+    typeof item.message !== 'string' || !item.message.trim() || item.message.length > 4000 ||
+    typeof item.appVersion !== 'string' || !/^\d+\.\d+\.\d+$/.test(item.appVersion) ||
+    item.platform !== 'darwin' ||
+    (item.diagnostics !== null && item.diagnostics !== undefined &&
+      (typeof item.diagnostics !== 'string' || item.diagnostics.length > 2000))) throw new Error('反馈格式无效');
+  const text = `${item.title}\n${item.message}\n${item.diagnostics ?? ''}`;
+  if (/(?:\/(?:[^/\s]+\/)+[^/\s]+|[A-Z]:\\Users\\|-----BEGIN [A-Z ]+PRIVATE KEY-----|\b(?:sk|ghp|github_pat)_[A-Za-z0-9_-]{12,}|(?:OPENAI|ANTHROPIC)_API_KEY\s*[=:])/i.test(text)) {
+    throw new Error('反馈包含敏感路径或密钥');
+  }
+  if (item.diagnostics) {
+    let parsed: unknown;
+    try { parsed = JSON.parse(item.diagnostics); } catch { throw new Error('诊断摘要无效'); }
+    if (!Array.isArray(parsed) || parsed.length > 2 || parsed.some(entry => !entry || typeof entry !== 'object' ||
+      Object.keys(entry).some(key => !['provider', 'status', 'fileCount', 'factCount', 'reason', 'malformedCount', 'unreadableCount'].includes(key)))) {
+      throw new Error('诊断摘要无效');
+    }
+  }
+  return { id: item.id, username: item.username, category: item.category as FeedbackRecord['category'],
+    title: item.title.trim(), message: item.message.trim(), diagnostics: item.diagnostics ? String(item.diagnostics) : null,
+    appVersion: item.appVersion, platform: item.platform };
+}
+
+async function readJson(req: IncomingMessage, limit: number): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  for await (const chunk of req) {
+    bytes += chunk.length;
+    if (bytes > limit) throw new Error('请求过大');
+    chunks.push(chunk);
+  }
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
 export function validateSnapshot(value: unknown): UsageSnapshot {
@@ -94,6 +148,7 @@ export class LocalServer {
   private readonly server: http.Server | https.Server;
   private db: AppDatabase | null = null;
   private secret = '';
+  private adminSecret = '';
   private port = 0;
 
   constructor(private readonly directory: string, private readonly tls?: { key: string | Buffer; cert: string | Buffer }) {
@@ -107,6 +162,9 @@ export class LocalServer {
     const secretFile = path.join(this.directory, 'server.secret');
     if (!fs.existsSync(secretFile)) fs.writeFileSync(secretFile, randomBytes(32).toString('hex'), { mode: 0o600, flag: 'wx' });
     this.secret = fs.readFileSync(secretFile, 'utf8').trim();
+    const adminSecretFile = path.join(this.directory, 'server-admin.secret');
+    if (!fs.existsSync(adminSecretFile)) fs.writeFileSync(adminSecretFile, randomBytes(32).toString('hex'), { mode: 0o600, flag: 'wx' });
+    this.adminSecret = fs.readFileSync(adminSecretFile, 'utf8').trim();
     this.db = await AppDatabase.open(path.join(this.directory, 'server.sqlite'));
     this.db.run(`CREATE TABLE IF NOT EXISTS device_revisions (device_id TEXT PRIMARY KEY, revision INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS aggregates (
@@ -119,6 +177,12 @@ export class LocalServer {
     this.db.run(`CREATE TABLE IF NOT EXISTS source_coverage (
       device_id TEXT NOT NULL, provider TEXT NOT NULL, status TEXT NOT NULL, last_scan TEXT,
       revision INTEGER NOT NULL, PRIMARY KEY (device_id, provider)
+    )`);
+    this.db.run(`CREATE TABLE IF NOT EXISTS feedback_items (
+      id TEXT PRIMARY KEY, username TEXT NOT NULL, category TEXT NOT NULL,
+      title TEXT NOT NULL, message TEXT NOT NULL, diagnostics TEXT,
+      app_version TEXT NOT NULL, platform TEXT NOT NULL,
+      status TEXT NOT NULL, created_at TEXT NOT NULL
     )`);
     await new Promise<void>((resolve, reject) => {
       this.server.once('error', reject);
@@ -149,13 +213,24 @@ export class LocalServer {
     return actual.length === expected.length && timingSafeEqual(actual, expected);
   }
 
+  private authorizedAdmin(req: IncomingMessage): boolean {
+    const actual = Buffer.from(String(req.headers['x-token-admin'] ?? ''));
+    const expected = Buffer.from(this.adminSecret);
+    return actual.length === expected.length && timingSafeEqual(actual, expected);
+  }
+
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (req.headers.origin) { send(res, 403, { error: '浏览器跨源请求不可用' }); return; }
     if (req.method === 'GET' && req.url === '/health') {
       send(res, 200, { ok: true, serverId: createHash('sha256').update(this.secret).digest('hex').slice(0, 16) }); return;
     }
-    if ((req.url === '/v1/auth/check' || req.url === '/v1/update/latest' || req.url === '/v1/update/package' || req.url === '/v1/usage') && !this.authorized(req)) {
+    if ((req.url === '/v1/auth/check' || req.url === '/v1/update/latest' || req.url === '/v1/update/package' ||
+      req.url === '/v1/usage' || req.url === '/v1/feedback' || req.url === '/v1/admin/feedback' ||
+      req.url === '/v1/admin/feedback/status') && !this.authorized(req)) {
       send(res, 401, { error: '未授权' }); return;
+    }
+    if ((req.url === '/v1/admin/feedback' || req.url === '/v1/admin/feedback/status') && !this.authorizedAdmin(req)) {
+      send(res, 403, { error: '需要服务管理密钥' }); return;
     }
     if (req.method === 'GET' && req.url === '/v1/auth/check') { send(res, 200, { authorized: true }); return; }
     if (req.method === 'GET' && req.url === '/v1/update/latest') {
@@ -172,6 +247,50 @@ export class LocalServer {
       const file = path.join(this.directory, 'releases', manifest.filename);
       res.writeHead(200, { 'content-type': 'application/x-apple-diskimage', 'content-length': manifest.size, 'cache-control': 'no-store' });
       fs.createReadStream(file).pipe(res);
+      return;
+    }
+    if (req.method === 'POST' && req.url === '/v1/feedback') {
+      try {
+        const input = validFeedback(await readJson(req, 16 * 1024));
+        const item: FeedbackRecord = { ...input, status: 'open', createdAt: new Date().toISOString() };
+        const db = this.getDatabase();
+        const existing = db.one('SELECT * FROM feedback_items WHERE id = ?', [item.id]);
+        if (existing) {
+          if (existing.username !== item.username || existing.category !== item.category ||
+            existing.title !== item.title || existing.message !== item.message ||
+            existing.diagnostics !== item.diagnostics || existing.app_version !== item.appVersion ||
+            existing.platform !== item.platform) {
+            send(res, 409, { error: '反馈编号冲突' }); return;
+          }
+          send(res, 200, { ...item, status: existing.status, createdAt: existing.created_at }); return;
+        }
+        db.run('INSERT INTO feedback_items VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
+          item.id, item.username, item.category, item.title, item.message, item.diagnostics,
+          item.appVersion, item.platform, item.status, item.createdAt
+        ]);
+        send(res, 201, item);
+      } catch { send(res, 400, { error: '反馈格式无效或超过大小限制' }); }
+      return;
+    }
+    if (req.method === 'GET' && req.url === '/v1/admin/feedback') {
+      const items = this.getDatabase().all('SELECT * FROM feedback_items ORDER BY created_at DESC LIMIT 200').map(row => ({
+        id: String(row.id), username: String(row.username), category: row.category,
+        title: String(row.title), message: String(row.message), diagnostics: row.diagnostics ? String(row.diagnostics) : null,
+        appVersion: String(row.app_version), platform: String(row.platform),
+        status: row.status, createdAt: String(row.created_at)
+      }));
+      send(res, 200, { items });
+      return;
+    }
+    if (req.method === 'POST' && req.url === '/v1/admin/feedback/status') {
+      try {
+        const value = await readJson(req, 1024) as Record<string, unknown>;
+        if (!value || Object.keys(value).some(key => !['id', 'status'].includes(key)) ||
+          typeof value.id !== 'string' || !/^[a-f0-9-]{36}$/.test(value.id) ||
+          !['open', 'resolved'].includes(String(value.status))) throw new Error('invalid');
+        this.getDatabase().run('UPDATE feedback_items SET status = ? WHERE id = ?', [String(value.status), value.id]);
+        send(res, 200, { updated: true });
+      } catch { send(res, 400, { error: '反馈状态无效' }); }
       return;
     }
     if (req.method === 'POST' && req.url === '/v1/usage') {

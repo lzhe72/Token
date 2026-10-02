@@ -13,7 +13,7 @@ test('报表按本地时区与 ISO 周汇总，并限制普通用户归属', asy
     const report = new ReportService(db, scanner);
     const admin: PublicUser = { id: 'admin', username: 'admin', role: 'admin', active: true, createdAt: '2020-01-01T00:00:00Z' };
     const viewer: PublicUser = { id: 'viewer', username: 'viewer', role: 'viewer', active: true, createdAt: '2020-01-01T00:00:00Z' };
-    db.run("INSERT INTO users VALUES ('viewer', 'viewer', 'unused', 'viewer', 1, '2020-01-01T00:00:00Z')");
+    db.run("INSERT INTO users(id, username, password_hash, role, active, created_at) VALUES ('viewer', 'viewer', 'unused', 'viewer', 1, '2020-01-01T00:00:00Z')");
     db.run("INSERT INTO source_identities VALUES ('codex:local', 'codex', 'Codex', NULL)");
     db.run("INSERT INTO source_identities VALUES ('claude:local', 'claude', 'Claude', NULL)");
     db.run("INSERT INTO usage_facts VALUES ('c1', 'codex', 'codex:local', 's1', '=2+2', '2020-12-31T16:30:00Z', 10, 2, 4, 0, 12)");

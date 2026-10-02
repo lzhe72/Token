@@ -11,7 +11,7 @@ test('数据库备份完整性校验并保留账户与用量', async () => {
   try {
     const db = await AppDatabase.open(workspace.databasePath);
     new UsageScanner(db);
-    db.run("INSERT INTO users VALUES ('a', 'admin', 'unused', 'admin', 1, '2026-01-01T00:00:00Z')");
+    db.run("INSERT INTO users(id, username, password_hash, role, active, created_at) VALUES ('a', 'admin', 'unused', 'admin', 1, '2026-01-01T00:00:00Z')");
     db.run("INSERT INTO source_identities VALUES ('test', 'codex', 'Test', 'a')");
     db.run("INSERT INTO usage_facts VALUES ('fact', 'codex', 'test', 's', 'gpt-test', '2026-01-01T00:00:00Z', 4, 2, 1, 0, 6)");
     const backup = path.join(root, 'backup.sqlite');

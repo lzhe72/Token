@@ -47,7 +47,8 @@ export class AppDatabase {
         password_hash TEXT NOT NULL,
         role TEXT NOT NULL CHECK (role IN ('admin', 'viewer')),
         active INTEGER NOT NULL DEFAULT 1,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        last_login_at TEXT
       );
       CREATE TABLE IF NOT EXISTS audit_events (
         id TEXT PRIMARY KEY,
@@ -57,6 +58,9 @@ export class AppDatabase {
         occurred_at TEXT NOT NULL
       );
     `);
+    if (!this.db.exec('PRAGMA table_info(users)')[0]?.values.some(row => row[1] === 'last_login_at')) {
+      this.db.run('ALTER TABLE users ADD COLUMN last_login_at TEXT');
+    }
     this.persist();
   }
 

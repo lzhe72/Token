@@ -19,8 +19,7 @@ test('工具目录缺失、无权限和空目录有清晰状态', async () => {
   }).catch(error => { workspace.cleanup(); throw error; });
   try {
     const page = await app.firstWindow();
-    await page.getByPlaceholder('例如 lzhe72').fill('owner');
-    await page.getByPlaceholder('至少 10 位').fill('safe-password-123');
+        await page.getByPlaceholder('至少 10 位').fill('safe-password-123');
     await page.getByRole('button', { name: '创建并进入' }).click();
     await page.getByRole('button', { name: /数据来源/ }).click();
     const sources = page.locator('.source-grid .source-card');

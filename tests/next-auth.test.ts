@@ -16,7 +16,7 @@ test('TC-030 勾选信任后重启恢复且未勾选不恢复', async () => {
   try {
     let db = await AppDatabase.open(workspace.databasePath);
     let auth = new AuthService(db);
-    const user = await auth.setupAdmin('owner', 'safe-password-123');
+    const user = await auth.setupAdmin('admin', 'safe-password-123');
     const store = new TrustedDeviceStore(workspace.root, cipher);
     expect(store.read()).toBeNull();
     const token = auth.issueTrustedDevice(user.id);
@@ -26,7 +26,7 @@ test('TC-030 勾选信任后重启恢复且未勾选不恢复', async () => {
     db.close();
     db = await AppDatabase.open(workspace.databasePath);
     auth = new AuthService(db);
-    expect(auth.authenticateTrustedDevice(store.read()!)).toMatchObject({ id: user.id, username: 'owner' });
+    expect(auth.authenticateTrustedDevice(store.read()!)).toMatchObject({ id: user.id, username: 'admin' });
     store.clear();
     expect(store.read()).toBeNull();
     db.close();
@@ -38,7 +38,7 @@ test('TC-031 退出停用重置密码撤销受信凭证', async () => {
   try {
     const db = await AppDatabase.open(workspace.databasePath);
     const auth = new AuthService(db);
-    const admin = await auth.setupAdmin('owner', 'safe-password-123');
+    const admin = await auth.setupAdmin('admin', 'safe-password-123');
     const user = await auth.createUser('viewer', 'viewer-password-123', 'viewer', admin.id);
     const token = auth.issueTrustedDevice(user.id);
     db.run("UPDATE trusted_devices SET created_at = '2000-01-01T00:00:00Z'");

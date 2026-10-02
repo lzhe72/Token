@@ -18,6 +18,7 @@ function initialQuery(): ReportQuery {
     granularity: 'day',
     provider: 'all',
     model: '',
+    projectKey: '',
     userId: 'all'
   };
 }
@@ -37,7 +38,7 @@ function displayError(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': Error: /, '');
 }
 
-export function ReportPanel({ user, users }: { user: PublicUser; users: PublicUser[] }) {
+export function ReportPanel({ user, users, onDrilldownChange }: { user: PublicUser; users: PublicUser[]; onDrilldownChange?: (active: boolean) => void }) {
   const [query, setQuery] = React.useState<ReportQuery>(initialQuery);
   const [report, setReport] = React.useState<UsageReport | null>(null);
   const [details, setDetails] = React.useState<UsageDetailsPage | null>(null);
@@ -45,6 +46,9 @@ export function ReportPanel({ user, users }: { user: PublicUser; users: PublicUs
   const [detailPeriod, setDetailPeriod] = React.useState('');
   const [error, setError] = React.useState('');
   const [exporting, setExporting] = React.useState(false);
+
+  React.useEffect(() => { onDrilldownChange?.(Boolean(detailPeriod || query.model || query.projectKey)); },
+    [detailPeriod, query.model, query.projectKey, onDrilldownChange]);
 
   React.useEffect(() => {
     let active = true;
@@ -96,7 +100,8 @@ export function ReportPanel({ user, users }: { user: PublicUser; users: PublicUs
     <div className="report-filters">
       <label>工具<select aria-label="工具筛选" value={query.provider} onChange={e => { setQuery(current => ({ ...current, provider: e.target.value as Provider | 'all', model: '' })); setDetailPage(1); setDetailPeriod(''); }}><option value="all">全部工具</option><option value="codex">Codex</option><option value="claude">Claude Code</option></select></label>
       <label>模型<select aria-label="模型筛选" value={query.model} onChange={e => update('model', e.target.value)}><option value="">全部模型</option>{report?.availableModels.map(model => <option key={model} value={model}>{model}</option>)}</select></label>
-      {user.role === 'admin' && <label>用户<select aria-label="用户筛选" value={query.userId} onChange={e => update('userId', e.target.value)}><option value="all">全部用户与未归属</option><option value="unassigned">未归属</option>{users.map(item => <option key={item.id} value={item.id}>{item.username}</option>)}</select></label>}
+      <label>项目<select aria-label="项目筛选" value={query.projectKey || ''} onChange={e => update('projectKey', e.target.value)}><option value="">全部项目</option>{report?.availableProjects.map(project => <option key={project.key} value={project.key}>{project.label}</option>)}</select></label>
+      {user.role !== 'viewer' && <label>用户<select aria-label="用户筛选" value={query.userId} onChange={e => update('userId', e.target.value)}><option value="all">全部用户与未归属</option><option value="unassigned">未归属</option>{users.map(item => <option key={item.id} value={item.id}>{item.username}</option>)}</select></label>}
       <label>统计时区<select aria-label="统计时区" value={query.timeZone} onChange={e => update('timeZone', e.target.value)}>
         {[...new Set([query.timeZone, 'Asia/Shanghai', 'UTC', 'America/Los_Angeles', 'Europe/London'])].map(zone => <option key={zone} value={zone}>{zone}</option>)}
       </select></label>
@@ -116,11 +121,19 @@ export function ReportPanel({ user, users }: { user: PublicUser; users: PublicUs
           return <button type="button" className={detailPeriod === point.period ? 'bar-column selected' : 'bar-column'} key={point.period} title={`${label} · ${number(point.totalTokens)} Token`} aria-label={`查看 ${label} 用量明细`} onClick={() => { setDetailPeriod(point.period); setDetailPage(1); }}><div className="bar-value" title={`${number(point.totalTokens)} Token`}>{formatTokens(point.totalTokens)}</div><div className="bar-track"><div className="bar" style={{ height: `${Math.max(3, point.totalTokens / maxPoint * 100)}%` }} /></div><div className="bar-label">{label}</div></button>;
         })}</div></div> : <div className="empty-row">{hasCoverage ? '该时间范围没有匹配的用量记录。' : '尚未采集到可用记录，请检查数据来源。'}</div>}
       </section>
+      <section className="panel project-panel"><div className="panel-head"><h2>项目统计</h2><span>{report.projects.length} 个项目</span></div>
+        <p className="hint">从本机会话工作目录识别项目；未提供工作目录的记录单列统计。项目路径不上传服务端。</p>
+        <div className="dimension-list">{report.projects.map(item => <button key={item.key} type="button" className="dimension-row" onClick={() => update('projectKey', item.key)}>
+          <span className="dimension-name" title={item.label}>{item.label}</span><span>{item.requests.toLocaleString('zh-CN')} 条</span>
+          <span className="dimension-meter"><i style={{ width: `${report.totals.totalTokens ? item.totalTokens / report.totals.totalTokens * 100 : 0}%` }} /></span>
+          <strong title={`${number(item.totalTokens)} Token`}>{formatTokens(item.totalTokens)}</strong>
+        </button>)}{report.projects.length === 0 && <div className="empty-row">暂无项目用量。</div>}</div>
+      </section>
       <section className="panel model-panel"><div className="panel-head"><h2>模型用量</h2><span>{report.models.length} 个模型</span></div><div className="table-wrap"><table><thead><tr><th>工具 / 模型</th><th>输入</th><th>输出</th><th>缓存读取</th><th>缓存写入</th><th>总 Token</th></tr></thead><tbody>{report.models.map(item => <tr key={`${item.provider}:${item.model}`}><td><button type="button" className="model-link" onClick={() => update('model', item.model)}>{item.model}</button><small className="model-provider">{item.provider === 'codex' ? 'Codex' : 'Claude Code'}</small></td><td title={number(item.inputTokens)}>{formatTokens(item.inputTokens)}</td><td title={number(item.outputTokens)}>{formatTokens(item.outputTokens)}</td><td title={number(item.cacheReadTokens)}>{formatTokens(item.cacheReadTokens)}</td><td title={number(item.cacheCreationTokens)}>{formatTokens(item.cacheCreationTokens)}</td><td title={number(item.totalTokens)}><strong>{formatTokens(item.totalTokens)}</strong></td></tr>)}</tbody></table>{report.models.length === 0 && <div className="empty-row">暂无模型用量。</div>}</div></section>
       <section className="panel detail-panel"><div className="panel-head"><h2>用量明细</h2><span>{details ? `${number(details.total)} 条记录` : '加载中'}</span></div>
         <p className="hint">选择趋势柱或模型名称可定位对应记录。时间按 {query.timeZone} 显示；悬浮可查看精确 Token 原值。</p>
-        {(detailPeriod || query.model) && <div className="detail-filters">{detailPeriod && <button className="text-button" onClick={() => { setDetailPeriod(''); setDetailPage(1); }}>{detailPeriod} ×</button>}{query.model && <button className="text-button" onClick={() => update('model', '')}>{query.model} ×</button>}</div>}
-        <div className="table-wrap"><table><thead><tr><th>时间</th><th>工具 / 模型</th><th>来源</th><th>输入</th><th>输出</th><th>缓存读</th><th>缓存写</th><th>总 Token</th></tr></thead><tbody>{details?.records.map(item => <tr key={item.id}><td>{new Date(item.occurredAt).toLocaleString('zh-CN', { timeZone: query.timeZone })}</td><td><strong>{item.model}</strong><small className="model-provider">{item.provider === 'codex' ? 'Codex' : 'Claude Code'}</small></td><td title={item.sourceLabel}>{item.source === 'local' ? '本地' : '遥测'}</td><td title={number(item.inputTokens)}>{formatTokens(item.inputTokens)}</td><td title={number(item.outputTokens)}>{formatTokens(item.outputTokens)}</td><td title={number(item.cacheReadTokens)}>{formatTokens(item.cacheReadTokens)}</td><td title={number(item.cacheCreationTokens)}>{formatTokens(item.cacheCreationTokens)}</td><td title={number(item.totalTokens)}><strong>{formatTokens(item.totalTokens)}</strong></td></tr>)}</tbody></table>{details?.records.length === 0 && <div className="empty-row">当前筛选没有明细。</div>}</div>
+        {(detailPeriod || query.model || query.projectKey) && <div className="detail-filters">{detailPeriod && <button className="text-button" onClick={() => { setDetailPeriod(''); setDetailPage(1); }}>{detailPeriod} ×</button>}{query.model && <button className="text-button" onClick={() => update('model', '')}>{query.model} ×</button>}{query.projectKey && <button className="text-button" onClick={() => update('projectKey', '')}>项目筛选 ×</button>}</div>}
+        <div className="table-wrap"><table><thead><tr><th>时间</th><th>工具 / 模型</th><th>项目</th><th>来源</th><th>输入</th><th>输出</th><th>缓存读</th><th>缓存写</th><th>总 Token</th></tr></thead><tbody>{details?.records.map(item => <tr key={item.id}><td>{new Date(item.occurredAt).toLocaleString('zh-CN', { timeZone: query.timeZone })}</td><td><strong>{item.model}</strong><small className="model-provider">{item.provider === 'codex' ? 'Codex' : 'Claude Code'}</small></td><td>{item.projectLabel}</td><td title={item.sourceLabel}>{item.source === 'local' ? '本地' : '遥测'}</td><td title={number(item.inputTokens)}>{formatTokens(item.inputTokens)}</td><td title={number(item.outputTokens)}>{formatTokens(item.outputTokens)}</td><td title={number(item.cacheReadTokens)}>{formatTokens(item.cacheReadTokens)}</td><td title={number(item.cacheCreationTokens)}>{formatTokens(item.cacheCreationTokens)}</td><td title={number(item.totalTokens)}><strong>{formatTokens(item.totalTokens)}</strong></td></tr>)}</tbody></table>{details?.records.length === 0 && <div className="empty-row">当前筛选没有明细。</div>}</div>
         {details && details.total > details.pageSize && <div className="detail-pager"><button disabled={detailPage === 1} onClick={() => setDetailPage(page => page - 1)}>上一页</button><span>{detailPage} / {Math.ceil(details.total / details.pageSize)}</span><button disabled={detailPage * details.pageSize >= details.total} onClick={() => setDetailPage(page => page + 1)}>下一页</button></div>}
       </section>
       <p className="report-footnote">显示单位按 1024 进位：1024 Token = 1 K、1024 K = 1 M、1024 M = 1 P；悬浮可查看精确值，CSV 保留整数。总 Token 按各工具原始计量规则计算。Codex 的缓存读取包含在输入 Token 中；Claude Code 的缓存读取和写入单独计入总量。同一工具在同一 UTC 日期有本地记录时，报表采用本地记录，不叠加遥测。</p>

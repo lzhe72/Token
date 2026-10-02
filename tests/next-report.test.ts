@@ -28,11 +28,11 @@ test('TC-029 CSV 表头和数据列对齐', async () => {
   try {
     insert(db, 'csv', 'gpt-test', '2021-01-01T00:00:00Z', 12);
     const [header, row] = report.csv(query, admin).replace(/^\uFEFF/, '').trim().split('\r\n').map(line => line.split(','));
-    expect(header).toHaveLength(9);
-    expect(row).toHaveLength(9);
-    expect(header[7]).toBe('总 Token');
-    expect(row[7]).toBe('12');
-    expect(row[8]).toBe('1');
+    expect(header).toHaveLength(10);
+    expect(row).toHaveLength(10);
+    expect(header[8]).toBe('总 Token');
+    expect(row[8]).toBe('12');
+    expect(row[9]).toBe('1');
   } finally { db.close(); workspace.cleanup(); }
 });
 
@@ -48,8 +48,8 @@ test('TC-041 K M P 1024 进位且原值保留在 CSV', async () => {
     const csv = report.csv(query, admin);
     expect(csv).toContain(String(1024 ** 3));
     expect(csv).not.toContain('1 P');
-    expect(csv.split('\r\n')[0].split(',')).toHaveLength(9);
-    expect(csv.split('\r\n')[1].split(',')).toHaveLength(9);
+    expect(csv.split('\r\n')[0].split(',')).toHaveLength(10);
+    expect(csv.split('\r\n')[1].split(',')).toHaveLength(10);
   } finally { db.close(); workspace.cleanup(); }
 });
 
@@ -97,8 +97,8 @@ test('TC-044 模型排行总量降序且同值稳定', async () => {
 test('TC-045 已覆盖零与未覆盖错误状态分开显示', async () => {
   const { workspace, db, scanner, report } = await reportFixture('unit-coverage');
   try {
-    db.run("INSERT INTO source_status VALUES ('codex', 'no_records', 0, 0, '2026-10-02T00:00:00Z', NULL)");
-    db.run("INSERT INTO source_status VALUES ('claude', 'error', 0, 0, '2026-10-02T00:00:00Z', '无法读取')");
+    db.run("INSERT INTO source_status(provider, status, file_count, fact_count, last_scan, detail) VALUES ('codex', 'no_records', 0, 0, '2026-10-02T00:00:00Z', NULL)");
+    db.run("INSERT INTO source_status(provider, status, file_count, fact_count, last_scan, detail) VALUES ('claude', 'error', 0, 0, '2026-10-02T00:00:00Z', '无法读取')");
     const statuses = scanner.statuses();
     expect(statusLabel(statuses[0])).toContain('暂无记录');
     expect(statusLabel(statuses[1])).toBe('需要检查');
@@ -110,8 +110,8 @@ test('TC-045 已覆盖零与未覆盖错误状态分开显示', async () => {
 test('TC-046 来源状态和最近扫描时间一致', async () => {
   const { workspace, db, scanner } = await reportFixture('unit-source-state');
   try {
-    db.run("INSERT INTO source_status VALUES ('codex', 'ready', 1, 2, '2026-10-02T00:00:00Z', NULL)");
-    db.run("INSERT INTO source_status VALUES ('claude', 'not_found', 0, 0, '2026-10-02T01:00:00Z', '未找到本机会话目录')");
+    db.run("INSERT INTO source_status(provider, status, file_count, fact_count, last_scan, detail) VALUES ('codex', 'ready', 1, 2, '2026-10-02T00:00:00Z', NULL)");
+    db.run("INSERT INTO source_status(provider, status, file_count, fact_count, last_scan, detail) VALUES ('claude', 'not_found', 0, 0, '2026-10-02T01:00:00Z', '未找到本机会话目录')");
     const statuses = scanner.statuses();
     expect(statuses.find(row => row.provider === 'codex')).toMatchObject({ factCount: 2, lastScan: '2026-10-02T00:00:00Z' });
     expect(statusLabel(statuses.find(row => row.provider === 'claude') as SourceStatus)).toBe('未找到目录');

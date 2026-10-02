@@ -14,6 +14,7 @@ type UserRow = Row & {
   role: Role;
   active: number;
   created_at: string;
+  last_login_at?: string | null;
 };
 
 function derive(password: string, salt: Buffer, options = SCRYPT_OPTIONS): Promise<Buffer> {
@@ -61,9 +62,10 @@ function publicUser(row: UserRow): PublicUser {
   return {
     id: row.id,
     username: row.username,
-    role: row.role,
+    role: row.username === 'admin' && row.role === 'admin' ? 'superadmin' : row.role,
     active: row.active === 1,
-    createdAt: row.created_at
+    createdAt: row.created_at,
+    lastLoginAt: row.last_login_at ?? null
   };
 }
 
@@ -108,9 +110,19 @@ export class AuthService {
     return Number(this.db.one('SELECT COUNT(*) AS count FROM users')?.count ?? 0) === 0;
   }
 
+  superadminIssue(): string | null {
+    const exact = this.db.one("SELECT username, role FROM users WHERE username = 'admin' COLLATE NOCASE");
+    if (!exact) return this.needsSetup() ? null : '旧数据库尚无固定 admin 账号；现有管理员可创建用户名 admin 的管理员。';
+    if (exact.username !== 'admin' || exact.role !== 'admin') {
+      return '用户名 admin 被非管理员账户占用；请由现有管理员明确处理该账号后再创建固定 admin。';
+    }
+    return null;
+  }
+
   async setupAdmin(usernameInput: unknown, passwordInput: unknown): Promise<PublicUser> {
     if (!this.needsSetup()) throw new Error('管理员已创建');
-    return this.insertUser(normalizeUsername(usernameInput), validatePassword(passwordInput), 'admin', null);
+    if (normalizeUsername(usernameInput) !== 'admin') throw new Error('首次账户用户名必须是 admin');
+    return this.insertUser('admin', validatePassword(passwordInput), 'admin', null);
   }
 
   async login(usernameInput: unknown, passwordInput: unknown): Promise<PublicUser> {
@@ -128,7 +140,9 @@ export class AuthService {
       throw new Error('用户名或密码错误');
     }
     this.failures.delete(key);
-    return publicUser(row);
+    const now = new Date().toISOString();
+    this.db.run('UPDATE users SET last_login_at = ? WHERE id = ?', [now, row.id]);
+    return { ...publicUser(row), lastLoginAt: now };
   }
 
   listUsers(): PublicUser[] {
@@ -142,7 +156,30 @@ export class AuthService {
 
   async createUser(usernameInput: unknown, passwordInput: unknown, roleInput: unknown, actorId: string): Promise<PublicUser> {
     if (roleInput !== 'admin' && roleInput !== 'viewer') throw new Error('角色无效');
-    return this.insertUser(normalizeUsername(usernameInput), validatePassword(passwordInput), roleInput, actorId);
+    const username = normalizeUsername(usernameInput);
+    if (username.toLowerCase() === 'admin' && username !== 'admin') throw new Error('固定账号用户名必须精确为 admin');
+    if (username === 'admin' && roleInput !== 'admin') throw new Error('admin 必须为管理员角色');
+    if (username === 'admin' && this.db.one("SELECT username FROM users WHERE username = 'admin' COLLATE NOCASE")) {
+      throw new Error('用户名 admin 已被占用；请先明确处理冲突账户');
+    }
+    return this.insertUser(username,
+      validatePassword(passwordInput), roleInput, actorId);
+  }
+
+  renameConflictingAdminViewer(newUsernameInput: unknown, actorId: string): void {
+    const username = normalizeUsername(newUsernameInput);
+    if (username.toLowerCase() === 'admin') throw new Error('新用户名不能是 admin');
+    const conflict = this.db.one("SELECT id, role, username FROM users WHERE username = 'admin' COLLATE NOCASE");
+    if (!conflict || (conflict.username === 'admin' && conflict.role === 'admin')) throw new Error('没有待处理的 admin 用户名冲突');
+    try {
+      this.db.transaction(() => {
+        this.db.run('UPDATE users SET username = ? WHERE id = ?', [username, String(conflict.id)]);
+        this.audit(actorId, 'user.admin_name_conflict_resolved', String(conflict.id));
+      });
+    } catch (error) {
+      if (String(error).includes('UNIQUE')) throw new Error('新用户名已存在');
+      throw error;
+    }
   }
 
   private async insertUser(username: string, password: string, role: Role, actorId: string | null): Promise<PublicUser> {
@@ -159,7 +196,7 @@ export class AuthService {
       if (String(error).includes('UNIQUE')) throw new Error('用户名已存在');
       throw error;
     }
-    return { id, username, role, active: true, createdAt };
+    return { id, username, role: username === 'admin' ? 'superadmin' : role, active: true, createdAt, lastLoginAt: null };
   }
 
   setActive(userId: unknown, active: unknown, actorId: string): void {
@@ -167,7 +204,8 @@ export class AuthService {
     const target = this.getUser(userId);
     if (!target) throw new Error('用户不存在');
     if (target.id === actorId && !active) throw new Error('不能停用自己的账户');
-    if (target.role === 'admin' && !active && this.activeAdminCount() <= 1) throw new Error('必须保留至少一位管理员');
+    if (target.role === 'superadmin' && actorId !== target.id) throw new Error('只有 admin 可以管理超级管理员账户');
+    if (target.role !== 'viewer' && !active && this.activeAdminCount() <= 1) throw new Error('必须保留至少一位管理员');
     this.db.transaction(() => {
       this.db.run('UPDATE users SET active = ? WHERE id = ?', [active ? 1 : 0, userId]);
       if (!active) this.db.run('DELETE FROM trusted_devices WHERE user_id = ?', [userId]);
@@ -176,7 +214,10 @@ export class AuthService {
   }
 
   async changePassword(userId: unknown, passwordInput: unknown, actorId: string): Promise<void> {
-    if (typeof userId !== 'string' || !this.getUser(userId)) throw new Error('用户不存在');
+    if (typeof userId !== 'string') throw new Error('用户不存在');
+    const target = this.getUser(userId);
+    if (!target) throw new Error('用户不存在');
+    if (target.role === 'superadmin' && actorId !== target.id) throw new Error('只有 admin 可以修改超级管理员密码');
     const hash = await hashPassword(validatePassword(passwordInput));
     this.db.transaction(() => {
       this.db.run('UPDATE users SET password_hash = ? WHERE id = ?', [hash, userId]);

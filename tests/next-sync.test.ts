@@ -14,9 +14,9 @@ async function setup(name: string) {
   const db = await AppDatabase.open(workspace.databasePath);
   const scanner = new UsageScanner(db);
   const owner = randomUUID();
-  db.run('INSERT INTO users VALUES (?, ?, ?, ?, 1, ?)', [owner, 'owner', 'unused', 'admin', '2026-01-01T00:00:00Z']);
+  db.run('INSERT INTO users(id, username, password_hash, role, active, created_at) VALUES (?, ?, ?, ?, 1, ?)', [owner, 'owner', 'unused', 'admin', '2026-01-01T00:00:00Z']);
   db.run('INSERT INTO source_identities VALUES (?, ?, ?, ?)', ['codex:local', 'codex', 'private-path-placeholder', owner]);
-  db.run('INSERT INTO source_status VALUES (?, ?, ?, ?, ?, ?)', ['codex', 'ready', 1, 1, '2026-10-02T00:00:00Z', null]);
+  db.run('INSERT INTO source_status(provider, status, file_count, fact_count, last_scan, detail) VALUES (?, ?, ?, ?, ?, ?)', ['codex', 'ready', 1, 1, '2026-10-02T00:00:00Z', null]);
   db.run('INSERT INTO usage_facts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
     'private-source-key', 'codex', 'codex:local', 'private-session', 'gpt-test', '2026-10-02T00:00:00Z', 10, 2, 3, 0, 12
   ]);

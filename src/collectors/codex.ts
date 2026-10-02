@@ -1,5 +1,6 @@
 import type { LineContext, ParsedLine, ParserState, UsageFact } from './types';
 import { nonempty, record, tokenCount, validTimestamp } from './types';
+import { rememberProject } from './project';
 
 function trimTurnModels(state: ParserState): void {
   const map = state.turnModels ?? {};
@@ -32,7 +33,9 @@ function usageFact(
     outputTokens,
     cacheReadTokens: tokenCount(usage.cached_input_tokens),
     cacheCreationTokens: tokenCount(usage.cache_write_input_tokens),
-    totalTokens: tokenCount(usage.total_tokens) || inputTokens + outputTokens
+    totalTokens: tokenCount(usage.total_tokens) || inputTokens + outputTokens,
+    projectKey: state.projectKey,
+    projectLabel: state.projectLabel
   };
 }
 
@@ -43,6 +46,7 @@ export function parseCodexLine(value: unknown, state: ParserState, context: Line
   if (!payload) return {};
   const type = line.type;
   if (type === 'session_meta') {
+    rememberProject(state, payload.cwd);
     state.sessionId = nonempty(payload.session_id, nonempty(payload.id, context.fileKey));
     const accountId = typeof payload.creator_account_id === 'string' ? payload.creator_account_id : '';
     if (accountId) {
@@ -52,6 +56,7 @@ export function parseCodexLine(value: unknown, state: ParserState, context: Line
     return {};
   }
   if (type === 'turn_context') {
+    rememberProject(state, payload.cwd);
     const turnId = typeof payload.turn_id === 'string' ? payload.turn_id : '';
     const model = typeof payload.model === 'string' ? payload.model : '';
     if (model) {

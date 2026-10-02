@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { AppDatabase, Row } from './database';
-import type { Granularity, ModelTotal, Provider, PublicUser, ReportPoint, ReportQuery, TokenTotals, UsageDetailsPage, UsageReport } from '../shared/types';
+import type { Granularity, ModelTotal, ProjectTotal, Provider, PublicUser, ReportPoint, ReportQuery, TokenTotals, UsageDetailsPage, UsageReport } from '../shared/types';
 import type { UsageScanner } from '../collectors/scanner';
 
 interface FactRow extends Row {
@@ -10,6 +10,8 @@ interface FactRow extends Row {
   model: string;
   occurred_at: string;
   owner_user_id: string | null;
+  project_key: string | null;
+  project_label: string | null;
   input_tokens: number;
   output_tokens: number;
   cache_read_tokens: number;
@@ -75,6 +77,8 @@ function safeQuery(input: unknown, actor: PublicUser): ReportQuery {
   try { new Intl.DateTimeFormat('en-US', { timeZone: value.timeZone }).format(); }
   catch { throw new Error('时区无效'); }
   if (typeof value.model !== 'string' || value.model.length > 160) throw new Error('模型筛选无效');
+  const projectKey = value.projectKey ?? '';
+  if (typeof projectKey !== 'string' || (projectKey && projectKey !== 'unknown' && !/^[a-f0-9]{24}$/.test(projectKey))) throw new Error('项目筛选无效');
   if (typeof value.userId !== 'string' || value.userId.length > 100) throw new Error('用户筛选无效');
   return {
     from: value.from,
@@ -83,7 +87,8 @@ function safeQuery(input: unknown, actor: PublicUser): ReportQuery {
     granularity: value.granularity as Granularity,
     provider: value.provider,
     model: value.model,
-    userId: actor.role === 'admin' ? value.userId : actor.id
+    projectKey,
+    userId: actor.role === 'viewer' ? actor.id : value.userId
   };
 }
 
@@ -98,8 +103,10 @@ export class ReportService {
   private selectFacts(query: ReportQuery): FactRow[] {
     const lower = new Date(Date.parse(`${query.from}T00:00:00Z`) - 2 * 86_400_000).toISOString();
     const upper = new Date(Date.parse(`${query.to}T00:00:00Z`) + 2 * 86_400_000).toISOString();
-    return this.db.all(`SELECT f.*, s.owner_user_id, s.label AS source_label FROM usage_facts f
+    return this.db.all(`SELECT f.*, s.owner_user_id, s.label AS source_label,
+      p.project_key, p.project_label FROM usage_facts f
       LEFT JOIN source_identities s ON s.key = f.source_identity_key
+      LEFT JOIN fact_projects p ON p.source_key = f.source_key
       WHERE f.occurred_at >= ? AND f.occurred_at < ?
         AND (f.source_key NOT LIKE 'otel:%' OR NOT EXISTS (
           SELECT 1 FROM usage_facts local
@@ -130,10 +137,16 @@ export class ReportService {
     const totals = emptyTotals();
     const periods = new Map<string, ReportPoint>();
     const models = new Map<string, ModelTotal>();
+    const projects = new Map<string, ProjectTotal>();
     const providers = new Map<Provider, TokenTotals & { provider: Provider }>();
     const availableModels = new Set<string>();
+    const availableProjects = new Map<string, string>();
     for (const { fact, period } of this.filteredFacts(query, facts)) {
       availableModels.add(fact.model);
+      const projectKey = fact.project_key || 'unknown';
+      const projectLabel = fact.project_label || '未识别项目';
+      availableProjects.set(projectKey, projectLabel);
+      if (query.projectKey && projectKey !== query.projectKey) continue;
       if (query.model && fact.model !== query.model) continue;
       addFact(totals, fact);
       if (!periods.has(period)) periods.set(period, { period, ...emptyTotals() });
@@ -141,6 +154,8 @@ export class ReportService {
       const modelKey = `${fact.provider}\0${fact.model}`;
       if (!models.has(modelKey)) models.set(modelKey, { provider: fact.provider, model: fact.model, ...emptyTotals() });
       addFact(models.get(modelKey)!, fact);
+      if (!projects.has(projectKey)) projects.set(projectKey, { key: projectKey, label: projectLabel, ...emptyTotals() });
+      addFact(projects.get(projectKey)!, fact);
       if (!providers.has(fact.provider)) providers.set(fact.provider, { provider: fact.provider, ...emptyTotals() });
       addFact(providers.get(fact.provider)!, fact);
     }
@@ -149,8 +164,10 @@ export class ReportService {
       points: [...periods.values()].sort((a, b) => a.period.localeCompare(b.period)),
       models: [...models.values()].sort((a, b) => b.totalTokens - a.totalTokens ||
         a.provider.localeCompare(b.provider) || a.model.localeCompare(b.model)),
+      projects: [...projects.values()].sort((a, b) => b.totalTokens - a.totalTokens || a.label.localeCompare(b.label) || a.key.localeCompare(b.key)),
       providers: [...providers.values()].sort((a, b) => b.totalTokens - a.totalTokens),
       availableModels: [...availableModels].sort(),
+      availableProjects: [...availableProjects].map(([key, label]) => ({ key, label })).sort((a, b) => a.label.localeCompare(b.label) || a.key.localeCompare(b.key)),
       coverage: this.scanner.statuses()
     };
   }
@@ -162,7 +179,8 @@ export class ReportService {
       throw new Error('时间分组无效');
     }
     const facts = [...this.filteredFacts(query, this.selectFacts(query))]
-      .filter(({ fact, period }) => (!query.model || fact.model === query.model) && (!periodInput || period === periodInput))
+      .filter(({ fact, period }) => (!query.model || fact.model === query.model) &&
+        (!query.projectKey || (fact.project_key || 'unknown') === query.projectKey) && (!periodInput || period === periodInput))
       .sort((a, b) => b.fact.occurred_at.localeCompare(a.fact.occurred_at));
     const pageSize = 50;
     return {
@@ -173,6 +191,8 @@ export class ReportService {
         id: createHash('sha256').update(fact.source_key).digest('hex').slice(0, 12),
         provider: fact.provider,
         model: fact.model,
+        projectKey: fact.project_key || 'unknown',
+        projectLabel: fact.project_label || '未识别项目',
         occurredAt: fact.occurred_at,
         source: fact.source_key.startsWith('otel:') ? 'telemetry' : 'local',
         sourceLabel: fact.source_label || '未知来源',
@@ -187,16 +207,18 @@ export class ReportService {
 
   csv(input: unknown, actor: PublicUser): string {
     const query = safeQuery(input, actor);
-    const groups = new Map<string, ModelTotal & { period: string }>();
+    const groups = new Map<string, ModelTotal & { period: string; projectLabel: string }>();
     for (const { fact, period } of this.filteredFacts(query, this.selectFacts(query))) {
       if (query.model && fact.model !== query.model) continue;
-      const key = `${period}\0${fact.provider}\0${fact.model}`;
-      if (!groups.has(key)) groups.set(key, { period, provider: fact.provider, model: fact.model, ...emptyTotals() });
+      if (query.projectKey && (fact.project_key || 'unknown') !== query.projectKey) continue;
+      const key = `${period}\0${fact.provider}\0${fact.model}\0${fact.project_key || 'unknown'}`;
+      if (!groups.has(key)) groups.set(key, { period, provider: fact.provider, model: fact.model,
+        projectLabel: fact.project_label || '未识别项目', ...emptyTotals() });
       addFact(groups.get(key)!, fact);
     }
-    const header = ['时间', '工具', '模型', '输入 Token', '输出 Token', '缓存读取 Token', '缓存写入 Token', '总 Token', '用量记录数'];
+    const header = ['时间', '工具', '项目', '模型', '输入 Token', '输出 Token', '缓存读取 Token', '缓存写入 Token', '总 Token', '用量记录数'];
     const rows = [...groups.values()].sort((a, b) => a.period.localeCompare(b.period)).map(row => [
-      csvCell(row.period), csvCell(row.provider), csvCell(row.model), row.inputTokens,
+      csvCell(row.period), csvCell(row.provider), csvCell(row.projectLabel), csvCell(row.model), row.inputTokens,
       row.outputTokens, row.cacheReadTokens, row.cacheCreationTokens, row.totalTokens, row.requests
     ].join(','));
     return `\uFEFF${header.join(',')}\r\n${rows.join('\r\n')}${rows.length ? '\r\n' : ''}`;

@@ -4,7 +4,7 @@ import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { AppDatabase } from '../main/database';
-import type { SourceIdentity, SourceStatus } from '../shared/types';
+import type { CollectionDiagnostic, SourceIdentity, SourceStatus } from '../shared/types';
 import { parseCodexLine } from './codex';
 import { parseClaudeLine } from './claude';
 import type { LineContext, ParserState, Provider, UsageFact } from './types';
@@ -143,9 +143,27 @@ export class UsageScanner {
         last_scan TEXT,
         detail TEXT
       );
+      CREATE TABLE IF NOT EXISTS fact_projects (
+        source_key TEXT PRIMARY KEY,
+        project_key TEXT NOT NULL,
+        project_label TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS fact_projects_key ON fact_projects(project_key);
+      CREATE TABLE IF NOT EXISTS scanner_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     `);
     if (!db.all('PRAGMA table_info(source_cursors)').some(row => row.name === 'tail_hash')) {
       db.run("ALTER TABLE source_cursors ADD COLUMN tail_hash TEXT NOT NULL DEFAULT ''");
+    }
+    if (!db.all('PRAGMA table_info(source_status)').some(row => row.name === 'diagnostic_json')) {
+      db.run("ALTER TABLE source_status ADD COLUMN diagnostic_json TEXT NOT NULL DEFAULT '{}'");
+    }
+    if (!db.all('PRAGMA table_info(source_status)').some(row => row.name === 'last_success')) {
+      db.run('ALTER TABLE source_status ADD COLUMN last_success TEXT');
+    }
+    // A preexisting database has already consumed its cursors. Replay once to attribute historical facts.
+    if (!db.one("SELECT value FROM scanner_meta WHERE key = 'project_backfill'")) {
+      db.run("UPDATE source_cursors SET byte_offset = 0, state_json = '{}', tail_hash = ''");
+      db.run("INSERT INTO scanner_meta VALUES ('project_backfill', '1')");
     }
   }
 
@@ -182,7 +200,8 @@ export class UsageScanner {
       } catch (error) {
         const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
         this.saveStatus(provider, 'error', 0,
-          code === 'EACCES' || code === 'EPERM' ? '无法读取会话目录，请检查文件权限' : '扫描失败，请检查来源目录');
+          code === 'EACCES' || code === 'EPERM' ? '无法读取会话目录，请检查文件权限' : '扫描失败，请检查来源目录',
+          { reason: code === 'EACCES' || code === 'EPERM' ? 'permission_denied' : 'scan_error' });
       } finally {
         this.scanning.delete(provider);
       }
@@ -190,9 +209,13 @@ export class UsageScanner {
   }
 
   private async scanProvider(provider: Provider, root: string): Promise<void> {
-    if (!fs.existsSync(root)) {
-      this.saveStatus(provider, 'not_found', 0, '未找到本机会话目录');
-      return;
+    try { await fsp.stat(root); }
+    catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+        this.saveStatus(provider, 'not_found', 0, '未找到本机会话目录', { reason: 'directory_missing' });
+        return;
+      }
+      throw error;
     }
     const files = await walkJsonl(root);
     let malformed = 0;
@@ -213,7 +236,10 @@ export class UsageScanner {
       : files.length === 0 ? '会话目录中没有记录文件' : null;
     const localCount = Number(this.db.one("SELECT COUNT(*) AS count FROM usage_facts WHERE provider = ? AND source_key NOT LIKE 'otel:%'", [provider])?.count ?? 0);
     this.saveStatus(provider, unreadable || malformed || oversized ? 'error' : localCount === 0 ? 'no_records' : 'ready', files.length,
-      detail ?? (localCount === 0 ? '尚未找到可识别的 Token 用量记录' : null));
+      detail ?? (localCount === 0 ? '尚未找到可识别的 Token 用量记录' : null),
+      { reason: unreadable ? 'unreadable_file' : malformed ? 'invalid_record' : oversized ? 'oversized_record' :
+        files.length === 0 ? 'empty_directory' : localCount === 0 ? 'unrecognized_usage' : 'ok',
+        malformed, oversized, unreadable });
   }
 
   private async scanFile(provider: Provider, file: string): Promise<{ malformed: number; oversized: number }> {
@@ -287,14 +313,66 @@ export class UsageScanner {
       fact.sourceKey, fact.provider, fact.sourceIdentityKey, fact.sessionId, fact.model, fact.occurredAt,
       fact.inputTokens, fact.outputTokens, fact.cacheReadTokens, fact.cacheCreationTokens, fact.totalTokens
     ]);
+    if (fact.projectKey && fact.projectLabel) {
+      this.db.run(`INSERT INTO fact_projects(source_key, project_key, project_label) VALUES (?, ?, ?)
+        ON CONFLICT(source_key) DO UPDATE SET project_key=excluded.project_key, project_label=excluded.project_label`,
+        [fact.sourceKey, fact.projectKey, fact.projectLabel]);
+    }
   }
 
-  private saveStatus(provider: Provider, status: SourceStatus['status'], fileCount: number, detail: string | null): void {
+  private saveStatus(provider: Provider, status: SourceStatus['status'], fileCount: number, detail: string | null,
+    diagnostic: { reason: string; malformed?: number; oversized?: number; unreadable?: number } = { reason: 'unknown' }): void {
     const factCount = Number(this.db.one("SELECT COUNT(*) AS count FROM usage_facts WHERE provider = ? AND source_key NOT LIKE 'otel:%'", [provider])?.count ?? 0);
-    this.db.run(`INSERT INTO source_status VALUES (?, ?, ?, ?, ?, ?)
+    const now = new Date().toISOString();
+    this.db.run(`INSERT INTO source_status(provider, status, file_count, fact_count, last_scan, detail, diagnostic_json, last_success)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(provider) DO UPDATE SET status=excluded.status, file_count=excluded.file_count,
-      fact_count=excluded.fact_count, last_scan=excluded.last_scan, detail=excluded.detail`,
-      [provider, status, fileCount, factCount, new Date().toISOString(), detail]);
+      fact_count=excluded.fact_count, last_scan=excluded.last_scan, detail=excluded.detail,
+      diagnostic_json=excluded.diagnostic_json, last_success=COALESCE(excluded.last_success, source_status.last_success)`,
+      [provider, status, fileCount, factCount, now, detail, JSON.stringify(diagnostic),
+        status === 'ready' || status === 'no_records' ? now : null]);
+  }
+
+  diagnostics(): CollectionDiagnostic[] {
+    const labels = { codex: '~/.codex/sessions', claude: '~/.claude/projects' };
+    const suggestions: Record<string, string> = {
+      directory_missing: '确认工具已产生本机会话记录，然后重新扫描。',
+      permission_denied: '在系统设置中检查文件访问权限，授权后重新打开应用并扫描。',
+      unreadable_file: '检查会话文件权限和磁盘状态，修复后重新扫描。',
+      invalid_record: '部分记录格式无法识别，可通过问题反馈提交脱敏诊断。',
+      oversized_record: '部分记录超过安全大小限制，可通过问题反馈报告。',
+      empty_directory: '目录存在但没有会话文件，请先使用对应工具。',
+      unrecognized_usage: '发现会话文件但没有可识别的用量；检查工具版本或启用可选遥测。',
+      ok: '采集正常；如仍有缺口，请核对来源归属和报表时间范围。',
+      scan_error: '检查来源目录及磁盘状态后重新扫描。'
+    };
+    return this.statuses().map(status => {
+      const row = this.db.one('SELECT diagnostic_json, last_success FROM source_status WHERE provider = ?', [status.provider]);
+      let diagnostic: { reason?: string; malformed?: number; oversized?: number; unreadable?: number } = {};
+      try { diagnostic = JSON.parse(String(row?.diagnostic_json ?? '{}')); } catch { /* old database */ }
+      const reason = diagnostic.reason || (status.status === 'idle' ? 'not_scanned' : 'scan_error');
+      const unknownProjectCount = Number(this.db.one(`SELECT COUNT(*) AS count FROM usage_facts f
+        LEFT JOIN fact_projects p ON p.source_key=f.source_key WHERE f.provider=? AND f.source_key NOT LIKE 'otel:%'
+        AND p.source_key IS NULL`, [status.provider])?.count ?? 0);
+      const unassignedFactCount = Number(this.db.one(`SELECT COUNT(*) AS count FROM usage_facts f
+        LEFT JOIN source_identities s ON s.key=f.source_identity_key
+        WHERE f.provider=? AND s.owner_user_id IS NULL`, [status.provider])?.count ?? 0);
+      let pendingTailCount = 0;
+      for (const cursor of this.db.all('SELECT file_path, byte_offset FROM source_cursors WHERE provider = ?', [status.provider])) {
+        try { if (fs.statSync(String(cursor.file_path)).size > Number(cursor.byte_offset)) pendingTailCount++; }
+        catch { /* a rotated file is handled by the next scan */ }
+      }
+      return {
+        provider: status.provider, status: status.status, location: labels[status.provider],
+        fileCount: status.fileCount, factCount: status.factCount, unknownProjectCount,
+        unassignedFactCount, pendingTailCount,
+        malformedCount: diagnostic.malformed ?? 0, oversizedCount: diagnostic.oversized ?? 0,
+        unreadableCount: diagnostic.unreadable ?? 0, lastScan: status.lastScan,
+        lastSuccess: row?.last_success ? String(row.last_success) : null, reason,
+        suggestion: pendingTailCount && reason === 'ok' ? '部分文件有尚未结束的记录行；待工具写完后再次扫描。' :
+          suggestions[reason] || '运行一次扫描并查看来源状态。'
+      };
+    });
   }
 
   statuses(): SourceStatus[] {

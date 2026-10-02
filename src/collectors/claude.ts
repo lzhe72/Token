@@ -1,8 +1,10 @@
 import type { LineContext, ParsedLine, ParserState, UsageFact } from './types';
 import { nonempty, record, tokenCount, validTimestamp } from './types';
+import { rememberProject } from './project';
 
 export function parseClaudeLine(value: unknown, state: ParserState, context: LineContext): ParsedLine {
   const line = record(value);
+  if (line) rememberProject(state, line.cwd);
   if (!line || line.type !== 'assistant') return {};
   const message = record(line.message);
   const usage = message && record(message.usage);
@@ -30,7 +32,9 @@ export function parseClaudeLine(value: unknown, state: ParserState, context: Lin
     outputTokens,
     cacheReadTokens,
     cacheCreationTokens,
-    totalTokens: inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens
+    totalTokens: inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens,
+    projectKey: state.projectKey,
+    projectLabel: state.projectLabel
   };
   return { fact };
 }
