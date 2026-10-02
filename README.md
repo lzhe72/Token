@@ -22,8 +22,8 @@ Token 是一个 macOS 桌面应用，用于汇总本机 Codex 与 Claude Code �
 - M2：完成 Codex 与 Claude Code 本地记录的历史导入、增量扫描、去重和来源归属；可选接收官方 OTLP/HTTP JSON 遥测。
 - M3：完成日、周、月、年报表、工具、模型、用户、时区筛选与 CSV 导出。
 - M4：完成数据库备份/恢复、打包版 Playwright 测试和未签名 DMG；已在当前 Mac 从 DMG 复制应用运行验收。面向其他 Mac 分发仍需签名、公证和对应设备验收。
-- M5：已实现可选“信任此设备”、每 10 分钟扫描后聚合上报、独立服务版本清单与安装包下载、K→M→P 显示，以及概览和趋势图修复。版本提交 `96e99be` 的 TC-029–049 自动验收为 21/21；真实新版本安装发布、签名公证和另一台 Mac 安装仍待人工验收，详细限制见[逐项验收](docs/test-case-acceptance.md)。
-- M6：v0.3.0 增加按会话工作目录识别本机项目、项目/模型分析、固定侧栏与面包屑、集中设置、权限指引、采集诊断、反馈及固定 `admin` 超管。最终提交 `6223c30` 的 TC-050–071 自动验收为 22/22；TC-027 的 0.3.0 本机未签名 DMG 复制版人工验收通过。TC-072 目标 Mac 文件权限操作、真实更新安装、签名公证和外部分发仍待验证，详见[逐项验收](docs/test-case-acceptance.md)。
+- M5：已实现可选“信任此设备”、每 10 分钟扫描后聚合上报、独立服务版本清单与安装包下载、K→M→P 显示，以及概览和趋势图修复。版本提交 `96e99be` 的 TC-029–049 自动验收为 21/21；代码 `44a96e8` 又验证了 0.2.0→0.3.0 本机隔离更新交接和应用替换。取消/失败回退、Finder 手动安装、签名公证及另一台 Mac 仍待验证，详见[逐项验收](docs/test-case-acceptance.md)。
+- M6：v0.3.0 增加按会话工作目录识别本机项目、项目/模型分析、固定侧栏与面包屑、集中设置、权限指引、采集诊断、反馈及固定 `admin` 超管。最终提交 `6223c30` 的 TC-050–071 自动验收为 22/22；TC-027 的 0.3.0 本机未签名 DMG 复制版人工验收通过。TC-072 目标 Mac 文件权限操作、生产数据迁移、签名公证和外部分发仍待验证，详见[逐项验收](docs/test-case-acceptance.md)。
 
 ## 使用流程
 
@@ -59,6 +59,7 @@ npm run test:e2e:packaged
 npm run pack:dmg
 npm run test:acceptance -- 29 49
 npm run test:acceptance -- 50 71
+npm run test:upgrade:local -- /Users/lz/文档/Token/Token-0.2.0.dmg /Users/lz/文档/Token/Token-0.3.0.dmg
 ```
 
 独立服务可用 `npm run server` 启动；默认监听 `127.0.0.1:47839`，可用 `TOKEN_SERVER_HOST`、`TOKEN_SERVER_PORT`、`TOKEN_SERVER_DATA_DIR` 配置。非回环监听须配置 `TOKEN_SERVER_TLS_CERT` 和 `TOKEN_SERVER_TLS_KEY`，App 的非回环连接须使用 HTTPS。更新清单、安装包和聚合上报都需要服务 bearer 密钥。将已准备好的 DMG 放入服务发布目录可执行 `npm run publish:update -- <dmg> <version> <arm64|x64> <server-dir>`；此命令不替代签名、公证和目标 Mac 安装验证。
