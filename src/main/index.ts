@@ -1,12 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { AppDatabase } from './database';
 import { AuthService } from './auth';
+import { UsageScanner } from '../collectors/scanner';
+import { ReportService } from './report';
 import type { PublicUser } from '../shared/types';
 
 let mainWindow: BrowserWindow | null = null;
 let database: AppDatabase | null = null;
+let scanner: UsageScanner | null = null;
 const sessions = new Map<number, string>();
 
 function checkSender(event: Electron.IpcMainInvokeEvent): void {
@@ -32,7 +35,7 @@ function requireAdmin(event: Electron.IpcMainInvokeEvent, auth: AuthService): Pu
   return user;
 }
 
-function registerIpc(auth: AuthService): void {
+function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportService): void {
   ipcMain.handle('auth:state', event => {
     checkSender(event);
     const id = sessions.get(event.sender.id);
@@ -71,6 +74,40 @@ function registerIpc(auth: AuthService): void {
     const actor = requireAdmin(event, auth);
     return auth.changePassword(userId, password, actor.id);
   });
+  ipcMain.handle('sources:statuses', event => {
+    currentUser(event, auth);
+    return sources.statuses();
+  });
+  ipcMain.handle('sources:scan', async event => {
+    requireAdmin(event, auth);
+    await sources.scan();
+    return sources.statuses();
+  });
+  ipcMain.handle('sources:identities', event => {
+    requireAdmin(event, auth);
+    return sources.identities();
+  });
+  ipcMain.handle('sources:bind', (event, key: unknown, userId: unknown) => {
+    const actor = requireAdmin(event, auth);
+    sources.bindIdentity(key, userId, actor.id);
+  });
+  ipcMain.handle('usage:query', (event, query: unknown) => {
+    const actor = currentUser(event, auth);
+    return reports.query(query, actor);
+  });
+  ipcMain.handle('reports:export-csv', async (event, query: unknown) => {
+    const actor = currentUser(event, auth);
+    const csv = reports.csv(query, actor);
+    if (!mainWindow) throw new Error('窗口已关闭');
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: '导出 Token 用量报表',
+      defaultPath: 'Token-usage.csv',
+      filters: [{ name: 'CSV 表格', extensions: ['csv'] }]
+    });
+    if (result.canceled || !result.filePath) return false;
+    await fs.promises.writeFile(result.filePath, csv, { encoding: 'utf8', mode: 0o600 });
+    return true;
+  });
 }
 
 function createWindow(): void {
@@ -107,8 +144,10 @@ app.whenReady().then(async () => {
     app.setPath('userData', userDataPath);
   }
   database = await AppDatabase.open(path.join(app.getPath('userData'), 'token.sqlite'));
-  registerIpc(new AuthService(database));
+  scanner = new UsageScanner(database);
+  registerIpc(new AuthService(database), scanner, new ReportService(database, scanner));
   createWindow();
+  scanner.start();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -118,7 +157,8 @@ app.whenReady().then(async () => {
 });
 
 app.on('before-quit', () => {
-  database?.close();
+  scanner?.stop();
+  scanner = null;
   database = null;
 });
 

@@ -1,11 +1,22 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import type { AppState, PublicUser, Role } from '../shared/types';
+import type { AppState, PublicUser, Role, SourceIdentity, SourceStatus } from '../shared/types';
+import { ReportPanel } from './report';
 import './style.css';
 
 function errorMessage(error: unknown): string {
   const value = error instanceof Error ? error.message : String(error);
   return value.replace(/^Error invoking remote method '[^']+': Error: /, '');
+}
+
+function sourceStatusLabel(status?: SourceStatus): string {
+  switch (status?.status) {
+    case 'ready': return '已采集';
+    case 'scanning': return '扫描中';
+    case 'not_found': return '未找到';
+    case 'error': return '需要检查';
+    default: return '等待扫描';
+  }
 }
 
 function App() {
@@ -14,8 +25,10 @@ function App() {
   const [password, setPassword] = React.useState('');
   const [error, setError] = React.useState('');
   const [busy, setBusy] = React.useState(false);
-  const [tab, setTab] = React.useState<'overview' | 'users'>('overview');
+  const [tab, setTab] = React.useState<'overview' | 'report' | 'sources' | 'users'>('overview');
   const [users, setUsers] = React.useState<PublicUser[]>([]);
+  const [sourceStatuses, setSourceStatuses] = React.useState<SourceStatus[]>([]);
+  const [sourceIdentities, setSourceIdentities] = React.useState<SourceIdentity[]>([]);
   const [newUsername, setNewUsername] = React.useState('');
   const [newPassword, setNewPassword] = React.useState('');
   const [newRole, setNewRole] = React.useState<Role>('viewer');
@@ -25,6 +38,14 @@ function App() {
   React.useEffect(() => {
     window.tokenApi.getState().then(setState).catch(e => setError(errorMessage(e)));
   }, []);
+
+  React.useEffect(() => {
+    if (!state?.user) return;
+    const refresh = () => window.tokenApi.getSourceStatuses().then(setSourceStatuses).catch(() => {});
+    void refresh();
+    const timer = window.setInterval(refresh, 5000);
+    return () => window.clearInterval(timer);
+  }, [state?.user?.id]);
 
   async function submitAuth(event: React.FormEvent) {
     event.preventDefault();
@@ -56,6 +77,53 @@ function App() {
     try {
       setUsers(await window.tokenApi.listUsers());
       setTab('users');
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
+
+  async function showSources() {
+    setError('');
+    try {
+      const [identities, allUsers] = await Promise.all([
+        window.tokenApi.getSourceIdentities(), window.tokenApi.listUsers()
+      ]);
+      setSourceIdentities(identities);
+      setUsers(allUsers);
+      setTab('sources');
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
+
+  async function showReport() {
+    setError('');
+    try {
+      if (state?.user?.role === 'admin') setUsers(await window.tokenApi.listUsers());
+      setTab('report');
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
+
+  async function scanSources() {
+    setBusy(true);
+    setError('');
+    try {
+      setSourceStatuses(await window.tokenApi.scanSources());
+      setSourceIdentities(await window.tokenApi.getSourceIdentities());
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function bindSource(key: string, userId: string | null) {
+    setError('');
+    try {
+      await window.tokenApi.bindSourceIdentity(key, userId);
+      setSourceIdentities(await window.tokenApi.getSourceIdentities());
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -121,25 +189,35 @@ function App() {
     </div>
   );
 
+  const codexStatus = sourceStatuses.find(source => source.provider === 'codex');
+  const claudeStatus = sourceStatuses.find(source => source.provider === 'claude');
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="app-logo"><span>T</span><strong>Token</strong></div>
         <div className="nav-group"><div className="nav-label">工作台</div>
           <button className={tab === 'overview' ? 'nav active' : 'nav'} onClick={() => setTab('overview')}><span>◫</span> 概览</button>
+          <button className={tab === 'report' ? 'nav active' : 'nav'} onClick={showReport}><span>▤</span> 用量报表</button>
+          {state.user.role === 'admin' && <button className={tab === 'sources' ? 'nav active' : 'nav'} onClick={showSources}><span>◇</span> 数据来源</button>}
           {state.user.role === 'admin' && <button className={tab === 'users' ? 'nav active' : 'nav'} onClick={showUsers}><span>♙</span> 用户管理</button>}
         </div>
         <div className="sidebar-bottom"><div className="avatar">{state.user.username.slice(0, 1).toUpperCase()}</div><div><strong>{state.user.username}</strong><small>{state.user.role === 'admin' ? '管理员' : '普通用户'}</small></div><button className="logout" onClick={logout} aria-label="退出登录" title="退出登录">↪</button></div>
       </aside>
       <main className="main-content">
-        <header><div><span className="eyebrow">TOKEN MONITOR</span><h1>{tab === 'users' ? '用户管理' : '用量概览'}</h1></div><div className="date-chip">本机 · 离线</div></header>
+        <header><div><span className="eyebrow">TOKEN MONITOR</span><h1>{tab === 'users' ? '用户管理' : tab === 'sources' ? '数据来源' : tab === 'report' ? '用量报表' : '用量概览'}</h1></div><div className="date-chip">本机 · 离线</div></header>
         {error && <div className="error banner" role="alert">{error}</div>}
         {tab === 'overview' ? <>
-          <div className="hero-card"><div><span className="eyebrow light">WELCOME TO TOKEN</span><h2>你的 AI 编程用量，<br />从这里变得清晰。</h2><p>账户和应用骨架已就绪。下一阶段将连接 Codex 与 Claude Code 本机记录。</p></div><div className="hero-art"><div className="orbit one" /><div className="orbit two" /><div className="hero-core">T</div></div></div>
-          <div className="section-heading"><h2>数据来源</h2><span>等待连接</span></div>
-          <div className="source-grid"><div className="source-card"><div className="source-icon codex">◈</div><div><h3>Codex</h3><p>本机会话记录</p></div><span className="status-pill">即将支持</span></div><div className="source-card"><div className="source-icon claude">✳</div><div><h3>Claude Code</h3><p>本机会话记录</p></div><span className="status-pill">即将支持</span></div></div>
+          <div className="hero-card"><div><span className="eyebrow light">WELCOME TO TOKEN</span><h2>你的 AI 编程用量，<br />从这里变得清晰。</h2><p>本机会话记录持续更新。打开用量报表，按时间、模型和工具查看消耗。</p><button className="hero-button" onClick={showReport}>查看用量报表 →</button></div><div className="hero-art"><div className="orbit one" /><div className="orbit two" /><div className="hero-core">T</div></div></div>
+          <div className="section-heading"><h2>数据来源</h2><span>每 30 秒检查新记录</span></div>
+          <div className="source-grid"><div className="source-card"><div className="source-icon codex">◈</div><div><h3>Codex</h3><p>{codexStatus ? `${codexStatus.factCount.toLocaleString()} 条用量记录` : '正在检查本机会话记录'}</p></div><span className="status-pill">{sourceStatusLabel(codexStatus)}</span></div><div className="source-card"><div className="source-icon claude">✳</div><div><h3>Claude Code</h3><p>{claudeStatus ? `${claudeStatus.factCount.toLocaleString()} 条用量记录` : '正在检查本机会话记录'}</p></div><span className="status-pill">{sourceStatusLabel(claudeStatus)}</span></div></div>
+        </> : tab === 'report' ? <ReportPanel user={state.user} users={users} /> : tab === 'sources' ? <>
+          <p className="page-lead">只读取当前 macOS 账户可访问的本机会话记录。采集器不会保存提示词、回复正文或源码。</p>
+          <div className="source-grid"><div className="source-card"><div className="source-icon codex">◈</div><div><h3>Codex</h3><p>{codexStatus?.detail || `${codexStatus?.fileCount ?? 0} 个会话文件 · ${codexStatus?.factCount ?? 0} 条用量`}</p></div><span className="status-pill">{sourceStatusLabel(codexStatus)}</span></div><div className="source-card"><div className="source-icon claude">✳</div><div><h3>Claude Code</h3><p>{claudeStatus?.detail || `${claudeStatus?.fileCount ?? 0} 个会话文件 · ${claudeStatus?.factCount ?? 0} 条用量`}</p></div><span className="status-pill">{sourceStatusLabel(claudeStatus)}</span></div></div>
+          <div className="source-actions"><button className="primary" disabled={busy} onClick={scanSources}>{busy ? '扫描中…' : '立即扫描'}</button><span>首次导入大量历史记录可能需要几分钟。</span></div>
+          <section className="panel"><div className="panel-head"><h2>来源归属</h2><span>{sourceIdentities.length} 个来源</span></div><p className="hint">为来源指定应用用户后，普通用户才能在报表中看到对应记录。无法确认的来源可保留为未归属。</p><div className="table-wrap"><table><thead><tr><th>来源</th><th>工具</th><th>记录</th><th>归属用户</th></tr></thead><tbody>{sourceIdentities.map(identity => <tr key={identity.key}><td><strong>{identity.label}</strong></td><td>{identity.provider === 'codex' ? 'Codex' : 'Claude Code'}</td><td>{identity.factCount.toLocaleString()}</td><td><select className="owner-select" value={identity.ownerUserId ?? ''} onChange={e => bindSource(identity.key, e.target.value || null)}><option value="">未归属</option>{users.filter(user => user.active).map(user => <option key={user.id} value={user.id}>{user.username}</option>)}</select></td></tr>)}</tbody></table>{sourceIdentities.length === 0 && <div className="empty-row">扫描完成后会在这里显示可识别的来源。</div>}</div></section>
         </> : <>
-          <p className="page-lead">管理可以登录此应用的账户。用户归属将在采集器完成后开放。</p>
+          <p className="page-lead">管理可以登录此应用的账户，并在“数据来源”中指定用量归属。</p>
           <section className="panel"><div className="panel-head"><h2>账户列表</h2><span>{users.length} 位用户</span></div><div className="table-wrap"><table><thead><tr><th>用户名</th><th>角色</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead><tbody>{users.map(user => <tr key={user.id}><td><strong>{user.username}</strong></td><td>{user.role === 'admin' ? '管理员' : '普通用户'}</td><td><span className={user.active ? 'dot good' : 'dot'} />{user.active ? '启用' : '停用'}</td><td>{new Date(user.createdAt).toLocaleDateString('zh-CN')}</td><td><button className="text-button" disabled={user.id === state.user?.id} onClick={() => toggleUser(user)}>{user.active ? '停用' : '启用'}</button><button className="text-button" onClick={() => { setResetUser(user); setResetPassword(''); }}>重设密码</button></td></tr>)}</tbody></table></div>{resetUser && <form className="reset-form" onSubmit={savePassword}><strong>为 {resetUser.username} 设置新密码</strong><input type="password" value={resetPassword} onChange={e => setResetPassword(e.target.value)} placeholder="新密码至少 10 位" autoFocus /><button className="primary" disabled={busy}>保存密码</button><button type="button" className="text-button" onClick={() => setResetUser(null)}>取消</button></form>}</section>
           <section className="panel add-user"><h2>新增账户</h2><form onSubmit={createUser}><label>用户名<input value={newUsername} onChange={e => setNewUsername(e.target.value)} placeholder="3–32 位" /></label><label>初始密码<input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="至少 10 位" /></label><label>角色<select value={newRole} onChange={e => setNewRole(e.target.value as Role)}><option value="viewer">普通用户</option><option value="admin">管理员</option></select></label><button className="primary" disabled={busy}>创建用户</button></form></section>
         </>}

@@ -63,7 +63,8 @@ export class AppDatabase {
   }
 
   run(sql: string, params: SqlValue[] = []): void {
-    this.db.run(sql, params);
+    if (params.length === 0) this.db.run(sql);
+    else this.db.run(sql, params);
     if (!this.inTransaction) this.persist();
   }
 
