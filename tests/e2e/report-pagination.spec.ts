@@ -17,10 +17,11 @@ test('TC-021 报表明细可翻到第二页且切换模型重置页码', async (
   }
   writeFileSync(path.join(workspace.codexDir, 'pagination.jsonl'), lines.map(line => JSON.stringify(line)).join('\n') + '\n');
   const packaged = process.env.TOKEN_E2E_EXECUTABLE;
-  const app = await electron.launch({ executablePath: packaged || (require('electron') as string),
-    args: [...(packaged ? [] : [path.resolve('.')]), `--token-user-data=${workspace.root}`],
-    env: { ...process.env, TOKEN_CODEX_SESSIONS_DIR: workspace.codexDir, TOKEN_CLAUDE_PROJECTS_DIR: workspace.claudeDir } });
+  let app: Awaited<ReturnType<typeof electron.launch>> | null = null;
   try {
+    app = await electron.launch({ executablePath: packaged || (require('electron') as string),
+      args: [...(packaged ? [] : [path.resolve('.')]), `--token-user-data=${workspace.root}`],
+      env: { ...process.env, TOKEN_CODEX_SESSIONS_DIR: workspace.codexDir, TOKEN_CLAUDE_PROJECTS_DIR: workspace.claudeDir } });
     const page = await app.firstWindow();
     await page.getByPlaceholder('至少 10 位').fill('safe-password-123');
     await page.getByRole('button', { name: '创建并进入' }).click();
@@ -38,7 +39,7 @@ test('TC-021 报表明细可翻到第二页且切换模型重置页码', async (
     await expect(page.locator('.detail-panel tbody tr')).toHaveCount(10);
     await expect(page.locator('.detail-pager')).toHaveCount(0);
   } finally {
-    await app.close().catch(() => {});
+    await app?.close().catch(() => {});
     workspace.cleanup();
   }
 });

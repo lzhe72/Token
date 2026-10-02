@@ -7,24 +7,26 @@ import type { PublicUser, ReportQuery } from '../src/shared/types';
 
 test('TC-021 明细翻页不漏记录且筛选和用户权限贯穿每页', async () => {
   const workspace = createTestWorkspace('tc021-pagination');
-  const db = await AppDatabase.open(workspace.databasePath);
+  let db: AppDatabase | null = null;
   try {
-    const report = new ReportService(db, new UsageScanner(db));
+    const database = await AppDatabase.open(workspace.databasePath);
+    db = database;
+    const report = new ReportService(database, new UsageScanner(database));
     const admin: PublicUser = { id: 'admin-id', username: 'admin', role: 'admin', active: true, createdAt: '' };
     const viewer: PublicUser = { id: 'viewer-id', username: 'viewer', role: 'viewer', active: true, createdAt: '' };
     const projectKey = 'aaaaaaaaaaaaaaaaaaaaaaaa';
-    db.transaction(() => {
-      db.run("INSERT INTO source_identities VALUES ('codex:viewer', 'codex', 'Codex', 'viewer-id')");
-      db.run("INSERT INTO source_identities VALUES ('claude:admin', 'claude', 'Claude', 'admin-id')");
+    database.transaction(() => {
+      database.run("INSERT INTO source_identities VALUES ('codex:viewer', 'codex', 'Codex', 'viewer-id')");
+      database.run("INSERT INTO source_identities VALUES ('claude:admin', 'claude', 'Claude', 'admin-id')");
       for (let index = 0; index < 123; index++) {
         const ownedByViewer = index < 61;
         const sourceKey = `tc021-fact-${String(index).padStart(3, '0')}`;
         const occurredAt = new Date(Date.parse('2026-10-02T00:00:00Z') + index * 1000).toISOString();
-        db.run('INSERT INTO usage_facts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
+        database.run('INSERT INTO usage_facts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
           sourceKey, ownedByViewer ? 'codex' : 'claude', ownedByViewer ? 'codex:viewer' : 'claude:admin',
           `session-${index}`, ownedByViewer ? 'gpt-test' : 'claude-test', occurredAt, 1, 0, 0, 0, 1
         ]);
-        if (ownedByViewer) db.run('INSERT INTO fact_projects VALUES (?, ?, ?)', [sourceKey, projectKey, 'Token']);
+        if (ownedByViewer) database.run('INSERT INTO fact_projects VALUES (?, ?, ?)', [sourceKey, projectKey, 'Token']);
       }
     });
 
@@ -49,7 +51,7 @@ test('TC-021 明细翻页不漏记录且筛选和用户权限贯穿每页', asyn
     expect(report.details({ ...query, provider: 'codex', model: 'gpt-test', projectKey }, 2, '2026-10-02', admin)
       .records).toHaveLength(11);
   } finally {
-    db.close();
+    db?.close();
     workspace.cleanup();
   }
 });
