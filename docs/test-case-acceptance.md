@@ -31,7 +31,7 @@ echo $?
 - **历史状态**：已验证（人工）；docs/feasibility.md；2026-10-02。本轮结果以本次命令和证据为准。
 - **执行命令**：`npm run test:case -- TC-001`。
 - **实际绑定**：无自动测试函数；`scripts/test-cases.mjs` 仅给出人工清单。
-- **自动化覆盖**：人工入口；仅有历史证据。
+- **自动化覆盖**：人工入口；0.3.0 本次以复制版主流程 Playwright 1/1 通过及独立界面核对辅助人工验收，范围见下方本次结果。
 - **前置与造数**：当前 Mac 上可读取的 Codex 与 Claude Code 本地会话；记录工具版本、入口和样本时间段。只读检查，不复制正文到仓库。
 - **验收断言或人工操作**：列出两家工具的用量字段、模型、时间、请求标识、文件覆盖数与未知项；明确可观察范围，不把缺失当零。
 - **脱敏证据**：脱敏字段映射与计数、工具版本、日期；历史证据为 docs/feasibility.md，当前验收须另存新证据。
@@ -345,6 +345,7 @@ TOKEN_E2E_EXECUTABLE="$TOKEN_TC_COPY/Token.app/Contents/MacOS/Token" ./node_modu
 )
 ```
 - **人工结果登记**：先建立证据文件；通过执行 `npm run test:case -- TC-027 pass "$PWD/test-results/manual/evidence/TC-027.md"`，失败执行 `npm run test:case -- TC-027 fail "$PWD/test-results/manual/evidence/TC-027.md"`。
+- **0.3.0 本次结果（2026-10-02）**：本机人工登记 `pass`，记录为 `test-results/manual/TC-027.json`，操作证据为 `test-results/manual/evidence/TC-027.md`，界面截图为同目录 `TC-027-report.png`；代码 `6223c30`，macOS 15.7.4 x86_64。`Token-0.3.0.dmg` SHA-256 为 `64917685d073d0c631ef492df58eb3a3bec96657f15372177af466c68a34fec8`，`hdiutil verify` VALID，挂载、`ditto` 复制、卸载成功；复制版主流程 1/1 通过，第二次独立复制及合成数据界面核对通过。完整脱敏摘要见[本次验收记录](validation.md#tc-027-v030-本机未签名-dmg-人工验收2026-10-02)。本机证据文件被 Git 忽略；历史 A10 保留。Finder 拖拽安装、真实更新替换、签名公证和另一台 Mac 未验证。
 
 ### TC-028 签名公证及目标 Mac 验收
 

@@ -54,3 +54,16 @@
 | TC-072 目标 Mac 权限流程 | `scripts/test-cases.mjs` 有拒绝、授予、撤销权限和重扫的人工清单；无 `pass` 证据 | **待验证**；模拟缺目录用例 TC-061 不替代真实授权 |
 
 目前不能据此判定真实新版本安装替换、Apple 签名公证、外部分发或另一台 Mac 的授权与运行已通过。反馈预览用户名/编号与提交一致、服务端反馈状态、旧库固定 `admin` 兼容和项目隐私的自动证据分别以 TC-064/066、TC-065、TC-070、TC-052/063/064 为准；生产库备份恢复演练与更多版本组合仍需补测。
+
+### TC-027 v0.3.0 本机未签名 DMG 人工验收（2026-10-02）
+
+本次为新增验收批次，保留上方首版 A10 与 M5/M6 原始记录。人工登记 `test-results/manual/TC-027.json` 为 `pass`（2026-10-02T15:27:40.612Z）；详细操作见本机 `test-results/manual/evidence/TC-027.md`，界面截图见同目录 `TC-027-report.png`。这些文件被 Git 忽略，仓库保留本节脱敏摘要。代码提交 `6223c30`，文档基线 `29492b5`；环境为 macOS 15.7.4、x86_64、Node.js v24.15.0、Electron 打包应用和图形会话。
+
+| 核对项 | 本次结果 |
+| --- | --- |
+| 制品 | `Token-0.3.0.dmg`；SHA-256 `64917685d073d0c631ef492df58eb3a3bec96657f15372177af466c68a34fec8`，文档会话再次独立核对一致 |
+| DMG 校验与复制 | `hdiutil verify` 退出码 0、checksum VALID；`hdiutil attach -nobrowse` 挂载、`ditto` 复制 `Token.app`、卸载均成功 |
+| 复制版主流程 | `TOKEN_E2E_EXECUTABLE=<临时复制的 Token.app/Contents/MacOS/Token> ./node_modules/.bin/playwright test tests/e2e/app.spec.ts`，1/1 通过、退出码 0；覆盖首次管理员创建、来源扫描、用户绑定、报表、CSV、角色限制与重启登录 |
+| 独立界面复核 | 从同一哈希 DMG 再次复制应用，以独立临时用户数据和合成 Codex 记录启动、登录、进入报表；人工核对导航、项目/模型筛选、统计卡片和 1280 Token 显示，未见错误弹窗 |
+
+挂载点、复制目录、测试数据库与人工 JSONL 均为临时隔离数据，验收后已清理。**结论：TC-027 的 0.3.0 本机未签名 DMG 挂载、复制及主流程通过。**本次没有验证 Finder 拖拽安装、真实新版本替换、Apple 签名公证或另一台目标 Mac；TC-028、TC-072 继续待验证。
