@@ -321,10 +321,10 @@ echo $?
 
 ### TC-027 未签名 DMG 本机验收
 
-- **历史状态**：已验证（人工）；docs/validation.md A10；2026-10-02。本轮结果以本次命令和证据为准。
+- **状态**：0.3.0 历史本机人工通过；0.3.4 当前 Mac 隔离安装子范围另登记人工 `pass`。各版本只按自己的命令与证据判定。
 - **执行命令**：`npm run test:case -- TC-027`。
 - **实际绑定**：无自动测试函数；`scripts/test-cases.mjs` 仅给出人工清单。
-- **自动化覆盖**：人工入口；0.3.0 本次以复制版主流程 Playwright 1/1 通过及独立界面核对辅助人工验收，范围见下方本次结果。
+- **自动化覆盖**：人工入口；0.3.0 以复制版主流程 Playwright 1/1 和独立界面核对辅助验收。0.3.4 以隔离升级脚本辅助人工验收，范围见下方对应版本结果。
 - **前置与造数**：本次构建的未签名 DMG、当前 Mac 图形会话与独立用户数据目录；确认包版本和架构。
 - **验收断言或人工操作**：先执行 hdiutil verify，再挂载 DMG 并复制 Token.app；从复制的应用启动、登录、扫描并核对脱敏用量。
 - **脱敏证据**：DMG 校验输出、包哈希/版本、当前 Mac 信息、复制后应用的脱敏流程记录；历史 A10 不能替代本轮。
@@ -350,6 +350,8 @@ TOKEN_E2E_EXECUTABLE="$TOKEN_TC_COPY/Token.app/Contents/MacOS/Token" ./node_modu
 ```
 - **人工结果登记**：先建立证据文件；通过执行 `npm run test:case -- TC-027 pass "$PWD/test-results/manual/evidence/TC-027.md"`，失败执行 `npm run test:case -- TC-027 fail "$PWD/test-results/manual/evidence/TC-027.md"`。
 - **0.3.0 本次结果（2026-10-02）**：本机人工登记 `pass`，记录为 `test-results/manual/TC-027.json`，操作证据为 `test-results/manual/evidence/TC-027.md`，界面截图为同目录 `TC-027-report.png`；代码 `6223c30`，macOS 15.7.4 x86_64。`Token-0.3.0.dmg` SHA-256 为 `64917685d073d0c631ef492df58eb3a3bec96657f15372177af466c68a34fec8`，`hdiutil verify` VALID，挂载、`ditto` 复制、卸载成功；复制版主流程 1/1 通过，第二次独立复制及合成数据界面核对通过。完整脱敏摘要见[本次验收记录](validation.md#tc-027-v030-本机未签名-dmg-人工验收2026-10-02)。本机证据文件被 Git 忽略；历史 A10 保留。Finder 拖拽安装、真实更新替换、签名公证和另一台 Mac 未验证。
+
+- **0.3.4 当前结果（2026-10-03）**：代码 `7abd640`、文档基线 `8b64552`；macOS 15.7.4 x86_64。本机 `Token-0.3.4.dmg` 的 SHA-256 为 `7b4d8ad523c5afe71f5004fc7d7b4e690144e1f1119af2ab7bb86635888bf588`，`hdiutil verify` 为 VALID。开发会话重跑 `npm run test:upgrade:local -- /Users/lz/文档/Token/Token-0.3.3.dmg /Users/lz/文档/Token/Token-0.3.4.dmg`，退出码 0；脚本以一次性数据库、人工 Codex JSONL、DMG 挂载和 `ditto` 复制检查打包 App 启动、受信登录、扫描及 1280 Token 报表，取消安装后旧版与替换后新版均通过。文档会话在 `7abd640` 曾独立复跑同一升级命令并核对 DMG；当前人工登记 `test-results/manual/TC-027.json` 为 `pass`，时间 2026-10-02T20:46:08.228Z，指向本机 Git 忽略的 `evidence/TC-027-0.3.4.md`，脱敏日志为同目录 `TC-027-0.3.4-upgrade.log`。旧 0.3.0 登记已备份为 `evidence/TC-027-0.3.0-result.json`。这只证明 0.3.4 在当前 Mac 的隔离挂载、复制和主流程子范围；Finder 拖拽到 `/Applications`、真实生产账户/库、异机、签名公证、TC-072 文件权限仍待验，见[0.3.4 验收补记](validation.md)。
 
 ### TC-028 签名公证及目标 Mac 验收
 
