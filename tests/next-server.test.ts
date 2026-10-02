@@ -116,12 +116,13 @@ test('TC-047 非回环 HTTPS 监听仍执行清单与上报鉴权', async () => 
   const directory = path.join(workspace.root, 'server');
   const key = path.join(workspace.root, 'test.key');
   const cert = path.join(workspace.root, 'test.crt');
-  execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key,
-    '-out', cert, '-subj', '/CN=localhost', '-days', '1'], { stdio: 'ignore' });
-  fixture(directory);
-  const server = new LocalServer(directory, { key: fs.readFileSync(key), cert: fs.readFileSync(cert) });
+  let server: LocalServer | null = null;
   let started = false;
   try {
+    execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key,
+      '-out', cert, '-subj', '/CN=localhost', '-days', '1'], { stdio: 'ignore' });
+    fixture(directory);
+    server = new LocalServer(directory, { key: fs.readFileSync(key), cert: fs.readFileSync(cert) });
     const port = await server.start(0, '0.0.0.0');
     started = true;
     const secret = fs.readFileSync(path.join(directory, 'server.secret'), 'utf8').trim();
@@ -163,7 +164,7 @@ test('TC-047 非回环 HTTPS 监听仍执行清单与上报鉴权', async () => 
       rows: [{ ...body.rows[0], ownerUserId: randomUUID(), totalTokens: 99 }] })).status).toBe(403);
     expect(server.getDatabase().all('SELECT * FROM aggregates')).toEqual(original);
   } finally {
-    try { if (started) await server.stop(); }
+    try { if (started) await server?.stop(); }
     finally { workspace.cleanup(); }
   }
 });
