@@ -84,6 +84,9 @@ test('未写完的末行等待补齐，截断重写后不重复统计', async ()
   writeFileSync(file, jsonl(event('r1'), event('r3')));
   await scanner.scan();
   expect(scanner.statuses()[0].factCount).toBe(3);
+  writeFileSync(path.join(codexDir, 'rotated.jsonl'), jsonl(event('r1'), event('r3'), event('r4')));
+  await scanner.scan();
+  expect(scanner.statuses()[0].factCount).toBe(4);
   db.close();
 });
 

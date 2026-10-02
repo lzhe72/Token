@@ -61,6 +61,16 @@ test('本机遥测只接受密钥，Codex 去重，Claude 累计点计算增量�
     db.run("INSERT INTO source_identities VALUES ('codex:local', 'codex', 'Codex', NULL)");
     db.run("INSERT INTO usage_facts VALUES ('local:1', 'codex', 'codex:local', 'c1', 'gpt-test', '2026-01-01T00:00:00Z', 10, 2, 4, 0, 12)");
     expect(report.query(query, admin).totals.totalTokens).toBe(20);
+    const delta = { resourceMetrics: [{ scopeMetrics: [{ metrics: [{ name: 'claude_code.token.usage',
+      sum: { aggregationTemporality: 1, dataPoints: [{
+        attributes: [attr('type', 'output'), attr('model', 'claude-test'), attr('session.id', 's1')],
+        startTimeUnixNano: '1767225602000000000', timeUnixNano: '1767225603000000000', asInt: '7'
+      }] }
+    }] }] }] };
+    expect((await post('/v1/metrics', delta)).status).toBe(200);
+    expect((await post('/v1/metrics', delta)).status).toBe(200);
+    expect(Number(db.one("SELECT SUM(total_tokens) AS total FROM usage_facts WHERE provider = 'claude'")?.total)).toBe(15);
+    expect(report.query(query, admin).totals.totalTokens).toBe(27);
   } finally {
     receiver.stop();
     db.close();
