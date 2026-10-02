@@ -1,12 +1,12 @@
 # Token 测试用例逐项验收
 
-本文逐条说明追溯工作簿中的 TC-001 至 TC-075 的目标、实际绑定和证据边界。TC-001–074 均已注册；TC-075 是签名发布脚本的**待注册**自动回归。TC-050 至 TC-071 已有 M6 自动入口和逐编号结果，TC-072 仅有人工作业清单，尚无目标 Mac 通过证据；TC-073 是独立 Codex 回归，TC-074 是设备与用户归属授权回归。已注册用例的命令均从仓库根目录执行，先用 `npm ci` 安装锁定依赖。用例注册以 `scripts/test-cases.mjs` 为准，执行入口为 `scripts/run-test-case.mjs`。工作簿 H/I 列保留对应版本的验收状态和证据，不代表后续版本已经复验。
+本文逐条说明追溯工作簿中的 TC-001 至 TC-075 的目标、实际绑定和证据边界。TC-001–075 均已注册；TC-075 在 `dc37b8b` 有一个自动绑定，实际覆盖与剩余缺口见文末。TC-050 至 TC-071 已有 M6 自动入口和逐编号结果，TC-072 仅有人工作业清单，尚无目标 Mac 通过证据；TC-073 是独立 Codex 回归，TC-074 是设备与用户归属授权回归。已注册用例的命令均从仓库根目录执行，先用 `npm ci` 安装锁定依赖。用例注册以 `scripts/test-cases.mjs` 为准，执行入口为 `scripts/run-test-case.mjs`。工作簿 H/I 列保留对应版本的验收状态和证据，不代表后续版本已经复验。
 
 2026-10-03 曾规划 `TC-073`，关联既有 `REQ-006` 与新增 `DEV-047`；`aa6d91b` 已注册并执行。下方先保留开发前验收设计，再记录实际绑定与结果。
 
 ## 执行与证据边界
 
-- 已分配 75 条，其中 TC-001–074 已注册、TC-075 待注册：TC-001–049 中 44 条有自动入口、5 条为人工入口；M6 的 TC-050–071 另有 22 条自动入口、TC-072 为人工入口；TC-073 现绑定原归并测试及 0.3.4 大会话性能回归两项；TC-074 绑定三项服务/客户端凭据测试和一项客户端同步测试。多条旧编号可能运行同一测试函数；M6 每个自动编号绑定自己以 `TC-###` 开头的测试函数。TC-021、TC-030、TC-038 各有额外绑定；TC-021 现同时运行共享测试、独立分页单元和分页界面测试。
+- 已分配并注册 75 条：TC-001–049 中 44 条有自动入口、5 条为人工入口；M6 的 TC-050–071 另有 22 条自动入口、TC-072 为人工入口；TC-073 现绑定原归并测试及 0.3.4 大会话性能回归两项；TC-074 绑定三项服务/客户端凭据测试和一项客户端同步测试。多条旧编号可能运行同一测试函数；M6 每个自动编号绑定自己以 `TC-###` 开头的测试函数。TC-021、TC-030、TC-038 各有额外绑定；TC-021 现同时运行共享测试、独立分页单元和分页界面测试。
 - 自动入口在缺少 `TOKEN_E2E_EXECUTABLE` 时会先构建应用；Vitest 以 `-t`、Playwright 以 `--grep` 精确选择注册的测试名称。任一绑定函数失败，`npm run test:case -- TC-###` 非零退出。
 - 单元和端到端造数由 `tests/support/test-workspace.ts` 在系统临时目录 `token-test-db-<label>-*` 创建：`token.sqlite`、`codex/`、`claude/` 均在其中。端到端将该目录作为 `--token-user-data`；测试结束清理。不要使用真实用户数据库或真实会话正文。
 - 自动入口不会自动保存证据文件。可先执行 `mkdir -p test-results/acceptance`，再将单用例输出重定向到 `test-results/acceptance/TC-###.log`，紧接着记录退出码、提交、macOS 和测试日期。`test-results/` 已被 Git 忽略；日志只保留脱敏断言与环境信息。
@@ -363,14 +363,16 @@ TOKEN_E2E_EXECUTABLE="$TOKEN_TC_COPY/Token.app/Contents/MacOS/Token" ./node_modu
 - **验收断言或人工操作**：验证签名、公证票据和 Gatekeeper；在目标 Mac 安装、启动、登录并采集。
 - **脱敏证据**：证书身份脱敏信息、签名验证、公证状态、目标 Mac 版本/架构和脱敏流程记录。
 - **失败或未验证条件**：缺证书或目标设备时待验证；签名、公证或目标设备主流程失败时 fail。
-- **发布环境核验命令**：在具备证书、公证凭据和目标 Mac 的环境，先由发布流程生成已签名公证的 `release/mac/Token.app`；以下命令只核验制品，不能代替签名、公证提交和另一台 Mac 的人工验收。
+- **发布环境核验命令**：在具备证书、公证凭据和目标 Mac 的环境运行 `npm run pack:signed`；只从该次 `release/signed/<候选目录>/release-evidence.json` 取得同一候选的 App/DMG 路径，分别设为 `SIGNED_APP`、`SIGNED_DMG` 后核验。x64 App 位于候选目录的 `mac/`，arm64 位于 `mac-arm64/`。下列命令只核验制品，不能代替 Apple 公证提交或另一台 Mac 的人工验收。
 ```bash
-codesign --verify --deep --strict --verbose=2 release/mac/Token.app
-spctl --assess --type execute --verbose release/mac/Token.app
-xcrun stapler validate release/mac/Token.app
+codesign --verify --deep --strict --verbose=2 "$SIGNED_APP"
+spctl --assess --type execute --verbose "$SIGNED_APP"
+xcrun stapler validate "$SIGNED_APP"
+hdiutil verify "$SIGNED_DMG"
+shasum -a 256 "$SIGNED_DMG"
 ```
 - **人工结果登记**：先建立证据文件；通过执行 `npm run test:case -- TC-028 pass "$PWD/test-results/manual/evidence/TC-028.md"`，失败执行 `npm run test:case -- TC-028 fail "$PWD/test-results/manual/evidence/TC-028.md"`。
-- **本轮边界**：DEV-018 计划另设 `npm run pack:signed`；TC-075 只检验脚本预检与命令构造。预检通过、模拟自动测试通过或本机 DMG 结构检查都不等于真实 Apple 签名、公证、票据或目标 Mac 验收。缺少有效身份、公证凭据或另一台目标 Mac 时，本用例继续待验证。
+- **本轮边界**：DEV-018 在 `dc37b8b` 已有 `npm run pack:signed`；TC-075 只检验脚本预检与命令构造子范围。预检通过、模拟自动测试通过或本机 DMG 结构检查都不等于真实 Apple 签名、公证、票据或目标 Mac 验收。缺少有效身份、公证凭据或另一台目标 Mac 时，本用例继续待验证。
 
 ### TC-029 CSV 表头与数据列对齐
 
@@ -540,10 +542,14 @@ xcrun stapler validate release/mac/Token.app
 
 **0.3.3 竞态回归**：`3d60b5e` 为 `scripts/test-cases.mjs` 追加 `tests/server-ownership.test.ts` 的 `TC-074 切换服务器时不向新地址发送旧设备令牌`。测试在异步登记未返回时切换 URL，再模拟同 URL 重新保存配置；两次均要求旧请求报连接已切换、设备凭据文件不存在。代码在登记响应前后及上传前比较 URL 与配置代次。文档会话在 `3d60b5e` 独立复跑 `npm run test:case -- TC-074`，四项绑定均通过、退出码 0；开发会话报告同提交完整门禁 74 个入口、47 个单元、18 个 Electron，目录包 18/18。测试使用临时数据目录和注入的加密接口，尚未以生产服务或真实 macOS `safeStorage` 复验；同 URL 背后服务实例未触发配置保存的替换不在该竞态断言内。
 
-## TC-075 签名发布脚本预检与命令构造（2026-10-03 计划）
+## TC-075 签名发布脚本预检与命令构造（2026-10-03 原计划与实施）
+
+以下五项保留 `04bfc48` 的实施前计划与当时状态；当前绑定与结果见本节末。
 
 - **关联与状态**：REQ-018 / DEV-018；待注册、待验证。独立于人工 TC-028，不能由其历史结果或本机未签名 DMG 推断本项通过。
 - **计划执行命令**：`npm run test:case -- TC-075`。开发会话须在 `scripts/test-cases.mjs` 注册以 `TC-075` 开头的独立测试函数；注册前命令不是有效通过入口。实施后同时运行 `npm run test:cases:check`。
 - **造数与隔离**：用假的 Developer ID 身份、三组公证凭据的占位值和注入式命令执行器；不读取真实钥匙串、不调用 Apple 服务，不创建真实签名制品。命令日志仅检查参数类别与脱敏字段。
 - **预期断言**：缺少或错误类型签名身份、完全缺少/部分缺少公证凭据、混用互相冲突的凭据组时，在构建前报可理解的错误并且构建执行器调用次数为零；完整凭据选择单一认证方式，生成带 `forceCodeSigning: true`、`mac.notarize: true` 的 electron-builder v26 命令，并安排 `codesign --verify`、`spctl --assess`、`xcrun stapler validate`、`hdiutil verify` 与 DMG 摘要核对；任一核验失败即停止发布，不把旧未签名 DMG 标成新制品。原 `pack:dmg` 的未签名路径仍可用且不被签名入口改变。
 - **证据与边界**：保存测试提交、macOS/Node 版本、单编号命令、退出码和脱敏断言；任何失败须留失败分支。自动通过只证明预检、错误处理和命令构造，不证明真实证书有效、Apple 公证成功、票据已钉入、Gatekeeper 在目标机放行或另一台 Mac 的安装/启动/登录/采集。后者仍按 `npm run test:case -- TC-028` 人工登记。
+
+**`dc37b8b` 实施与当前验收**：`scripts/test-cases.mjs` 已将 `tests/signed-release.test.ts` 的 `test('TC-075 签名发布预检与命令构造')` 绑定至 `npm run test:case -- TC-075`。测试以假身份和三类占位公证凭据检查无凭据、不完整/冲突、错误/多个 Developer ID 身份的预检结果；在一次性目录用 OpenSSL 生成**合成** p12，核对本地路径与 base64 两种读取；检查 electron-builder v26 的 `mac.forceCodeSigning`、`mac.notarize`、`mac.hardenedRuntime`、JIT entitlement 参数及后续 `codesign`、`spctl`、`stapler`、`hdiutil` 命令顺序。另以清除凭据的子进程证明实际脚本在构建前失败、无新发布目录且错误信息不含测试口令。文档会话在 `dc37b8b` 独立复跑单编号 1/1、编号检查 75 个入口均退出码 0；清除环境变量后独立运行 `npm run pack:signed` 返回 1，`release/signed` 无制品。开发会话报告完整 `npm run test:gate` 为 75 个入口、51 单元、18 Electron 通过；文档会话未独立复跑完整门禁。**当前标记为自动子范围通过，整体仍有覆盖缺口**：测试没有执行真实 Apple 签名/公证，也没有注入每个构建后核验步骤失败，未验证真实钥匙串身份、真实有效 p12、DMG 原子发布或现有 `pack:dmg` 的本次重跑；TC-028 继续待验证。合成 p12、临时目录在测试后清理。

@@ -158,6 +158,10 @@ Codex 会话先写出 `event_msg:token_count`、后续增量才写出 `token_usa
 
 构建完成后对**同一候选**的 App 执行 `codesign --verify --deep --strict`、`spctl --assess --type execute`、`xcrun stapler validate`，对 DMG 执行 `hdiutil verify` 并计算大小和 SHA-256；记录版本、架构、代码提交、脱敏证书身份、核验命令、退出码及制品路径。任一步失败都不能发布该制品，且不得把既有未签名 0.3.4 DMG 当作签名产物。TC-075 将用模拟身份与命令执行器验证无凭据预检、错误条件和命令构造，测试本身不调用 Apple 公证、不使用真实私钥。真正的签名、公证、票据和另一台 Mac 的安装、启动、登录、采集仍由 TC-028 人工验收；TC-075 自动通过不改变 TC-028 的待验证状态。[electron-builder v26 公证指南](https://www.electron.build/v26/docs/notarization/)
 
+**签名发布脚本实施（代码 `dc37b8b`）**：`package.json` 现有 `pack:signed` 调用独立的 `scripts/package-signed-dmg.mjs`，原 `pack:dmg` 和 `scripts/package-dmg.mjs` 未改。脚本先检查 macOS、Developer ID Application 钥匙串身份或本地/base64 p12、完整且唯一的一组公证凭据、所需工具、支持的架构及干净的 Git 工作区；失败时停止，不进入构建。electron-builder 26.15.3 的参数使用 `mac.forceCodeSigning`、`mac.notarize`、`mac.hardenedRuntime` 和 `build/entitlements.mac.plist` 的 JIT 权限；与[v26 MacConfiguration](https://www.electron.build/v26/docs/api/app-builder-lib.interface.macconfiguration/)字段一致。脚本在 `release/token-signed-*` 临时目录构建 App/DMG，依次核验 `codesign`、`spctl`、`stapler`、`hdiutil`，计算 DMG 大小与 SHA-256；仅核验全部成功才原子移入 `release/signed`，并写不含密钥的 `release-evidence.json`。失败清理临时目录；不把先前的未签名 DMG 当成本次制品。
+
+`dc37b8b` 的 TC-075 单元函数已注册，覆盖缺失/不完整/冲突凭据、错误或多重身份、三种凭据选项、合成 p12 本地路径和 base64 解析、builder 参数与核验命令序列、无凭据运行构建前失败且没有新增发布目录。该函数未模拟每一项**构建后**核验失败，也未调用真实 Apple 公证服务；自动通过只属于上述子范围。当前 Mac 没有有效发布身份或公证凭据，真实签名、公证、票据、Gatekeeper 与另一台 Mac 验收仍须在 TC-028 留证，不能因脚本存在或 TC-075 1/1 通过宣称外部分发完成。
+
 ## 8. 待在验证阶段定案的事项
 
 1. 当前 Codex 和 Claude Code 安装版本的本地记录路径、字段及历史保留时间。

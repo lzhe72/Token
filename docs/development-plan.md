@@ -7,7 +7,9 @@
 
 首版实际验收结果见[验收记录](validation.md)。
 
-**外部分发流程实施计划（REQ-018 / DEV-018，2026-10-03）**：先在 `scripts/package-dmg.mjs` 的现有未签名路径之外实现显式 `pack:signed` 与独立签名脚本，构建前检查 Developer ID Application 身份和一组完整公证凭据；任何缺项或错误身份须在构建前失败。签名路径使用 electron-builder v26 的 `forceCodeSigning: true`、`mac.notarize: true`，再逐项核对 App 的 `codesign`、Gatekeeper、stapler 票据以及 DMG 的 `hdiutil verify`、大小和 SHA-256。将制品和脱敏证据置于可区分的发布位置，不在命令、日志或仓库中保留私钥与凭据。`pack:dmg` 继续供本机未签名验证，不以其产物满足外部分发门槛。先为 TC-075 增加不接触真实签名材料的模拟预检、错误路径与命令构造回归，注册并执行 `npm run test:case -- TC-075`，再跑受影响门禁；具备有效身份和公证凭据后才执行真实 `npm run pack:signed`。最后在另一台目标 Mac 完成 TC-028 的人工签名、公证、安装和核心流程验收。当前缺少有效签名身份和异机证据，DEV-018、TC-075、TC-028 均不得标为通过；[设计第 7 节](design.md#7-发布与测试边界)与[逐项验收](test-case-acceptance.md)列出边界。
+**外部分发流程原实施计划（REQ-018 / DEV-018，2026-10-03）**：先在 `scripts/package-dmg.mjs` 的现有未签名路径之外实现显式 `pack:signed` 与独立签名脚本，构建前检查 Developer ID Application 身份和一组完整公证凭据；任何缺项或错误身份须在构建前失败。签名路径使用 electron-builder v26 的 `forceCodeSigning: true`、`mac.notarize: true`，再逐项核对 App 的 `codesign`、Gatekeeper、stapler 票据以及 DMG 的 `hdiutil verify`、大小和 SHA-256。将制品和脱敏证据置于可区分的发布位置，不在命令、日志或仓库中保留私钥与凭据。`pack:dmg` 继续供本机未签名验证，不以其产物满足外部分发门槛。先为 TC-075 增加不接触真实签名材料的模拟预检、错误路径与命令构造回归，注册并执行 `npm run test:case -- TC-075`，再跑受影响门禁；具备有效身份和公证凭据后才执行真实 `npm run pack:signed`。最后在另一台目标 Mac 完成 TC-028 的人工签名、公证、安装和核心流程验收。当前缺少有效签名身份和异机证据，DEV-018、TC-075、TC-028 均不得标为通过；[设计第 7 节](design.md#7-发布与测试边界)与[逐项验收](test-case-acceptance.md)列出边界。
+
+**`dc37b8b` 阶段实现与剩余任务**：`package.json` 已增加 `pack:signed`，独立脚本在构建前校验签名身份、公证凭据与环境，使用 electron-builder v26 强制签名、公证和 hardened runtime/JIT entitlement；核验同一临时目录下的 App/DMG 后才原子转入 `release/signed`，写脱敏 evidence JSON。TC-075 已注册并以合成 p12 与模拟配置运行 1/1；文档会话独立复跑该编号和 75 个入口检查均通过。无公证凭据的独立预检在构建前退出码 1，未生成签名制品。此阶段 DEV-018 **发布脚本部分落地**；TC-075 构建后核验失败注入尚未自动覆盖，实际签名/公证和另一台 Mac 的 TC-028 人工验收尚无证据。开发会话报告 `dc37b8b` 的完整门禁为 75 个编号入口、51 个单元、18 个 Electron 用例通过；文档会话未独立复跑完整门禁。`pack:dmg` 未签名本机通道保持。
 
 ## 1. 执行原则
 
