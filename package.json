@@ -1,0 +1,52 @@
+{
+  "name": "token-monitor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local Codex and Claude Code token usage monitor for macOS",
+  "author": "lzhe72",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "npm run build && electron .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "npm run build && playwright test",
+    "test:e2e:packaged": "TOKEN_E2E_EXECUTABLE=release/mac/Token.app/Contents/MacOS/Token playwright test",
+    "pack:dir": "npm run build && electron-builder --mac dir",
+    "pack:dmg": "npm run build && electron-builder --mac dmg"
+  },
+  "dependencies": {
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "sql.js": "1.14.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/sql.js": "^1.4.9",
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3",
+    "esbuild": "^0.28.2",
+    "typescript": "5.9.3",
+    "vite": "8.3.2",
+    "vitest": "5.0.3"
+  },
+  "build": {
+    "appId": "dev.lzhe72.token",
+    "productName": "Token",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "node_modules/sql.js/dist/sql-asm.js",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": ["dir", "dmg"]
+    }
+  }
+}
