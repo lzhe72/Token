@@ -26,13 +26,14 @@ export class FeedbackService {
   stop(): void { if (this.timer) clearInterval(this.timer); this.timer = null; }
 
   async submit(actor: PublicUser, category: unknown, title: unknown, message: unknown,
-    diagnostics: string | null): Promise<FeedbackSubmission> {
+    diagnostics: string | null, proposedId?: string): Promise<FeedbackSubmission> {
     if (!['missing_usage', 'report', 'update', 'other'].includes(String(category)) ||
       typeof title !== 'string' || !title.trim() || title.length > 120 ||
       typeof message !== 'string' || !message.trim() || message.length > 4000 ||
       (diagnostics !== null && diagnostics.length > 2000)) throw new Error('反馈内容无效');
     if (SENSITIVE.test(`${title}\n${message}\n${diagnostics ?? ''}`)) throw new Error('反馈包含可能的路径或密钥，请删除后重试');
-    const id = randomUUID();
+    if (proposedId !== undefined && !/^[a-f0-9-]{36}$/.test(proposedId)) throw new Error('反馈编号无效');
+    const id = proposedId ?? randomUUID();
     const payload = { id, username: actor.username, category, title: title.trim(), message: message.trim(),
       diagnostics, appVersion: this.version, platform: this.platform };
     this.db.run('INSERT INTO feedback_outbox VALUES (?, ?, ?, 0, 0, NULL, ?)', [

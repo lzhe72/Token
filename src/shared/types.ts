@@ -207,7 +207,7 @@ export interface TokenApi {
   backupDatabase(): Promise<boolean>;
   restoreDatabase(): Promise<boolean>;
   openFilePermissions(): Promise<void>;
-  submitFeedback(category: FeedbackItem['category'], title: string, message: string, attachDiagnostics: boolean): Promise<FeedbackSubmission>;
+  submitFeedback(category: FeedbackItem['category'], title: string, message: string, attachDiagnostics: boolean, id: string): Promise<FeedbackSubmission>;
   getMyFeedback(): Promise<FeedbackSubmission[]>;
   retryFeedback(): Promise<FeedbackSubmission[]>;
   listFeedback(): Promise<FeedbackItem[]>;

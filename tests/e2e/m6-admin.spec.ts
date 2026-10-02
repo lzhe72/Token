@@ -10,8 +10,11 @@ test('TC-066 管理员可看反馈列表而普通用户接口拒绝', async () =
     await page.getByLabel('反馈说明').fill('合成反馈：计数需要检查。');
     await page.getByRole('button', { name: '预览反馈' }).click();
     await expect(page.getByRole('region', { name: '反馈预览' })).toContainText('报表说明');
+    await expect(page.getByRole('region', { name: '反馈预览' })).toContainText('提交账号：admin');
+    const previewId = await page.locator('.feedback-preview code').textContent();
+    expect(previewId).toMatch(/^[a-f0-9-]{36}$/);
     await page.getByRole('button', { name: '确认提交' }).click();
-    await expect(page.getByRole('status')).toContainText('已提交到服务器');
+    await expect(page.getByRole('status')).toContainText(`已提交到服务器，反馈编号 ${previewId}`);
     await page.getByRole('button', { name: /管理中心/ }).click();
     await expect(page.getByRole('heading', { name: '管理中心', exact: true })).toBeVisible();
     await expect(page.locator('.panel').getByRole('heading', { name: '问题反馈', exact: true })).toBeVisible();

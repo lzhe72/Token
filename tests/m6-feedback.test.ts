@@ -23,9 +23,11 @@ test('TC-064 反馈仅显式提交且阻止路径密钥进入服务', async () =
     expect(Number(server.getDatabase().one('SELECT COUNT(*) AS count FROM feedback_items')?.count)).toBe(0);
     await expect(feedback.submit(actor, 'other', 'key', 'OPENAI_API_KEY=sk-secretsecretsecret', null)).rejects.toThrow('路径或密钥');
     await expect(feedback.submit(actor, 'other', 'path', 'See /Users/example/private', null)).rejects.toThrow('路径或密钥');
+    const chosenId = '12345678-1234-4123-8123-123456789abc';
     const result = await feedback.submit(actor, 'missing_usage', '漏采', '扫描后无记录', JSON.stringify([
       { provider: 'codex', status: 'no_records', fileCount: 1, factCount: 0, reason: 'unrecognized_usage', malformedCount: 0, unreadableCount: 0 }
-    ]));
+    ]), chosenId);
+    expect(result.id).toBe(chosenId);
     expect(result.delivery).toBe('sent');
     const stored = server.getDatabase().one('SELECT * FROM feedback_items WHERE id = ?', [result.id]);
     expect(stored).toMatchObject({ username: 'viewer', title: '漏采', app_version: '0.3.0', platform: 'darwin' });

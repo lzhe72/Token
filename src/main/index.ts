@@ -190,17 +190,18 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
     // This opens System Settings. macOS requires the user to grant file access there.
     await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles');
   });
-  ipcMain.handle('feedback:submit', async (event, category: unknown, title: unknown, message: unknown, attachDiagnostics: unknown) => {
+  ipcMain.handle('feedback:submit', async (event, category: unknown, title: unknown, message: unknown, attachDiagnostics: unknown, id: unknown) => {
     const actor = currentUser(event, auth);
     if (!['missing_usage', 'report', 'update', 'other'].includes(String(category)) ||
-      typeof title !== 'string' || typeof message !== 'string' || typeof attachDiagnostics !== 'boolean') throw new Error('反馈内容无效');
+      typeof title !== 'string' || typeof message !== 'string' || typeof attachDiagnostics !== 'boolean' ||
+      typeof id !== 'string' || !/^[a-f0-9-]{36}$/.test(id)) throw new Error('反馈内容无效');
     const owned = new Set(sources.identities().filter(item => item.ownerUserId === actor.id).map(item => item.provider));
     const visible = sources.diagnostics().filter(item => actor.role !== 'viewer' || owned.has(item.provider));
     const diagnostics = attachDiagnostics ? JSON.stringify(visible.map(item => ({
       provider: item.provider, status: item.status, fileCount: item.fileCount, factCount: item.factCount,
       reason: item.reason, malformedCount: item.malformedCount, unreadableCount: item.unreadableCount
     }))) : null;
-    return feedback.submit(actor, category, title, message, diagnostics);
+    return feedback.submit(actor, category, title, message, diagnostics, id);
   });
   ipcMain.handle('feedback:my', event => feedback.pending(currentUser(event, auth)));
   ipcMain.handle('feedback:retry', async event => {
