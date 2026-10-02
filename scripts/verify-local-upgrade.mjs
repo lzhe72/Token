@@ -121,9 +121,19 @@ try {
   await page.getByRole('button', { name: '创建并进入' }).click();
   await expect(page.getByRole('heading', { name: '用量概览' })).toBeVisible();
   await expect.poll(async () => (await page.evaluate(() => window.tokenApi.getServerStatus())).online).toBe(true);
+  await page.getByRole('button', { name: /数据来源/ }).click();
+  await page.getByRole('button', { name: '立即扫描' }).click();
+  const currentDay = timestamp.slice(0, 10);
+  async function assertReport(windowPage, stage) {
+    const report = await windowPage.evaluate(day => window.tokenApi.queryUsage({ from: day, to: day,
+      timeZone: 'UTC', granularity: 'day', provider: 'all', model: '', projectKey: '', userId: 'all' }), currentDay);
+    assert.equal(report.totals.totalTokens, 1280, `${stage}合成用量不符`);
+  }
+  await assertReport(page, '旧版扫描后');
 
   command(process.execPath, [path.join(projectRoot, 'scripts', 'publish-update.mjs'),
     newDmg, newVersion, process.arch === 'arm64' ? 'arm64' : 'x64', path.join(userData, 'server')]);
+  await page.getByRole('button', { name: /概览/ }).click();
   await page.getByRole('button', { name: '检查更新' }).click();
   await expect(page.getByText(`发现 ${newVersion}`)).toBeVisible();
   await page.getByRole('button', { name: '下载安装包' }).click();
@@ -132,6 +142,20 @@ try {
   await expect.poll(() => fs.existsSync(downloaded)).toBe(true);
   assert.equal(sha256(downloaded), sha256(newDmg), '下载包与发布包 SHA-256 不一致');
   console.log(`下载并打开安装包：${oldVersion} → ${newVersion}，SHA-256 ${sha256(downloaded)}`);
+
+  // 用户关闭安装包而不替换应用：旧版、受信登录及已采集数据应保持可用。
+  assert.equal(await application.evaluate(({ app }) => app.getVersion()), oldVersion);
+  await assertReport(page, '取消安装前');
+  await application.close();
+  application = undefined;
+  assert.ok(detachOpenedImage(downloaded), '取消安装时卸载磁盘映像失败');
+  application = await electron.launch({ executablePath, args: [`--token-user-data=${userData}`], env: environment });
+  page = await application.firstWindow();
+  assert.equal(await application.evaluate(({ app }) => app.getVersion()), oldVersion, '取消安装后旧版不可用');
+  await expect(page.getByRole('heading', { name: '用量概览' })).toBeVisible();
+  assert.equal((await page.evaluate(() => window.tokenApi.getState())).user?.username, 'admin', '取消安装后受信登录未恢复');
+  await assertReport(page, '取消安装后');
+  console.log(`取消安装后旧版 ${oldVersion}、受信登录及 1280 Token 已采集用量均保持可用。`);
 
   await application.close();
   application = undefined;
@@ -144,10 +168,7 @@ try {
   assert.equal(state.user?.username, 'admin', '升级后受信登录未恢复');
   await page.getByRole('button', { name: /数据来源/ }).click();
   await page.getByRole('button', { name: '立即扫描' }).click();
-  const currentDay = timestamp.slice(0, 10);
-  const report = await page.evaluate(day => window.tokenApi.queryUsage({ from: day, to: day,
-    timeZone: 'UTC', granularity: 'day', provider: 'all', model: '', projectKey: '', userId: 'all' }), currentDay);
-  assert.equal(report.totals.totalTokens, 1280, '升级后合成用量未保留');
+  await assertReport(page, '升级后');
   console.log(`升级后版本 ${newVersion}、受信登录及 1280 Token 合成用量均通过。`);
 } finally {
   await application?.close().catch(() => {});

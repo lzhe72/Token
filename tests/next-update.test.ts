@@ -89,5 +89,10 @@ test('TC-036 校验后只打开安装包而不替换现有应用', async () => {
     expect(opened).toBe(packageFile);
     expect(fs.readFileSync(existing, 'utf8')).toBe('unchanged');
     expect(fs.existsSync(packageFile)).toBe(true);
+    const openFailure = new UpdateClient(connection(`http://127.0.0.1:${port}`, secret), path.join(workspace.root, 'downloads'),
+      '1.0.0', 'arm64', async () => 'synthetic open failure');
+    expect((await openFailure.check()).available).toBe(true);
+    await expect(openFailure.downloadAndOpen()).rejects.toThrow('无法打开安装包：synthetic open failure');
+    expect(fs.readFileSync(existing, 'utf8')).toBe('unchanged');
   } finally { await server.stop(); workspace.cleanup(); }
 });
