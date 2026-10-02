@@ -1,6 +1,6 @@
 {
   "name": "token-monitor",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Local Codex and Claude Code token usage monitor for macOS",
   "author": "lzhe72",

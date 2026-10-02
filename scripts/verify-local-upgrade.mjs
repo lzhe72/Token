@@ -8,20 +8,20 @@ import { fileURLToPath } from 'node:url';
 import { _electron as electron, expect } from '@playwright/test';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const [oldInput, newInput] = process.argv.slice(2);
+const [oldInput, newInput, scenario] = process.argv.slice(2);
 if (!oldInput || !newInput || !path.isAbsolute(oldInput) || !path.isAbsolute(newInput) ||
   !fs.statSync(oldInput, { throwIfNoEntry: false })?.isFile() ||
-  !fs.statSync(newInput, { throwIfNoEntry: false })?.isFile()) {
-  console.error('用法: npm run test:upgrade:local -- /绝对路径/Token-0.2.0.dmg /绝对路径/Token-0.3.0.dmg');
+  !fs.statSync(newInput, { throwIfNoEntry: false })?.isFile() || (scenario && scenario !== '--fallback-repair')) {
+  console.error('用法: npm run test:upgrade:local -- /绝对路径/旧版.dmg /绝对路径/新版.dmg [--fallback-repair]');
   process.exit(2);
 }
+const fallbackRepair = scenario === '--fallback-repair';
 
 const oldDmg = path.resolve(oldInput);
 const newDmg = path.resolve(newInput);
 const versionMatch = path.basename(newDmg).match(/^Token-(\d+\.\d+\.\d+)\.dmg$/);
 if (!versionMatch) throw new Error('新版 DMG 文件名必须为 Token-x.y.z.dmg');
 const newVersion = versionMatch[1];
-if (newVersion !== '0.3.0') throw new Error('当前脚本验收 0.2.0 → 0.3.0，请为其他版本更新测试步骤');
 function versionGreater(newer, older) {
   const left = newer.split('.').map(Number);
   const right = older.split('.').map(Number);
@@ -102,20 +102,25 @@ let application;
 let downloaded = '';
 try {
   const timestamp = new Date().toISOString();
-  fs.writeFileSync(path.join(codexDir, 'synthetic.jsonl'), [
+  const syntheticFile = path.join(codexDir, 'synthetic.jsonl');
+  fs.writeFileSync(syntheticFile, [
     { type: 'session_meta', payload: { session_id: 'upgrade-synthetic', cwd: '/work/upgrade-synthetic' } },
     { type: 'turn_context', payload: { turn_id: 'one', model: 'gpt-upgrade-synthetic' } },
-    { type: 'token_usage_record', timestamp, payload: { session_id: 'upgrade-synthetic', turn_id: 'one', response_id: 'one',
-      usage: { input_tokens: 1024, output_tokens: 256, total_tokens: 1280 } } }
+    fallbackRepair
+      ? { type: 'event_msg', timestamp, payload: { type: 'token_count',
+        info: { last_token_usage: { input_tokens: 1024, output_tokens: 256, total_tokens: 1280 } } } }
+      : { type: 'token_usage_record', timestamp, payload: { session_id: 'upgrade-synthetic', turn_id: 'one', response_id: 'one',
+        usage: { input_tokens: 1024, output_tokens: 256, total_tokens: 1280 } } }
   ].map(value => JSON.stringify(value)).join('\n') + '\n');
 
   installDmg(oldDmg);
   application = await electron.launch({ executablePath, args: [`--token-user-data=${userData}`], env: environment });
   let page = await application.firstWindow();
   const oldVersion = await application.evaluate(({ app }) => app.getVersion());
-  assert.equal(oldVersion, '0.2.0', '旧版应用必须为 0.2.0');
   assert.ok(versionGreater(newVersion, oldVersion), '目标版本必须高于现有版本');
-  await page.getByPlaceholder('例如 lzhe72').fill('admin');
+  const setupUsername = page.getByPlaceholder('例如 lzhe72');
+  if (await setupUsername.count()) await setupUsername.fill('admin');
+  else assert.equal(await page.getByPlaceholder('用户名', { exact: true }).inputValue(), 'admin', '旧版首次账号不是固定 admin');
   await page.getByPlaceholder('至少 10 位').fill('safe-password-123');
   await page.getByRole('checkbox', { name: /信任此设备/ }).check();
   await page.getByRole('button', { name: '创建并进入' }).click();
@@ -124,12 +129,21 @@ try {
   await page.getByRole('button', { name: /数据来源/ }).click();
   await page.getByRole('button', { name: '立即扫描' }).click();
   const currentDay = timestamp.slice(0, 10);
-  async function assertReport(windowPage, stage) {
+  async function assertReport(windowPage, stage, expected = 1280) {
     const report = await windowPage.evaluate(day => window.tokenApi.queryUsage({ from: day, to: day,
       timeZone: 'UTC', granularity: 'day', provider: 'all', model: '', projectKey: '', userId: 'all' }), currentDay);
-    assert.equal(report.totals.totalTokens, 1280, `${stage}合成用量不符`);
+    assert.equal(report.totals.totalTokens, expected, `${stage}合成用量不符`);
   }
   await assertReport(page, '旧版扫描后');
+  if (fallbackRepair) {
+    fs.appendFileSync(syntheticFile, JSON.stringify({ type: 'token_usage_record', timestamp,
+      payload: { session_id: 'upgrade-synthetic', turn_id: 'one', response_id: 'one',
+        usage: { input_tokens: 1024, output_tokens: 256, total_tokens: 1280 } } }) + '\n');
+    await page.getByRole('button', { name: '立即扫描' }).click();
+    await assertReport(page, '旧版重复计数复现', 2560);
+    console.log(`旧版 ${oldVersion} 跨扫描重复计数已复现：1280 → 2560 Token。`);
+  }
+  const oldTotal = fallbackRepair ? 2560 : 1280;
 
   command(process.execPath, [path.join(projectRoot, 'scripts', 'publish-update.mjs'),
     newDmg, newVersion, process.arch === 'arm64' ? 'arm64' : 'x64', path.join(userData, 'server')]);
@@ -145,7 +159,7 @@ try {
 
   // 用户关闭安装包而不替换应用：旧版、受信登录及已采集数据应保持可用。
   assert.equal(await application.evaluate(({ app }) => app.getVersion()), oldVersion);
-  await assertReport(page, '取消安装前');
+  await assertReport(page, '取消安装前', oldTotal);
   await application.close();
   application = undefined;
   assert.ok(detachOpenedImage(downloaded), '取消安装时卸载磁盘映像失败');
@@ -154,8 +168,8 @@ try {
   assert.equal(await application.evaluate(({ app }) => app.getVersion()), oldVersion, '取消安装后旧版不可用');
   await expect(page.getByRole('heading', { name: '用量概览' })).toBeVisible();
   assert.equal((await page.evaluate(() => window.tokenApi.getState())).user?.username, 'admin', '取消安装后受信登录未恢复');
-  await assertReport(page, '取消安装后');
-  console.log(`取消安装后旧版 ${oldVersion}、受信登录及 1280 Token 已采集用量均保持可用。`);
+  await assertReport(page, '取消安装后', oldTotal);
+  console.log(`取消安装后旧版 ${oldVersion}、受信登录及 ${oldTotal} Token 已采集用量均保持可用。`);
 
   await application.close();
   application = undefined;
