@@ -15,10 +15,10 @@ test('TC-021 报表明细可翻到第二页且切换模型重置页码', async (
       payload: { session_id: 'pagination-session', turn_id: 'pagination-turn', response_id: `response-${index}`,
         usage: { input_tokens: 1, output_tokens: 0, total_tokens: 1 } } });
   }
-  writeFileSync(path.join(workspace.codexDir, 'pagination.jsonl'), lines.map(line => JSON.stringify(line)).join('\n') + '\n');
   const packaged = process.env.TOKEN_E2E_EXECUTABLE;
   let app: Awaited<ReturnType<typeof electron.launch>> | null = null;
   try {
+    writeFileSync(path.join(workspace.codexDir, 'pagination.jsonl'), lines.map(line => JSON.stringify(line)).join('\n') + '\n');
     app = await electron.launch({ executablePath: packaged || (require('electron') as string),
       args: [...(packaged ? [] : [path.resolve('.')]), `--token-user-data=${workspace.root}`],
       env: { ...process.env, TOKEN_CODEX_SESSIONS_DIR: workspace.codexDir, TOKEN_CLAUDE_PROJECTS_DIR: workspace.claudeDir } });

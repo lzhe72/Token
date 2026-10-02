@@ -51,7 +51,7 @@ test('TC-021 明细翻页不漏记录且筛选和用户权限贯穿每页', asyn
     expect(report.details({ ...query, provider: 'codex', model: 'gpt-test', projectKey }, 2, '2026-10-02', admin)
       .records).toHaveLength(11);
   } finally {
-    db?.close();
-    workspace.cleanup();
+    try { db?.close(); }
+    finally { workspace.cleanup(); }
   }
 });
