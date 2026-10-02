@@ -52,6 +52,10 @@ test('TC-070 旧库 admin 冲突显式处理且保留账号 ID 和哈希', async
     expect(auth.getUser('legacy-owner')?.role).toBe('admin');
     expect(auth.getUser('legacy-conflict')?.role).toBe('viewer');
     await expect(auth.createUser('admin', 'safe-password-123', 'admin', 'legacy-owner')).rejects.toThrow('冲突');
+    expect(() => auth.renameConflictingAdminViewer('owner', 'legacy-owner')).toThrow('已存在');
+    expect(db.one("SELECT username, password_hash FROM users WHERE id='legacy-conflict'")).toMatchObject({
+      username: 'admin', password_hash: 'hash-viewer'
+    });
     auth.renameConflictingAdminViewer('renamedViewer', 'legacy-owner');
     expect(db.one("SELECT id, password_hash FROM users WHERE username='renamedViewer'")).toMatchObject({ id: 'legacy-conflict', password_hash: 'hash-viewer' });
     const root = await auth.createUser('admin', 'safe-password-123', 'admin', 'legacy-owner');
@@ -61,4 +65,28 @@ test('TC-070 旧库 admin 冲突显式处理且保留账号 ID 和哈希', async
     expect(db.all('PRAGMA table_info(users)').some(row => row.name === 'last_login_at')).toBe(true);
   } finally { db.close(); workspace.cleanup(); }
   expect(before.length).toBeGreaterThan(100);
+
+  for (const variant of ['existing-admin', 'missing-admin'] as const) {
+    const legacyWorkspace = createTestWorkspace(`tc070-${variant}`);
+    const old = new SQL.Database();
+    old.run(`CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT UNIQUE COLLATE NOCASE,
+      password_hash TEXT, role TEXT CHECK(role IN ('admin','viewer')), active INTEGER, created_at TEXT);
+      INSERT INTO users VALUES ('legacy-manager', '${variant === 'existing-admin' ? 'admin' : 'owner'}',
+        'unchanged-hash', 'admin', 1, '2025-01-01T00:00:00Z');`);
+    writeFileSync(legacyWorkspace.databasePath, Buffer.from(old.export()));
+    old.close();
+    const migrated = await AppDatabase.open(legacyWorkspace.databasePath);
+    try {
+      const auth = new AuthService(migrated);
+      if (variant === 'existing-admin') {
+        expect(auth.superadminIssue()).toBeNull();
+        expect(auth.getUser('legacy-manager')?.role).toBe('superadmin');
+      } else {
+        expect(auth.superadminIssue()).toContain('尚无固定 admin');
+        expect((await auth.createUser('admin', 'safe-password-123', 'admin', 'legacy-manager')).role).toBe('superadmin');
+        expect(auth.getUser('legacy-manager')?.role).toBe('admin');
+      }
+      expect(migrated.one("SELECT password_hash FROM users WHERE id='legacy-manager'")?.password_hash).toBe('unchanged-hash');
+    } finally { migrated.close(); legacyWorkspace.cleanup(); }
+  }
 });
