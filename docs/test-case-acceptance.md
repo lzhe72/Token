@@ -419,7 +419,7 @@ xcrun stapler validate release/mac/Token.app
 | --- | --- | --- |
 | TC-030 | `tests/next-auth.test.ts`；`tests/e2e/trust.spec.ts` | 单元验证凭证跨数据库重开与未勾选存储为空；Electron 验证勾选后重启自动登录及退出后回登录页。未覆盖另一 macOS 账户。 |
 | TC-031 | `tests/next-auth.test.ts` | 单元验证无固定到期、退出撤销、重置密码/停用失效及损坏凭证；管理员界面操作路径未单独验收。 |
-| TC-032 | `tests/next-server.test.ts` | 现有函数验证默认回环、`localhost` 配置、无 TLS 的 `0.0.0.0` 被拒；临时自签证书下实际绑定 `0.0.0.0` 并经 HTTPS 健康检查成功。该历史客户端关闭证书校验；指定测试 CA 的严格校验、拒绝不受信证书与主机名不匹配尚待新增绑定，异机连接另待验。 |
+| TC-032 | `tests/next-server.test.ts` | 原函数验证默认回环、`localhost` 配置、无 TLS 的 `0.0.0.0` 被拒；临时自签证书下实际绑定 `0.0.0.0` 并经 HTTPS 健康检查成功，旧客户端关闭证书校验。`57fd884` 新增第二项：临时 CA 与本机非回环 IPv4 SAN 下严格 TLS 健康检查成功；无 CA、主机名不匹配均拒绝，真实 `ServerConnection` 通过 `NODE_EXTRA_CA_CERTS` 连通。单编号 2/2；异机和生产证书仍待验。 |
 | TC-033 | `tests/next-server.test.ts` | 合成包的清单、大小、SHA-256 与路径穿越拒绝；未用真实发布 DMG 验证。 |
 | TC-034 | `tests/next-update.test.ts` | 同版、旧版、架构不符、坏摘要与较新版提示；版本差异及下载由合成包验证。 |
 | TC-035 | `tests/next-update.test.ts` | 停服后下载失败、清理临时文件和重启服务重试；未单独注入超时、磁盘不足。 |
@@ -434,13 +434,15 @@ xcrun stapler validate release/mac/Token.app
 | TC-044 | `tests/next-report.test.ts` | 按总量降序、同值稳定和模型明细；未知模型及界面点击未单独断言。 |
 | TC-045 | `tests/next-report.test.ts` | `no_records`、错误状态与比较文案分离；未单独验证所有缺失/权限状态在界面的呈现。 |
 | TC-046 | `tests/next-report.test.ts` | 来源事实数、最近扫描时间、未找到目录文案；未覆盖格式不支持等全部状态卡片。 |
-| TC-047 | `tests/next-server.test.ts` | 旧版只覆盖错误凭证、非法字段、Origin 和 HTTPS 配置；0.3.2 增加本机 `0.0.0.0` 自签 TLS 下的清单、包、管理和上报鉴权，单编号两项测试通过，0.3.3 文档会话独立复跑通过。历史客户端关闭证书验证；指定测试 CA 的严格 TLS 下重验受保护接口鉴权尚待新增绑定，异机连接另待验。设备/用户写入范围及服务切换竞态另见 TC-074。 |
+| TC-047 | `tests/next-server.test.ts` | 旧版覆盖错误凭证、非法字段、Origin 和 HTTPS 配置；0.3.2 增加本机 `0.0.0.0` 自签 TLS 下的清单、包、管理和上报鉴权，历史客户端关闭证书验证。`57fd884` 新增第三项：指定临时 CA 的严格 TLS 下，清单/包缺失或错误凭据被拒、正确凭据可取；管理员登记须管理密钥，设备令牌可上传，越权 owner 得 403 且原聚合不变。单编号 3/3；异机与生产证书仍待验。服务切换竞态另见 TC-074。 |
 | TC-048 | `tests/e2e/trend.spec.ts` | 在 1180、860 两种窗口宽度截屏并断言数值/日期边界框不重叠；未覆盖更窄窗口、所有本地化字体及裁切边界。 |
 | TC-049 | `tests/e2e/trend.spec.ts` | ISO 跨年周周一标签、月标签及点击明细行数；其他时区和长期跨度需另验。 |
 
 上述限制是后续补测清单，不把未覆盖部分写成已通过。`TC-027` 的本机安装验收和 `TC-028` 的外部分发验收仍按各自人工证据独立判定。
 
-**TC-032 / TC-047 严格 TLS 补证入口（2026-10-03 规划）**：两个编号已注册，独立执行命令分别为 `npm run test:case -- TC-032` 与 `npm run test:case -- TC-047`。现有 `scripts/test-cases.mjs` 绑定及历史通过结果不变；新增函数和绑定尚未提交，因此当前单编号通过不能算严格证书校验通过。计划在 `tests/next-server.test.ts` 用一次性 CA、带本机连接地址 SAN 的服务端证书和隔离服务库构造严格 TLS 客户端；TC-032 验证可信 CA 的 HTTPS 健康检查与不受信 CA、主机名不匹配的拒绝，TC-047 在同类连接上核对受保护接口的凭据范围。测试结束清理证书、服务目录和监听资源，不修改系统信任设置。记录提交、命令、退出码和脱敏错误类别；即使本机补证通过，生产证书和异机连接仍待独立验收。
+**TC-032 / TC-047 严格 TLS 原补证计划（2026-10-03）**：两个编号已注册，独立执行命令分别为 `npm run test:case -- TC-032` 与 `npm run test:case -- TC-047`。计划在 `tests/next-server.test.ts` 用一次性 CA、带本机连接地址 SAN 的服务端证书和隔离服务库构造严格 TLS 客户端；TC-032 验证可信 CA 的 HTTPS 健康检查与不受信 CA、主机名不匹配的拒绝，TC-047 在同类连接上核对受保护接口的凭据范围。测试结束清理证书、服务目录和监听资源，不修改系统信任设置。本段保留实施前计划，当前绑定和结果见下段。
+
+**`57fd884` 实施与验收**：`scripts/test-cases.mjs` 为 TC-032 追加 `TC-032 临时 CA 严格验证非回环服务与证书失败路径`，为 TC-047 追加 `TC-047 严格 TLS 下保护接口维持鉴权`；原函数和历史结果保留。两项都在 `tests/next-server.test.ts` 用一次性 OpenSSL CA、带本机非回环 IPv4 SAN 的证书和隔离服务库，`https.request` 指定 CA 且保持 `rejectUnauthorized: true`。TC-032 还在子进程通过 `NODE_EXTRA_CA_CERTS` 验证真实 `ServerConnection`；TC-047 检查 401/403、合法响应和越权前后聚合行。开发会话报告 TC-032 2/2、TC-047 3/3、门禁 74 个编号入口、50 个单元和 18 个 Electron 用例通过。文档会话在该提交独立复跑 `npm run test:cases:check`、TC-032 2/2 与 TC-047 3/3，均退出码 0。测试只证明当前 Mac 的临时 CA 链、SAN 地址匹配与接口鉴权；未改系统信任设置，未使用生产证书，尚无另一台 Mac 的实际连接证据。详细边界见[验收记录](validation.md)。
 
 **TC-036 新增本机链路记录（2026-10-02，代码 `44a96e8`）**：`npm run test:upgrade:local -- /Users/lz/文档/Token/Token-0.2.0.dmg /Users/lz/文档/Token/Token-0.3.0.dmg` 使用 `scripts/verify-local-upgrade.mjs`，在本机隔离目录复制旧版应用、启动并勾选信任设备；旧版连接临时本机更新服务，发现 0.3.0、下载并打开安装包；下载 SHA-256 与发布包一致。脚本关闭旧版后以 `ditto` 在同一临时安装路径替换为新版，沿用同一临时用户数据目录启动，新版受信登录与合成报表 1280 Token 均通过。日志在开发工作树 `test-results/manual/evidence/TC-036-upgrade.log`（Git 忽略），脱敏摘要见[验收记录](validation.md)。此结果标记为**部分验证：本机隔离更新交接与替换通过**；取消安装、安装失败回退、Finder 人工拖拽至 `/Applications`、生产数据迁移、签名公证及目标 Mac 仍待验证。脚本是独立复验入口，`npm run test:case -- TC-036` 仍只运行表内单元断言。
 
