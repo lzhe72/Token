@@ -6,7 +6,7 @@ Token 是一个 macOS 桌面应用，用于汇总本机 Codex 与 Claude Code �
 
 - [文档总览与维护顺序](docs/README.md)
 - [需求、开发任务与测试追溯工作簿](outputs/20261002-token-docs/Token-需求开发测试追溯.xlsx)
-- [Codex 开发指南](docs/agent.md)
+- [Codex 项目技术指南](docs/agent.md)
 - [产品与技术设计](docs/design.md)
 - [开发计划与验收标准](docs/development-plan.md)
 - [M0 本机数据可行性验证](docs/feasibility.md)
