@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 // The release script is plain ESM so that Node can run it before the TypeScript build.
 // @ts-ignore no declaration file is needed for this script-only module
-import { certificateNameFromP12, signedBuilderArgs, signedVerificationSteps, validateSignedRelease } from '../scripts/package-signed-dmg.mjs';
+import { certificateNameFromP12, signedBuilderArgs, signedVerificationSteps, validateSignedRelease, verifySignedCandidate, withTemporaryReleaseDirectory } from '../scripts/package-signed-dmg.mjs';
 
 const api = { APPLE_API_KEY: '/tmp/test-key.p8', APPLE_API_KEY_ID: 'TESTKEY', APPLE_API_ISSUER: 'test-issuer' };
 const developer = 'Developer ID Application: Example (TESTTEAM01)';
@@ -56,6 +56,30 @@ test('TC-075 签名发布预检与命令构造', () => {
   expect(args).toContain('--config.mac.entitlements=build/entitlements.mac.plist');
   expect(signedVerificationSteps('/tmp/Token.app', '/tmp/Token.dmg').map(([command]: [string]) => command))
     .toEqual(['codesign', 'spctl', 'xcrun', 'hdiutil']);
+
+  const failedReleaseRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'token-tc075-failed-build-'));
+  try {
+    for (let failureStep = 0; failureStep < 5; failureStep++) {
+      let call = 0;
+      expect(() => withTemporaryReleaseDirectory(failedReleaseRoot, (temp: string) => {
+        fs.writeFileSync(path.join(temp, 'synthetic.dmg'), 'not a release');
+        verifySignedCandidate('/tmp/Token.app', '/tmp/Token.dmg', (command: string, args: string[]) => {
+          const current = call++;
+          if (current === failureStep) throw new Error('模拟核验失败');
+          return command === 'codesign' && args[0] === '-dv' ? `Authority=${developer}` : '';
+        });
+        fs.mkdirSync(path.join(failedReleaseRoot, 'signed'));
+      })).toThrow('模拟核验失败');
+      expect(fs.readdirSync(failedReleaseRoot)).toEqual([]);
+    }
+    expect(() => withTemporaryReleaseDirectory(failedReleaseRoot, (temp: string) => {
+      fs.writeFileSync(path.join(temp, 'synthetic.dmg'), 'not a release');
+      verifySignedCandidate('/tmp/Token.app', '/tmp/Token.dmg', (command: string, args: string[]) =>
+        command === 'codesign' && args[0] === '-dv' ? 'Authority=Apple Development: Synthetic' : '');
+      fs.mkdirSync(path.join(failedReleaseRoot, 'signed'));
+    })).toThrow('Developer ID');
+    expect(fs.readdirSync(failedReleaseRoot)).toEqual([]);
+  } finally { fs.rmSync(failedReleaseRoot, { recursive: true, force: true }); }
 
   const release = path.join(process.cwd(), 'release');
   const before = fs.existsSync(release) ? fs.readdirSync(release) : [];

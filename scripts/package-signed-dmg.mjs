@@ -60,6 +60,19 @@ export function signedVerificationSteps(appPath, dmgPath) {
   ];
 }
 
+export function verifySignedCandidate(appPath, dmgPath, execute) {
+  for (const [command, args] of signedVerificationSteps(appPath, dmgPath)) execute(command, args);
+  const signature = execute('codesign', ['-dv', '--verbose=2', appPath]);
+  if (!signature.includes('Authority=Developer ID Application:')) throw new Error('App 不是 Developer ID Application 签名');
+}
+
+export function withTemporaryReleaseDirectory(releaseRoot, action) {
+  fs.mkdirSync(releaseRoot, { recursive: true });
+  const temp = fs.mkdtempSync(path.join(releaseRoot, 'token-signed-'));
+  try { return action(temp); }
+  finally { if (fs.existsSync(temp)) fs.rmSync(temp, { recursive: true, force: true }); }
+}
+
 function run(command, args, env = process.env) {
   const result = spawnSync(command, args, { cwd: root, env, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
   if (result.error || result.status !== 0) throw new Error(`${path.basename(command)} 执行失败（退出码 ${result.status ?? '未知'}）`);
@@ -125,10 +138,7 @@ function main() {
   const arch = process.arch;
   if (!['x64', 'arm64'].includes(arch)) throw new Error('不支持的 macOS 架构');
   if (run('git', ['status', '--porcelain']).trim()) throw new Error('工作区存在未提交改动，不能冻结签名候选');
-  fs.mkdirSync(path.join(root, 'release'), { recursive: true });
-  const temp = fs.mkdtempSync(path.join(root, 'release', 'token-signed-'));
-  let published = false;
-  try {
+  withTemporaryReleaseDirectory(path.join(root, 'release'), temp => {
     run('npm', ['run', 'build']);
     const builder = path.join(root, 'node_modules', '.bin', 'electron-builder');
     run(builder, signedBuilderArgs(temp, pkg.version, arch, cachedElectronArchive(arch)),
@@ -136,9 +146,7 @@ function main() {
     const appPath = path.join(temp, arch === 'arm64' ? 'mac-arm64' : 'mac', 'Token.app');
     const dmgPath = path.join(temp, `Token-${pkg.version}-${arch}-signed.dmg`);
     if (!fs.existsSync(appPath) || !fs.existsSync(dmgPath)) throw new Error('签名构建未生成预期 App 和 DMG');
-    for (const [command, args] of signedVerificationSteps(appPath, dmgPath)) run(command, args);
-    const signature = run('codesign', ['-dv', '--verbose=2', appPath]);
-    if (!signature.includes('Authority=Developer ID Application:')) throw new Error('App 不是 Developer ID Application 签名');
+    verifySignedCandidate(appPath, dmgPath, run);
     const stat = fs.statSync(dmgPath);
     const sha256 = createHash('sha256').update(fs.readFileSync(dmgPath)).digest('hex');
     const commit = run('git', ['rev-parse', 'HEAD']).trim();
@@ -150,11 +158,8 @@ function main() {
     fs.writeFileSync(path.join(temp, 'release-evidence.json'), JSON.stringify(evidence, null, 2) + '\n', { mode: 0o600 });
     fs.mkdirSync(path.dirname(destination), { recursive: true });
     fs.renameSync(temp, destination);
-    published = true;
     console.log(`签名公证候选已核验：${destination}\nDMG SHA-256: ${sha256}`);
-  } finally {
-    if (!published) fs.rmSync(temp, { recursive: true, force: true });
-  }
+  });
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
