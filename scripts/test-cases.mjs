@@ -83,7 +83,11 @@ const extraRuns = {
   'TC-038': [{ kind: 'e2e', file: 'tests/e2e/upload.spec.ts', testName: 'TC-038 应用扫描后自动上报到独立本机服务' }],
   'TC-010': [{ kind: app[0], file: app[1], testName: app[2] }],
   'TC-017': [{ kind: collector[0], file: collector[1], testName: '空目录、错误字段及不可读文件显示可辨认的状态' }],
-  'TC-021': [{ kind: app[0], file: app[1], testName: app[2] }]
+  'TC-021': [
+    { kind: app[0], file: app[1], testName: app[2] },
+    { kind: 'unit', file: 'tests/report-pagination.test.ts', testName: 'TC-021 明细翻页不漏记录且筛选和用户权限贯穿每页' },
+    { kind: 'e2e', file: 'tests/e2e/report-pagination.spec.ts', testName: 'TC-021 报表明细可翻到第二页且切换模型重置页码' }
+  ]
 };
 export default cases.map(([id, kind, fileOrTitle, testNameOrSteps, title]) => kind === 'manual'
   ? { id, kind, title: fileOrTitle, steps: testNameOrSteps }
