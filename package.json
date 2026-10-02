@@ -19,7 +19,8 @@
     "test:case": "node scripts/run-test-case.mjs",
     "test:cases:check": "node scripts/run-test-case.mjs --check",
     "test:gate": "npm run typecheck && npm run test:cases:check && npm test && npm run test:e2e",
-    "test:acceptance": "node scripts/run-acceptance.mjs"
+    "test:acceptance": "node scripts/run-acceptance.mjs",
+    "test:upgrade:local": "node scripts/verify-local-upgrade.mjs"
   },
   "dependencies": {
     "react": "19.3.0",
