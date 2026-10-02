@@ -23,10 +23,18 @@ async function setup(name: string) {
   return { workspace, db, scanner, owner };
 }
 
-function connection(base: string, secret: string): ServerConnection {
-  return { request: (endpoint: string, init: RequestInit = {}) => fetch(`${base}${endpoint}`, {
-    ...init, headers: { ...Object.fromEntries(new Headers(init.headers).entries()), authorization: `Bearer ${secret}` }
-  }) } as unknown as ServerConnection;
+function connection(base: string, directory: string): ServerConnection {
+  const secret = fs.readFileSync(path.join(directory, 'server.secret'), 'utf8').trim();
+  const adminSecret = fs.readFileSync(path.join(directory, 'server-admin.secret'), 'utf8').trim();
+  return { uploadUsage: async (payload: string, deviceId: string, ownerUserIds: string[]) => {
+    const registration = await fetch(`${base}/v1/admin/devices/enroll`, { method: 'POST',
+      headers: { authorization: `Bearer ${secret}`, 'x-token-admin': adminSecret, 'content-type': 'application/json' },
+      body: JSON.stringify({ deviceId, ownerUserIds }) });
+    if (!registration.ok) return registration;
+    const { token } = await registration.json() as { token: string };
+    return fetch(`${base}/v1/usage`, { method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: payload });
+  } } as unknown as ServerConnection;
 }
 
 test('TC-037 启动及十分钟定时扫描并串行执行', async () => {
@@ -55,8 +63,7 @@ test('TC-038 聚合上报只含授权用量字段不含正文路径密钥', asyn
   const server = new LocalServer(directory);
   try {
     const port = await server.start();
-    const secret = fs.readFileSync(path.join(directory, 'server.secret'), 'utf8');
-    const sync = new UsageSync(db, scanner, connection(`http://127.0.0.1:${port}`, secret));
+    const sync = new UsageSync(db, scanner, connection(`http://127.0.0.1:${port}`, directory));
     await sync.afterScan();
     const rows = server.getDatabase().all('SELECT * FROM aggregates');
     expect(rows).toHaveLength(1);
@@ -75,8 +82,7 @@ test('TC-039 重复上报幂等且修订快照替换旧值', async () => {
   const server = new LocalServer(directory);
   try {
     const port = await server.start();
-    const secret = fs.readFileSync(path.join(directory, 'server.secret'), 'utf8');
-    const sync = new UsageSync(db, scanner, connection(`http://127.0.0.1:${port}`, secret));
+    const sync = new UsageSync(db, scanner, connection(`http://127.0.0.1:${port}`, directory));
     await sync.afterScan();
     expect(Number(server.getDatabase().one('SELECT total_tokens FROM aggregates')?.total_tokens)).toBe(12);
     await sync.afterScan();
@@ -94,10 +100,9 @@ test('TC-040 停服后待传快照持久化并恢复补传', async () => {
   const server = new LocalServer(directory);
   try {
     const port = await server.start();
-    const secret = fs.readFileSync(path.join(directory, 'server.secret'), 'utf8');
     const base = `http://127.0.0.1:${port}`;
     await server.stop();
-    const offline = new UsageSync(db, scanner, connection(base, secret));
+    const offline = new UsageSync(db, scanner, connection(base, directory));
     await offline.afterScan();
     expect(offline.status().pending).toBe(1);
     expect(offline.status().lastError).toBeTruthy();
@@ -106,11 +111,33 @@ test('TC-040 停服后待传快照持久化并恢复补传', async () => {
     const restarted = new LocalServer(directory);
     try {
       const newPort = await restarted.start();
-      const recovered = new UsageSync(reopened, new UsageScanner(reopened), connection(`http://127.0.0.1:${newPort}`, secret));
+      const recovered = new UsageSync(reopened, new UsageScanner(reopened), connection(`http://127.0.0.1:${newPort}`, directory));
       reopened.run("UPDATE sync_meta SET value = '2000-01-01T00:00:00Z' WHERE key = 'last_attempt'");
       await recovered.flush();
       expect(recovered.status().pending).toBe(0);
       expect(Number(restarted.getDatabase().one('SELECT total_tokens FROM aggregates')?.total_tokens)).toBe(12);
     } finally { await restarted.stop(); reopened.close(); }
   } finally { workspace.cleanup(); }
+});
+
+test('TC-074 管理员重新配置后可立即重试待传快照', async () => {
+  const { workspace, db, scanner } = await setup('tc074-retry');
+  const directory = path.join(workspace.root, 'server');
+  const server = new LocalServer(directory);
+  try {
+    const port = await server.start();
+    await server.stop();
+    const sync = new UsageSync(db, scanner, connection(`http://127.0.0.1:${port}`, directory));
+    await sync.afterScan();
+    expect(sync.status().pending).toBe(1);
+    expect(Number(db.one('SELECT attempts FROM sync_outbox WHERE id = 1')?.attempts)).toBe(1);
+    const restarted = new LocalServer(directory);
+    try {
+      const newPort = await restarted.start();
+      const recovered = new UsageSync(db, scanner, connection(`http://127.0.0.1:${newPort}`, directory));
+      await recovered.retryNow();
+      expect(recovered.status().pending).toBe(0);
+      expect(Number(restarted.getDatabase().one('SELECT total_tokens FROM aggregates')?.total_tokens)).toBe(12);
+    } finally { await restarted.stop(); }
+  } finally { db.close(); workspace.cleanup(); }
 });

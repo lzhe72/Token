@@ -61,6 +61,10 @@ function safeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
+function validId(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-f0-9-]{36}$/.test(value);
+}
+
 function validFeedback(value: unknown): Omit<FeedbackRecord, 'status' | 'createdAt'> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('反馈格式无效');
   const item = value as Record<string, unknown>;
@@ -184,6 +188,15 @@ export class LocalServer {
       app_version TEXT NOT NULL, platform TEXT NOT NULL,
       status TEXT NOT NULL, created_at TEXT NOT NULL
     )`);
+    this.db.run(`CREATE TABLE IF NOT EXISTS upload_devices (
+      device_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE,
+      owner_user_ids TEXT NOT NULL, active INTEGER NOT NULL,
+      updated_at TEXT NOT NULL
+    )`);
+    this.db.run(`CREATE TABLE IF NOT EXISTS upload_device_audit (
+      id TEXT PRIMARY KEY, device_id TEXT NOT NULL, action TEXT NOT NULL,
+      owner_count INTEGER NOT NULL, occurred_at TEXT NOT NULL
+    )`);
     await new Promise<void>((resolve, reject) => {
       this.server.once('error', reject);
       this.server.listen(port, host, () => { this.server.off('error', reject); resolve(); });
@@ -219,20 +232,81 @@ export class LocalServer {
     return actual.length === expected.length && timingSafeEqual(actual, expected);
   }
 
+  private uploadDevice(req: IncomingMessage): { deviceId: string; ownerUserIds: string[] } | null {
+    const bearer = req.headers.authorization?.replace(/^Bearer /, '') ?? '';
+    if (!/^[a-f0-9]{64}$/.test(bearer)) return null;
+    const hash = createHash('sha256').update(bearer).digest('hex');
+    const row = this.getDatabase().one('SELECT device_id, owner_user_ids FROM upload_devices WHERE token_hash = ? AND active = 1', [hash]);
+    if (!row) return null;
+    return { deviceId: String(row.device_id), ownerUserIds: JSON.parse(String(row.owner_user_ids)) as string[] };
+  }
+
+  private auditDevice(deviceId: string, action: string, ownerCount: number): void {
+    this.getDatabase().run('INSERT INTO upload_device_audit VALUES (?, ?, ?, ?, ?)',
+      [randomUUID(), deviceId, action, ownerCount, new Date().toISOString()]);
+  }
+
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (req.headers.origin) { send(res, 403, { error: '浏览器跨源请求不可用' }); return; }
     if (req.method === 'GET' && req.url === '/health') {
       send(res, 200, { ok: true, serverId: createHash('sha256').update(this.secret).digest('hex').slice(0, 16) }); return;
     }
     if ((req.url === '/v1/auth/check' || req.url === '/v1/update/latest' || req.url === '/v1/update/package' ||
-      req.url === '/v1/usage' || req.url === '/v1/feedback' || req.url === '/v1/admin/feedback' ||
-      req.url === '/v1/admin/feedback/status') && !this.authorized(req)) {
+      req.url === '/v1/feedback' || req.url === '/v1/admin/feedback' ||
+      req.url === '/v1/admin/feedback/status' || req.url === '/v1/admin/devices/enroll' ||
+      req.url === '/v1/admin/devices/revoke') && !this.authorized(req)) {
       send(res, 401, { error: '未授权' }); return;
     }
-    if ((req.url === '/v1/admin/feedback' || req.url === '/v1/admin/feedback/status') && !this.authorizedAdmin(req)) {
+    if ((req.url === '/v1/admin/feedback' || req.url === '/v1/admin/feedback/status' ||
+      req.url === '/v1/admin/devices/enroll' || req.url === '/v1/admin/devices/revoke') && !this.authorizedAdmin(req)) {
       send(res, 403, { error: '需要服务管理密钥' }); return;
     }
     if (req.method === 'GET' && req.url === '/v1/auth/check') { send(res, 200, { authorized: true }); return; }
+    if (req.method === 'POST' && req.url === '/v1/admin/devices/enroll') {
+      try {
+        const value = await readJson(req, 64 * 1024) as Record<string, unknown>;
+        if (!value || typeof value !== 'object' || Array.isArray(value) ||
+          Object.keys(value).some(key => !['deviceId', 'ownerUserIds', 'reactivate'].includes(key)) ||
+          !validId(value.deviceId) || !Array.isArray(value.ownerUserIds) || value.ownerUserIds.length > 1000 ||
+          value.ownerUserIds.some(id => !validId(id)) || new Set(value.ownerUserIds).size !== value.ownerUserIds.length ||
+          (value.reactivate !== undefined && typeof value.reactivate !== 'boolean')) {
+          throw new Error('invalid');
+        }
+        const deviceId = value.deviceId;
+        const ownerUserIds = [...value.ownerUserIds].sort() as string[];
+        const existing = this.getDatabase().one('SELECT active FROM upload_devices WHERE device_id = ?', [deviceId]);
+        if (existing && Number(existing.active) === 0 && value.reactivate !== true) {
+          send(res, 409, { error: '设备已撤销；需要管理员显式重新授权' }); return;
+        }
+        const token = randomBytes(32).toString('hex');
+        const hash = createHash('sha256').update(token).digest('hex');
+        this.getDatabase().transaction(() => {
+          this.getDatabase().run(`INSERT INTO upload_devices VALUES (?, ?, ?, 1, ?)
+            ON CONFLICT(device_id) DO UPDATE SET token_hash=excluded.token_hash,
+            owner_user_ids=excluded.owner_user_ids, active=1, updated_at=excluded.updated_at`,
+            [deviceId, hash, JSON.stringify(ownerUserIds), new Date().toISOString()]);
+          this.auditDevice(deviceId, existing && Number(existing.active) === 0 ? 'reactivate' : 'enroll', ownerUserIds.length);
+        });
+        send(res, 200, { token, deviceId, ownerUserIds });
+      } catch { send(res, 400, { error: '设备登记无效' }); }
+      return;
+    }
+    if (req.method === 'POST' && req.url === '/v1/admin/devices/revoke') {
+      try {
+        const value = await readJson(req, 1024) as Record<string, unknown>;
+        if (!value || typeof value !== 'object' || Array.isArray(value) ||
+          Object.keys(value).some(key => key !== 'deviceId') || !validId(value.deviceId)) throw new Error('invalid');
+        const row = this.getDatabase().one('SELECT owner_user_ids FROM upload_devices WHERE device_id = ?', [value.deviceId]);
+        if (!row) { send(res, 404, { error: '设备不存在' }); return; }
+        this.getDatabase().transaction(() => {
+          this.getDatabase().run('UPDATE upload_devices SET active = 0, updated_at = ? WHERE device_id = ?',
+            [new Date().toISOString(), value.deviceId as string]);
+          this.auditDevice(value.deviceId as string, 'revoke', (JSON.parse(String(row.owner_user_ids)) as string[]).length);
+        });
+        send(res, 200, { revoked: true });
+      } catch { send(res, 400, { error: '设备撤销无效' }); }
+      return;
+    }
     if (req.method === 'GET' && req.url === '/v1/update/latest') {
       try {
         const manifest = readManifest(this.directory);
@@ -294,6 +368,8 @@ export class LocalServer {
       return;
     }
     if (req.method === 'POST' && req.url === '/v1/usage') {
+      const uploadDevice = this.uploadDevice(req);
+      if (!uploadDevice) { send(res, 401, { error: '设备上报凭证无效' }); return; }
       const chunks: Buffer[] = [];
       let bytes = 0;
       for await (const chunk of req) {
@@ -304,12 +380,21 @@ export class LocalServer {
       let snapshot: UsageSnapshot;
       try { snapshot = validateSnapshot(JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
       catch { send(res, 400, { error: '快照格式无效' }); return; }
+      const allowedOwners = new Set(uploadDevice.ownerUserIds);
+      if (snapshot.deviceId !== uploadDevice.deviceId || snapshot.rows.some(row => !allowedOwners.has(row.ownerUserId))) {
+        send(res, 403, { error: '设备或用户归属超出授权范围' }); return;
+      }
       const db = this.getDatabase();
       const previous = Number(db.one('SELECT revision FROM device_revisions WHERE device_id = ?', [snapshot.deviceId])?.revision ?? -1);
       if (snapshot.revision < previous) { send(res, 409, { error: '旧版快照', currentRevision: previous }); return; }
       if (snapshot.revision === previous) { send(res, 200, { accepted: true, duplicate: true }); return; }
       db.transaction(() => {
-        for (const provider of snapshot.providers) db.run('DELETE FROM aggregates WHERE device_id = ? AND provider = ?', [snapshot.deviceId, provider]);
+        for (const provider of snapshot.providers) {
+          for (const ownerUserId of uploadDevice.ownerUserIds) {
+            db.run('DELETE FROM aggregates WHERE device_id = ? AND provider = ? AND owner_user_id = ?',
+              [snapshot.deviceId, provider, ownerUserId]);
+          }
+        }
         for (const coverage of snapshot.coverage) db.run(`INSERT INTO source_coverage VALUES (?, ?, ?, ?, ?)
           ON CONFLICT(device_id, provider) DO UPDATE SET status=excluded.status, last_scan=excluded.last_scan, revision=excluded.revision`,
           [snapshot.deviceId, coverage.provider, coverage.status, coverage.lastScan, snapshot.revision]);

@@ -99,7 +99,8 @@ export class UsageSync {
       const previous = prior ? JSON.parse(String(prior.payload)) as UsageSnapshot : null;
       const mergedProviders = [...new Set([...(previous?.providers ?? []), ...providers])];
       const currentRows = this.aggregate(providers);
-      const retainedRows = previous?.rows.filter(row => !providers.includes(row.provider)) ?? [];
+      const activeOwners = new Set(this.db.all('SELECT id FROM users WHERE active = 1').map(user => String(user.id)));
+      const retainedRows = previous?.rows.filter(row => !providers.includes(row.provider) && activeOwners.has(row.ownerUserId)) ?? [];
       const revision = exact(Math.max(Number(this.db.one("SELECT value FROM sync_meta WHERE key = 'revision'")?.value ?? 0) + 1, Date.now()));
       const coverage: UsageSnapshot['coverage'] = statuses.map(status => ({
         provider: status.provider, status: status.status === 'scanning' ? 'idle' : status.status,
@@ -124,6 +125,12 @@ export class UsageSync {
     return this.sending;
   }
 
+  async retryNow(): Promise<void> {
+    if (this.sending) await this.sending;
+    this.db.run('UPDATE sync_outbox SET attempts = 0 WHERE id = 1');
+    await this.flush();
+  }
+
   private async sendPending(): Promise<void> {
     const row = this.db.one('SELECT payload, attempts FROM sync_outbox WHERE id = 1');
     if (!row) return;
@@ -132,12 +139,12 @@ export class UsageSync {
     const delay = Math.min(10 * 60_000, 30_000 * 2 ** Math.min(attempts, 5));
     if (attempts > 0 && lastAttempt && Date.now() - Date.parse(String(lastAttempt)) < delay) return;
     const payload = String(row.payload);
-    const revision = (JSON.parse(payload) as UsageSnapshot).revision;
+    const snapshot = JSON.parse(payload) as UsageSnapshot;
+    const revision = snapshot.revision;
+    const ownerUserIds = this.db.all('SELECT id FROM users WHERE active = 1').map(user => String(user.id));
     this.setMeta('last_attempt', new Date().toISOString());
     try {
-      const response = await this.connection.request('/v1/usage', {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: payload
-      }, 10000);
+      const response = await this.connection.uploadUsage(payload, this.deviceId, ownerUserIds);
       if (response.status === 409) {
         const body = await response.json() as { currentRevision?: number };
         if (Number.isSafeInteger(body.currentRevision) && Number(body.currentRevision) >= revision) {
@@ -147,7 +154,9 @@ export class UsageSync {
           return;
         }
       }
-      if (!response.ok) throw new Error(`服务端拒绝上报 (${response.status})`);
+      if (!response.ok) throw new Error(response.status === 401
+        ? '设备上报凭证失效；请由管理员在系统设置中重新保存服务器连接'
+        : `服务端拒绝上报 (${response.status})`);
       this.db.transaction(() => {
         const current = this.db.one('SELECT payload FROM sync_outbox WHERE id = 1');
         if (current && (JSON.parse(String(current.payload)) as UsageSnapshot).revision === revision) this.db.run('DELETE FROM sync_outbox WHERE id = 1');

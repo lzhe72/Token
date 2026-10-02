@@ -168,9 +168,10 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
     currentUser(event, auth);
     return server.status();
   });
-  ipcMain.handle('server:configure', (event, url: unknown, token: unknown, adminToken: unknown) => {
+  ipcMain.handle('server:configure', async (event, url: unknown, token: unknown, adminToken: unknown) => {
     requireAdmin(event, auth);
     server.setConfiguration(url, token, adminToken);
+    await sync.retryNow();
     return server.status();
   });
   ipcMain.handle('sync:status', event => {

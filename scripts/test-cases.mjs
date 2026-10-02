@@ -76,13 +76,19 @@ const cases = [
   ['TC-070', 'unit', 'tests/m6-roles.test.ts', 'TC-070 旧库 admin 冲突显式处理且保留账号 ID 和哈希', '旧库迁移'],
   ['TC-071', 'e2e', 'tests/e2e/m6-admin.spec.ts', 'TC-071 固定 admin 创建管理员与普通用户且角色边界生效', '超级管理员界面'],
   ['TC-072', 'manual', '目标 Mac 文件权限授予与撤销', '使用独立测试账户及专用数据库，先拒绝 Token 读取会话目录并截图采集诊断未知状态；在系统设置手动授予完全磁盘访问权限，重启并重新扫描，截图恢复状态；再次撤销并确认回到未知。记录 macOS 版本、授权范围、命令和脱敏证据。'],
-  ['TC-073', 'unit', 'tests/collector-fallback.test.ts', 'TC-073 Codex fallback 跨扫描替换与旧库修复保持幂等', 'Codex fallback 跨扫描归并']
+  ['TC-073', 'unit', 'tests/collector-fallback.test.ts', 'TC-073 Codex fallback 跨扫描替换与旧库修复保持幂等', 'Codex fallback 跨扫描归并'],
+  ['TC-074', 'unit', 'tests/server-ownership.test.ts', 'TC-074 聚合上报拒绝跨设备跨用户覆盖并保留原快照', '聚合上报设备与用户归属授权回归']
 ];
 const extraRuns = {
   'TC-030': [{ kind: 'e2e', file: 'tests/e2e/trust.spec.ts', testName: 'TC-030 应用重启自动登录并在退出后撤销' }],
   'TC-038': [{ kind: 'e2e', file: 'tests/e2e/upload.spec.ts', testName: 'TC-038 应用扫描后自动上报到独立本机服务' }],
   'TC-010': [{ kind: app[0], file: app[1], testName: app[2] }],
   'TC-017': [{ kind: collector[0], file: collector[1], testName: '空目录、错误字段及不可读文件显示可辨认的状态' }],
+  'TC-074': [
+    { kind: 'unit', file: 'tests/server-ownership.test.ts', testName: 'TC-074 客户端加密保存设备令牌且撤销后须显式重新登记' },
+    { kind: 'unit', file: 'tests/next-sync.test.ts', testName: 'TC-074 管理员重新配置后可立即重试待传快照' }
+  ],
+  'TC-047': [{ kind: 'unit', file: 'tests/next-server.test.ts', testName: 'TC-047 非回环 HTTPS 监听仍执行清单与上报鉴权' }],
   'TC-021': [
     { kind: app[0], file: app[1], testName: app[2] },
     { kind: 'unit', file: 'tests/report-pagination.test.ts', testName: 'TC-021 明细翻页不漏记录且筛选和用户权限贯穿每页' },

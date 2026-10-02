@@ -28,15 +28,18 @@ export class ServerConnection {
   private child: ChildProcess | null = null;
   private url: string;
   private error: string | null = null;
+  private allowReactivation = false;
   private readonly configFile: string;
   private readonly secretFile: string;
   private readonly adminSecretFile: string;
+  private readonly usageCredentialFile: string;
   private readonly serverDirectory: string;
 
   constructor(private readonly userData: string, private readonly cipher: SecretCipher) {
     this.configFile = path.join(userData, 'server-connection.json');
     this.secretFile = path.join(userData, 'server-access.secret');
     this.adminSecretFile = path.join(userData, 'server-admin-access.secret');
+    this.usageCredentialFile = path.join(userData, 'server-usage-device.json');
     this.serverDirectory = path.join(userData, 'server');
     try {
       const saved = JSON.parse(fs.readFileSync(this.configFile, 'utf8')) as { url: string };
@@ -89,10 +92,23 @@ export class ServerConnection {
     const url = validUrl(inputUrl);
     if (inputToken && (!/^[a-f0-9]{64}$/.test(inputToken) || !this.cipher.isEncryptionAvailable())) throw new Error('服务密钥无效或安全存储不可用');
     if (inputAdminToken && (!/^[a-f0-9]{64}$/.test(inputAdminToken) || !this.cipher.isEncryptionAvailable())) throw new Error('服务管理密钥无效或安全存储不可用');
+    const clear = (file: string) => {
+      try { fs.unlinkSync(file); } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+    };
+    if (url !== this.url) {
+      if (!inputToken) clear(this.secretFile);
+      if (!inputAdminToken) clear(this.adminSecretFile);
+    }
     const savedUrl = url === this.url && this.child ? `http://127.0.0.1:${DEFAULT_PORT}` : url;
     fs.writeFileSync(this.configFile, JSON.stringify({ url: savedUrl }), { mode: 0o600 });
     if (inputToken) fs.writeFileSync(this.secretFile, this.cipher.encryptString(inputToken), { mode: 0o600 });
     if (inputAdminToken) fs.writeFileSync(this.adminSecretFile, this.cipher.encryptString(inputAdminToken), { mode: 0o600 });
+    // Saving the connection is an explicit administrator action. The next upload
+    // must obtain a fresh credential for this service and its current user scope.
+    clear(this.usageCredentialFile);
+    this.allowReactivation = true;
     this.url = url;
     this.error = null;
   }
@@ -118,6 +134,43 @@ export class ServerConnection {
     const headers = new Headers(init.headers);
     headers.set('x-token-admin', adminToken);
     return this.request(endpoint, { ...init, headers }, timeout);
+  }
+
+  private async usageToken(deviceId: string, ownerUserIds: string[]): Promise<string> {
+    if (!this.cipher.isEncryptionAvailable()) throw new Error('设备上报需要系统安全存储');
+    const owners = [...new Set(ownerUserIds)].sort();
+    const scope = JSON.stringify(owners);
+    try {
+      const stored = JSON.parse(fs.readFileSync(this.usageCredentialFile, 'utf8')) as {
+        url: string; deviceId: string; scope: string; token: string
+      };
+      if (stored.url === this.url && stored.deviceId === deviceId && stored.scope === scope) {
+        const token = this.cipher.decryptString(Buffer.from(stored.token, 'base64'));
+        if (/^[a-f0-9]{64}$/.test(token)) return token;
+      }
+    } catch { /* missing or invalid credential requires administrator registration */ }
+    const response = await this.adminRequest('/v1/admin/devices/enroll', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ deviceId, ownerUserIds: owners, reactivate: this.allowReactivation })
+    });
+    if (!response.ok) throw new Error(`设备上报登记失败 (${response.status})`);
+    const body = await response.json() as { token?: unknown; deviceId?: unknown; ownerUserIds?: unknown };
+    if (body.deviceId !== deviceId || !Array.isArray(body.ownerUserIds) ||
+      JSON.stringify(body.ownerUserIds) !== scope || typeof body.token !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(body.token)) throw new Error('设备上报凭证无效');
+    const encrypted = this.cipher.encryptString(body.token);
+    const temp = `${this.usageCredentialFile}.tmp`;
+    fs.writeFileSync(temp, JSON.stringify({ url: this.url, deviceId, scope, token: encrypted.toString('base64') }), { mode: 0o600 });
+    fs.renameSync(temp, this.usageCredentialFile);
+    this.allowReactivation = false;
+    return body.token;
+  }
+
+  async uploadUsage(payload: string, deviceId: string, ownerUserIds: string[], timeout = 10000): Promise<Response> {
+    const token = await this.usageToken(deviceId, ownerUserIds);
+    return fetch(`${this.url}/v1/usage`, { method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: payload, signal: AbortSignal.timeout(timeout) });
   }
 
   private async pingOwned(): Promise<boolean> {

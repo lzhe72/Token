@@ -77,6 +77,7 @@ test('TC-047 上报接口鉴权和字段白名单', async () => {
     const port = await server.start();
     const url = `http://127.0.0.1:${port}/v1/usage`;
     const secret = fs.readFileSync(path.join(directory, 'server.secret'), 'utf8');
+    const adminSecret = fs.readFileSync(path.join(directory, 'server-admin.secret'), 'utf8');
     const snapshot: UsageSnapshot = { deviceId: randomUUID(), revision: 1, providers: ['codex'], coverage: [
       { provider: 'codex', status: 'ready', lastScan: '2026-10-02T00:00:00Z' },
       { provider: 'claude', status: 'not_found', lastScan: null }
@@ -86,13 +87,19 @@ test('TC-047 上报接口鉴权和字段白名单', async () => {
     }] };
     const post = (token: string, body: unknown) => fetch(url, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
     expect((await post('bad', snapshot)).status).toBe(401);
+    expect((await post(secret, snapshot)).status).toBe(401);
     expect((await fetch(`http://127.0.0.1:${port}/v1/auth/check`, { headers: { authorization: 'Bearer bad' } })).status).toBe(401);
     expect((await fetch(`http://127.0.0.1:${port}/v1/auth/check`, { headers: { authorization: `Bearer ${secret}` } })).status).toBe(200);
-    expect((await post(secret, { ...snapshot, rows: [{ ...snapshot.rows[0], prompt: 'secret' }] })).status).toBe(400);
+    const registration = await fetch(`http://127.0.0.1:${port}/v1/admin/devices/enroll`, { method: 'POST',
+      headers: { authorization: `Bearer ${secret}`, 'x-token-admin': adminSecret, 'content-type': 'application/json' },
+      body: JSON.stringify({ deviceId: snapshot.deviceId, ownerUserIds: [snapshot.rows[0].ownerUserId] }) });
+    expect(registration.ok).toBe(true);
+    const token = (await registration.json() as { token: string }).token;
+    expect((await post(token, { ...snapshot, rows: [{ ...snapshot.rows[0], prompt: 'secret' }] })).status).toBe(400);
     expect(Number(server.getDatabase().one('SELECT COUNT(*) AS count FROM aggregates')?.count)).toBe(0);
-    expect((await post(secret, snapshot)).status).toBe(200);
+    expect((await post(token, snapshot)).status).toBe(200);
     expect(Number(server.getDatabase().one('SELECT COUNT(*) AS count FROM aggregates')?.count)).toBe(1);
-    expect((await fetch(url, { method: 'POST', headers: { authorization: `Bearer ${secret}`, origin: 'https://example.com' }, body: JSON.stringify(snapshot) })).status).toBe(403);
+    expect((await fetch(url, { method: 'POST', headers: { authorization: `Bearer ${token}`, origin: 'https://example.com' }, body: JSON.stringify(snapshot) })).status).toBe(403);
     const client = new ServerConnection(workspace.root, {
       isEncryptionAvailable: () => true,
       encryptString: value => Buffer.from(value),
@@ -102,6 +109,63 @@ test('TC-047 上报接口鉴权和字段白名单', async () => {
     client.setConfiguration('https://192.168.1.12:47839', secret);
     expect(client.getUrl()).toBe('https://192.168.1.12:47839');
   } finally { await server.stop(); workspace.cleanup(); }
+});
+
+test('TC-047 非回环 HTTPS 监听仍执行清单与上报鉴权', async () => {
+  const workspace = createTestWorkspace('tc047-https-auth');
+  const directory = path.join(workspace.root, 'server');
+  const key = path.join(workspace.root, 'test.key');
+  const cert = path.join(workspace.root, 'test.crt');
+  execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key,
+    '-out', cert, '-subj', '/CN=localhost', '-days', '1'], { stdio: 'ignore' });
+  fixture(directory);
+  const server = new LocalServer(directory, { key: fs.readFileSync(key), cert: fs.readFileSync(cert) });
+  let started = false;
+  try {
+    const port = await server.start(0, '0.0.0.0');
+    started = true;
+    const secret = fs.readFileSync(path.join(directory, 'server.secret'), 'utf8').trim();
+    const adminSecret = fs.readFileSync(path.join(directory, 'server-admin.secret'), 'utf8').trim();
+    const request = (endpoint: string, token: string, method = 'GET', body?: unknown, adminToken?: string) =>
+      new Promise<{ status: number; body: string }>((resolve, reject) => {
+        const payload = body === undefined ? '' : JSON.stringify(body);
+        const headers: Record<string, string> = { authorization: `Bearer ${token}` };
+        if (body !== undefined) headers['content-type'] = 'application/json';
+        if (adminToken) headers['x-token-admin'] = adminToken;
+        const client = https.request({ hostname: '127.0.0.1', port, path: endpoint, method,
+          rejectUnauthorized: false, headers }, response => {
+          const chunks: Buffer[] = [];
+          response.on('data', chunk => chunks.push(Buffer.from(chunk)));
+          response.on('end', () => resolve({ status: response.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }));
+        });
+        client.on('error', reject);
+        client.end(payload);
+      });
+    expect((await request('/v1/update/latest', 'bad')).status).toBe(401);
+    expect((await request('/v1/update/package', 'bad')).status).toBe(401);
+    expect((await request('/v1/update/latest', secret)).status).toBe(200);
+    expect((await request('/v1/update/package', secret)).status).toBe(200);
+    const deviceId = randomUUID();
+    const ownerUserId = randomUUID();
+    const body = { deviceId, revision: 1, providers: ['codex'], coverage: [
+      { provider: 'codex', status: 'ready', lastScan: '2026-10-02T00:00:00Z' },
+      { provider: 'claude', status: 'not_found', lastScan: null }
+    ], rows: [{ ownerUserId, day: '2026-10-02', provider: 'codex', model: 'gpt-test',
+      inputTokens: 12, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 12, requests: 1 }] };
+    expect((await request('/v1/admin/devices/enroll', secret, 'POST', { deviceId, ownerUserIds: [ownerUserId] }, 'bad')).status).toBe(403);
+    const registered = await request('/v1/admin/devices/enroll', secret, 'POST', { deviceId, ownerUserIds: [ownerUserId] }, adminSecret);
+    expect(registered.status).toBe(200);
+    const token = (JSON.parse(registered.body) as { token: string }).token;
+    expect((await request('/v1/usage', secret, 'POST', body)).status).toBe(401);
+    expect((await request('/v1/usage', token, 'POST', body)).status).toBe(200);
+    const original = server.getDatabase().all('SELECT * FROM aggregates');
+    expect((await request('/v1/usage', token, 'POST', { ...body, revision: 2,
+      rows: [{ ...body.rows[0], ownerUserId: randomUUID(), totalTokens: 99 }] })).status).toBe(403);
+    expect(server.getDatabase().all('SELECT * FROM aggregates')).toEqual(original);
+  } finally {
+    try { if (started) await server.stop(); }
+    finally { workspace.cleanup(); }
+  }
 });
 
 export { fixture };

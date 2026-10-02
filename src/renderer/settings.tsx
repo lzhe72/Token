@@ -44,7 +44,7 @@ export function SettingsPanel(props: Props) {
     </div>
     {admin && <>
       <section className="panel"><div className="panel-head"><h2>服务器与自动上报</h2><span>{props.server?.online ? '已连接' : '未连接'}</span></div>
-        <p className="hint">默认连接 127.0.0.1，可改为其他服务器。每次扫描后上报已归属的聚合用量，定时扫描间隔为 10 分钟；不会上传会话正文、文件路径或密钥。</p>
+        <p className="hint">默认连接 127.0.0.1，可改为其他服务器。每次扫描后上报已归属的聚合用量，定时扫描间隔为 10 分钟；上报内容不含会话正文、文件路径或配置密钥。连接远端服务时，首次登记或调整设备授权范围需填写服务管理密钥。</p>
         <form className="server-form" onSubmit={props.saveServer}>
           <label>服务器地址<input aria-label="服务器地址" value={props.serverUrl} onChange={e => props.setServerUrl(e.target.value)} placeholder="http://127.0.0.1:47839" /></label>
           <label>访问密钥<input aria-label="服务器访问密钥" type="password" value={props.serverToken} onChange={e => props.setServerToken(e.target.value)} placeholder="更换时填写" /></label>
