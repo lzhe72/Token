@@ -432,3 +432,35 @@ xcrun stapler validate release/mac/Token.app
 | TC-049 | `tests/e2e/trend.spec.ts` | ISO 跨年周周一标签、月标签及点击明细行数；其他时区和长期跨度需另验。 |
 
 上述限制是后续补测清单，不把未覆盖部分写成已通过。`TC-027` 的本机安装验收和 `TC-028` 的外部分发验收仍按各自人工证据独立判定。
+
+## M6 待注册验收计划（TC-050–TC-072）
+
+以下是**待开发、待注册、待验证**的验收规格，不是运行结果。每条计划命令为 `npm run test:case -- TC-###`，现有 `scripts/test-cases.mjs` 尚未注册这些编号，不能执行为通过。自动用例预定以 `tests/support/test-workspace.ts` 为每个 TC 建立独立的 `token-test-db-tc###-*` 临时目录及 `token.sqlite`；Electron 的 `--token-user-data` 指向同一专用目录，服务端使用该目录与随机端口，结束清理。**每个编号分配自己的数据库，即使测试文件共用，也不共享状态**。TC-072 用独立测试用户数据目录和真实目标 Mac 操作，保存脱敏人工证据。所有反馈/诊断样本只用人工合成数据。
+
+| 用例／关联 | 独立前置与操作 | 预期和证据重点 | 计划绑定 |
+| --- | --- | --- | --- |
+| TC-050／REQ-031 DEV-034 | 专用库中放有 cwd 与缺 cwd 的 Codex 合成会话并扫描 | 正确项目归属，缺 cwd 为未知；不读取目录内容 | `tests/m6-project.test.ts` |
+| TC-051／REQ-031 DEV-034 | 专用库中放有 cwd、缺 cwd 与子代理的 Claude 合成会话 | 同会话归属一致，子代理不误归其他项目 | `tests/m6-project.test.ts` |
+| TC-052／REQ-031 DEV-035 | 两个绝对路径同名项目，截取聚合、反馈、诊断外发 | 项目区分；外发无完整路径、项目 ID/别名；旧事实保持未知 | `tests/m6-project.test.ts` |
+| TC-053／REQ-032 DEV-036 | 多用户、项目、模型、时区及未知项目事实 | 授权聚合与事实求和一致；无越权；未知单列 | `tests/m6-report.test.ts` |
+| TC-054／REQ-032 DEV-037 | Electron 在专用用户数据中切换项目、模型、趋势和下钻 | 筛选继承且排行/明细相符，无跨项目串数 | `tests/e2e/m6-analysis.spec.ts` |
+| TC-055／REQ-032 DEV-036 | 同一筛选导出 CSV，含未知项目和跨年周 | 页面/CSV 分类及总量一致，防公式注入且无路径 | `tests/m6-report.test.ts` |
+| TC-056／REQ-033 DEV-038 | Electron 打开长报表，只滚动右侧内容 | 侧栏不移动，焦点及操作可见 | `tests/e2e/m6-shell.spec.ts` |
+| TC-057／REQ-033 DEV-038 | 宽窄窗口切换页面和下钻路径 | 无遮挡/不可达控件；面包屑与状态一致且可回退 | `tests/e2e/m6-shell.spec.ts` |
+| TC-058／REQ-034 DEV-039 | 登录后不滚动概览查找更新入口 | 在明显导航/设置位置可发现 | `tests/e2e/m6-update.spec.ts` |
+| TC-059／REQ-034 DEV-039 | 模拟同版、新版、中断、摘要错误与重试 | 状态准确；坏包不打开；旧版可用 | `tests/e2e/m6-update.spec.ts` |
+| TC-060／REQ-035 DEV-040 | 用超管、管理员、查看者进入集中设置并调用 IPC | 分组完整；无权修改在主进程拒绝 | `tests/e2e/m6-settings.spec.ts` |
+| TC-061／REQ-035 DEV-040 | 合成无权限目录，再恢复可读 | 指向具体来源与手动授权/重试；不自动提权 | `tests/e2e/m6-settings.spec.ts` |
+| TC-062／REQ-036 DEV-041 | 构造目录缺失、解析错、游标停滞、未归属和重复 | 指出漏采环节与最后成功；未知不当零 | `tests/m6-diagnostics.test.ts` |
+| TC-063／REQ-036 DEV-041 | 合成路径、正文和密钥样式字段，按角色索取摘要 | 外发/日志脱敏；普通用户仅看授权来源 | `tests/m6-diagnostics.test.ts` |
+| TC-064／REQ-037 DEV-042 | 反馈预览后显式提交，输入含敏感样式 | 仅白名单上传；未经确认不上传；敏感字段不外传 | `tests/m6-feedback.test.ts` |
+| TC-065／REQ-037 DEV-043 | 临时服务随机端口，测试无凭证、停服及重复提交 | 未授权拒绝；恢复后幂等入库且状态可见 | `tests/m6-feedback.test.ts` |
+| TC-066／REQ-038 DEV-044 | 多用户反馈以三类角色进入管理界面/IPC | 管理员按授权查看；查看者无管理读取 | `tests/e2e/m6-admin.spec.ts` |
+| TC-067／REQ-038 DEV-044 | 专用库有启停账号及正常/异常来源 | 账号角色、启停、来源状态准确且不越权 | `tests/e2e/m6-admin.spec.ts` |
+| TC-068／REQ-039 DEV-045 | 空库初始化并重新初始化 | 首建固定 `admin`，库角色 `admin`、对外 `superadmin`；重复拒绝 | `tests/m6-roles.test.ts` |
+| TC-069／REQ-039 DEV-046 | 固定账号、普通管理员、查看者分别操作账号 | 仅固定账号派生超管；其他管理员保留旧创建权限但不能停用/重置固定账号 | `tests/m6-roles.test.ts` |
+| TC-070／REQ-039 DEV-045 | 复制合成旧库：已有 admin 管理员、无 admin、admin 为 viewer、迁移失败 | 正确兼容；冲突不静默升权；ID/哈希/归属不变；失败可回退 | `tests/m6-roles.test.ts` |
+| TC-071／REQ-039 DEV-046 | 固定账号创建管理员/查看者，其他角色试超管操作 | 角色和管理边界正确；如提供审计查看则仅超管可见 | `tests/e2e/m6-admin.spec.ts` |
+| TC-072／REQ-035 DEV-040 | 目标 Mac 的独立测试账户先拒绝再手动授予文件访问权限 | 指引可执行、重试后恢复；无权限时未知且不越权 | 人工清单，需目标 Mac 脱敏证据 |
+
+运行器注册时必须为每个编号绑定对应 `test('TC-### ...')` 或 TC-072 的人工清单，并核对单编号命令只运行该编号断言。提交、日期、系统版本、命令、退出码、截图/日志位置、失败复现与处理写入验收证据；未执行时工作簿保持“待验证（计划）”。
