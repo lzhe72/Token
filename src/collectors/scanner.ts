@@ -15,6 +15,7 @@ const MAX_LINE_SIZE = 32 * 1024 * 1024;
 interface Cursor {
   fileId: string;
   offset: number;
+  tailHash: string;
   state: ParserState;
 }
 
@@ -84,6 +85,16 @@ function hashPath(file: string): string {
   return createHash('sha256').update(file).digest('hex').slice(0, 24);
 }
 
+async function tailHash(file: string, offset: number): Promise<string> {
+  if (offset === 0) return '';
+  const length = Math.min(4096, offset);
+  const buffer = Buffer.alloc(length);
+  const handle = await fsp.open(file, 'r');
+  try { await handle.read(buffer, 0, length, offset - length); }
+  finally { await handle.close(); }
+  return createHash('sha256').update(buffer).digest('hex');
+}
+
 export class UsageScanner {
   private current: Promise<void> | null = null;
   private scanning = new Set<Provider>();
@@ -119,6 +130,7 @@ export class UsageScanner {
         file_id TEXT NOT NULL,
         byte_offset INTEGER NOT NULL,
         state_json TEXT NOT NULL,
+        tail_hash TEXT NOT NULL DEFAULT '',
         updated_at TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS source_status (
@@ -130,6 +142,9 @@ export class UsageScanner {
         detail TEXT
       );
     `);
+    if (!db.all('PRAGMA table_info(source_cursors)').some(row => row.name === 'tail_hash')) {
+      db.run("ALTER TABLE source_cursors ADD COLUMN tail_hash TEXT NOT NULL DEFAULT ''");
+    }
   }
 
   start(): void {
@@ -140,6 +155,10 @@ export class UsageScanner {
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+  }
+
+  async waitIdle(): Promise<void> {
+    if (this.current) await this.current;
   }
 
   scan(): Promise<void> {
@@ -187,13 +206,15 @@ export class UsageScanner {
   private async scanFile(provider: Provider, file: string): Promise<{ malformed: number; oversized: number }> {
     const stat = await fsp.stat(file);
     const fileId = `${stat.dev}:${stat.ino}`;
-    const row = this.db.one('SELECT file_id, byte_offset, state_json FROM source_cursors WHERE file_path = ?', [file]);
+    const row = this.db.one('SELECT file_id, byte_offset, state_json, tail_hash FROM source_cursors WHERE file_path = ?', [file]);
     const cursor: Cursor | null = row ? {
       fileId: String(row.file_id),
       offset: Number(row.byte_offset),
+      tailHash: String(row.tail_hash),
       state: JSON.parse(String(row.state_json)) as ParserState
     } : null;
-    const reset = !cursor || cursor.fileId !== fileId || stat.size < cursor.offset;
+    const reset = !cursor || cursor.fileId !== fileId || stat.size < cursor.offset ||
+      (cursor.offset > 0 && cursor.tailHash !== await tailHash(file, cursor.offset));
     const state: ParserState = reset ? {} : cursor.state;
     const start = reset ? 0 : cursor.offset;
     if (stat.size === start) return { malformed: 0, oversized: 0 };
@@ -227,13 +248,14 @@ export class UsageScanner {
     if (provider === 'codex' && !state.hasUsageRecords) {
       for (const fact of fallback) facts.set(fact.sourceKey, fact);
     }
+    const committedTailHash = await tailHash(file, result.offset);
     this.db.transaction(() => {
       for (const fact of facts.values()) this.upsertFact(fact);
-      this.db.run(`INSERT INTO source_cursors(file_path, provider, file_id, byte_offset, state_json, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+      this.db.run(`INSERT INTO source_cursors(file_path, provider, file_id, byte_offset, state_json, tail_hash, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(file_path) DO UPDATE SET provider=excluded.provider, file_id=excluded.file_id,
-        byte_offset=excluded.byte_offset, state_json=excluded.state_json, updated_at=excluded.updated_at`,
-        [file, provider, fileId, result.offset, JSON.stringify(state), new Date().toISOString()]);
+        byte_offset=excluded.byte_offset, state_json=excluded.state_json, tail_hash=excluded.tail_hash, updated_at=excluded.updated_at`,
+        [file, provider, fileId, result.offset, JSON.stringify(state), committedTailHash, new Date().toISOString()]);
     });
     return { malformed, oversized: result.oversized };
   }
@@ -253,7 +275,7 @@ export class UsageScanner {
   }
 
   private saveStatus(provider: Provider, status: SourceStatus['status'], fileCount: number, detail: string | null): void {
-    const factCount = Number(this.db.one('SELECT COUNT(*) AS count FROM usage_facts WHERE provider = ?', [provider])?.count ?? 0);
+    const factCount = Number(this.db.one("SELECT COUNT(*) AS count FROM usage_facts WHERE provider = ? AND source_key NOT LIKE 'otel:%'", [provider])?.count ?? 0);
     this.db.run(`INSERT INTO source_status VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(provider) DO UPDATE SET status=excluded.status, file_count=excluded.file_count,
       fact_count=excluded.fact_count, last_scan=excluded.last_scan, detail=excluded.detail`,
@@ -263,13 +285,20 @@ export class UsageScanner {
   statuses(): SourceStatus[] {
     return (['codex', 'claude'] as const).map(provider => {
       const row = this.db.one('SELECT * FROM source_status WHERE provider = ?', [provider]);
+      const telemetry = this.db.one("SELECT COUNT(*) AS count, MAX(occurred_at) AS latest FROM usage_facts WHERE provider = ? AND source_key LIKE 'otel:%'", [provider]);
+      const telemetryFactCount = Number(telemetry?.count ?? 0);
+      const localStatus = row?.status as SourceStatus['status'] ?? 'idle';
       return {
         provider,
-        status: this.scanning.has(provider) ? 'scanning' : (row?.status as SourceStatus['status'] ?? 'idle'),
+        status: this.scanning.has(provider) ? 'scanning' : telemetryFactCount > 0 && localStatus === 'not_found' ? 'ready' : localStatus,
         fileCount: Number(row?.file_count ?? 0),
         factCount: Number(row?.fact_count ?? 0),
+        telemetryFactCount,
+        lastTelemetry: telemetry?.latest ? String(telemetry.latest) : null,
         lastScan: row?.last_scan ? String(row.last_scan) : null,
-        detail: row?.detail ? String(row.detail) : null
+        detail: telemetryFactCount > 0 && localStatus === 'not_found'
+          ? '本地目录未找到；已收到遥测数据'
+          : row?.detail ? String(row.detail) : null
       };
     });
   }

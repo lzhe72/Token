@@ -5,11 +5,13 @@ import { AppDatabase } from './database';
 import { AuthService } from './auth';
 import { UsageScanner } from '../collectors/scanner';
 import { ReportService } from './report';
+import { TelemetryReceiver } from './telemetry';
 import type { PublicUser } from '../shared/types';
 
 let mainWindow: BrowserWindow | null = null;
 let database: AppDatabase | null = null;
 let scanner: UsageScanner | null = null;
+let telemetry: TelemetryReceiver | null = null;
 const sessions = new Map<number, string>();
 
 function checkSender(event: Electron.IpcMainInvokeEvent): void {
@@ -35,7 +37,7 @@ function requireAdmin(event: Electron.IpcMainInvokeEvent, auth: AuthService): Pu
   return user;
 }
 
-function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportService): void {
+function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportService, receiver: TelemetryReceiver, db: AppDatabase): void {
   ipcMain.handle('auth:state', event => {
     checkSender(event);
     const id = sessions.get(event.sender.id);
@@ -91,6 +93,55 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
     const actor = requireAdmin(event, auth);
     sources.bindIdentity(key, userId, actor.id);
   });
+  ipcMain.handle('telemetry:configuration', event => {
+    requireAdmin(event, auth);
+    return receiver.configuration();
+  });
+  ipcMain.handle('data:backup', async event => {
+    requireAdmin(event, auth);
+    if (!mainWindow) throw new Error('窗口已关闭');
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: '备份 Token 数据库', defaultPath: 'Token-backup.sqlite',
+      filters: [{ name: 'SQLite 数据库', extensions: ['sqlite'] }]
+    });
+    if (result.canceled || !result.filePath) return false;
+    const liveFile = path.join(app.getPath('userData'), 'token.sqlite');
+    if (path.resolve(result.filePath) === path.resolve(liveFile)) throw new Error('不能覆盖正在使用的数据库');
+    db.backupTo(result.filePath);
+    return true;
+  });
+  ipcMain.handle('data:restore', async event => {
+    requireAdmin(event, auth);
+    if (!mainWindow) throw new Error('窗口已关闭');
+    const selected = await dialog.showOpenDialog(mainWindow, {
+      title: '选择 Token 数据库备份', properties: ['openFile'],
+      filters: [{ name: 'SQLite 数据库', extensions: ['sqlite'] }]
+    });
+    if (selected.canceled || !selected.filePaths[0]) return false;
+    const source = selected.filePaths[0];
+    const liveFile = path.join(app.getPath('userData'), 'token.sqlite');
+    if (path.resolve(source) === path.resolve(liveFile)) throw new Error('备份文件不能是当前数据库');
+    await AppDatabase.validateBackup(source);
+    const answer = await dialog.showMessageBox(mainWindow, {
+      type: 'warning', buttons: ['取消', '恢复并重启'], defaultId: 0, cancelId: 0,
+      message: '恢复备份会替换当前账户和用量数据。',
+      detail: '应用会先保留当前数据库副本，然后重启。请确认已选择正确的备份文件。'
+    });
+    if (answer.response !== 1) return false;
+    const staged = `${liveFile}.restore.tmp`;
+    fs.copyFileSync(source, staged);
+    fs.chmodSync(staged, 0o600);
+    receiver.stop();
+    sources.stop();
+    await sources.waitIdle();
+    db.close();
+    fs.copyFileSync(liveFile, `${liveFile}.before-restore`);
+    fs.chmodSync(`${liveFile}.before-restore`, 0o600);
+    fs.renameSync(staged, liveFile);
+    app.relaunch({ args: process.argv.slice(1) });
+    setImmediate(() => app.exit(0));
+    return true;
+  });
   ipcMain.handle('usage:query', (event, query: unknown) => {
     const actor = currentUser(event, auth);
     return reports.query(query, actor);
@@ -145,7 +196,9 @@ app.whenReady().then(async () => {
   }
   database = await AppDatabase.open(path.join(app.getPath('userData'), 'token.sqlite'));
   scanner = new UsageScanner(database);
-  registerIpc(new AuthService(database), scanner, new ReportService(database, scanner));
+  telemetry = new TelemetryReceiver(database, app.getPath('userData'));
+  await telemetry.start();
+  registerIpc(new AuthService(database), scanner, new ReportService(database, scanner), telemetry, database);
   createWindow();
   scanner.start();
   app.on('activate', () => {
@@ -158,7 +211,9 @@ app.whenReady().then(async () => {
 
 app.on('before-quit', () => {
   scanner?.stop();
+  telemetry?.stop();
   scanner = null;
+  telemetry = null;
   database = null;
 });
 

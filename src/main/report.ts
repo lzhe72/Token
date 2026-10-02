@@ -97,7 +97,13 @@ export class ReportService {
     const upper = new Date(Date.parse(`${query.to}T00:00:00Z`) + 2 * 86_400_000).toISOString();
     return this.db.all(`SELECT f.*, s.owner_user_id FROM usage_facts f
       LEFT JOIN source_identities s ON s.key = f.source_identity_key
-      WHERE f.occurred_at >= ? AND f.occurred_at < ? ORDER BY f.occurred_at`, [lower, upper]) as FactRow[];
+      WHERE f.occurred_at >= ? AND f.occurred_at < ?
+        AND (f.source_key NOT LIKE 'otel:%' OR NOT EXISTS (
+          SELECT 1 FROM usage_facts local
+          WHERE local.provider = f.provider AND local.source_key NOT LIKE 'otel:%'
+            AND substr(local.occurred_at, 1, 10) = substr(f.occurred_at, 1, 10)
+        ))
+      ORDER BY f.occurred_at`, [lower, upper]) as FactRow[];
   }
 
   private *filteredFacts(query: ReportQuery, facts: FactRow[]): Generator<{ fact: FactRow; period: string }> {
@@ -154,7 +160,7 @@ export class ReportService {
       if (!groups.has(key)) groups.set(key, { period, provider: fact.provider, model: fact.model, ...emptyTotals() });
       addFact(groups.get(key)!, fact);
     }
-    const header = ['时间', '工具', '模型', '输入 Token', '输出 Token', '缓存读取 Token', '缓存写入 Token', '总 Token', '请求数'];
+    const header = ['时间', '工具', '模型', '输入 Token', '输出 Token', '缓存读取 Token', '缓存写入 Token', '用量记录数'];
     const rows = [...groups.values()].sort((a, b) => a.period.localeCompare(b.period)).map(row => [
       csvCell(row.period), csvCell(row.provider), csvCell(row.model), row.inputTokens,
       row.outputTokens, row.cacheReadTokens, row.cacheCreationTokens, row.totalTokens, row.requests

@@ -40,6 +40,8 @@ test('管理员创建、用户管理与普通用户权限', async () => {
     await expect(page.getByRole('cell', { name: 'viewer' })).toBeVisible();
     await page.getByRole('button', { name: /数据来源/ }).click();
     await expect(page.getByRole('heading', { name: '数据来源' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '可选遥测接入' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '保存备份' })).toBeVisible();
     await page.getByRole('button', { name: '立即扫描' }).click();
     await expect(page.getByRole('cell', { name: 'Codex · 本机账户' })).toBeVisible();
     await expect(page.getByRole('cell', { name: 'Claude Code · 本机账户' })).toBeVisible();
@@ -67,15 +69,10 @@ test('管理员创建、用户管理与普通用户权限', async () => {
     await expect(page.locator('.metric-card').first().locator('strong')).toHaveText('12');
     await expect(page.getByRole('table').getByText('gpt-test')).toBeVisible();
     await expect(page.getByRole('table').getByText('claude-test')).toHaveCount(0);
-    const result = await page.evaluate(async () => {
-      try {
-        await window.tokenApi.listUsers();
-        return 'allowed';
-      } catch {
-        return 'denied';
-      }
-    });
-    expect(result).toBe('denied');
+    const results = await page.evaluate(async () => Promise.allSettled([
+      window.tokenApi.listUsers(), window.tokenApi.getTelemetryConfiguration(), window.tokenApi.backupDatabase()
+    ]));
+    expect(results.map(result => result.status)).toEqual(['rejected', 'rejected', 'rejected']);
   } finally {
     await app.close();
     rmSync(userData, { recursive: true, force: true });

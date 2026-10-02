@@ -20,6 +20,8 @@ export interface SourceStatus {
   status: 'scanning' | 'ready' | 'not_found' | 'error' | 'idle';
   fileCount: number;
   factCount: number;
+  telemetryFactCount: number;
+  lastTelemetry: string | null;
   lastScan: string | null;
   detail: string | null;
 }
@@ -30,6 +32,13 @@ export interface SourceIdentity {
   label: string;
   ownerUserId: string | null;
   factCount: number;
+}
+
+export interface TelemetryConfiguration {
+  running: boolean;
+  error: string | null;
+  codex: string;
+  claude: string;
 }
 
 export type Granularity = 'day' | 'week' | 'month' | 'year';
@@ -85,6 +94,9 @@ export interface TokenApi {
   scanSources(): Promise<SourceStatus[]>;
   getSourceIdentities(): Promise<SourceIdentity[]>;
   bindSourceIdentity(key: string, userId: string | null): Promise<void>;
+  getTelemetryConfiguration(): Promise<TelemetryConfiguration>;
+  backupDatabase(): Promise<boolean>;
+  restoreDatabase(): Promise<boolean>;
   queryUsage(query: ReportQuery): Promise<UsageReport>;
   exportCsv(query: ReportQuery): Promise<boolean>;
 }

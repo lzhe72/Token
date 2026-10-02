@@ -19,6 +19,26 @@ export class AppDatabase {
     return instance;
   }
 
+  static async validateBackup(file: string): Promise<void> {
+    const SQL = await initSqlJs();
+    const bytes = fs.readFileSync(file);
+    if (bytes.length < 100 || bytes.subarray(0, 16).toString('utf8') !== 'SQLite format 3\0') throw new Error('不是有效的 Token 数据库');
+    const candidate = new SQL.Database(bytes);
+    try {
+      const integrity = candidate.exec('PRAGMA integrity_check');
+      if (integrity[0]?.values[0]?.[0] !== 'ok') throw new Error('备份数据库完整性检查失败');
+      const tables = new Set(candidate.exec("SELECT name FROM sqlite_master WHERE type = 'table'")[0]?.values.map(row => String(row[0])) ?? []);
+      for (const name of ['users', 'usage_facts', 'source_identities', 'source_cursors']) {
+        if (!tables.has(name)) throw new Error('备份文件缺少 Token 数据表');
+      }
+      if (candidate.exec("SELECT COUNT(*) FROM users WHERE role = 'admin'")[0]?.values[0]?.[0] === 0) {
+        throw new Error('备份文件没有管理员账户');
+      }
+    } finally {
+      candidate.close();
+    }
+  }
+
   private migrate(): void {
     this.db.run(`
       CREATE TABLE IF NOT EXISTS users (
@@ -93,5 +113,12 @@ export class AppDatabase {
   close(): void {
     this.persist();
     this.db.close();
+  }
+
+  backupTo(file: string): void {
+    const temp = `${file}.tmp`;
+    fs.writeFileSync(temp, Buffer.from(this.db.export()), { mode: 0o600 });
+    fs.renameSync(temp, file);
+    fs.chmodSync(file, 0o600);
   }
 }

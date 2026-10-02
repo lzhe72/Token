@@ -14,6 +14,9 @@ const api: TokenApi = {
   scanSources: () => ipcRenderer.invoke('sources:scan'),
   getSourceIdentities: () => ipcRenderer.invoke('sources:identities'),
   bindSourceIdentity: (key, userId) => ipcRenderer.invoke('sources:bind', key, userId),
+  getTelemetryConfiguration: () => ipcRenderer.invoke('telemetry:configuration'),
+  backupDatabase: () => ipcRenderer.invoke('data:backup'),
+  restoreDatabase: () => ipcRenderer.invoke('data:restore'),
   queryUsage: query => ipcRenderer.invoke('usage:query', query),
   exportCsv: query => ipcRenderer.invoke('reports:export-csv', query)
 };

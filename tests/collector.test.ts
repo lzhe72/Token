@@ -56,3 +56,33 @@ test('两个采集器按请求去重，重扫和增量扫描不重复计数', as
   expect(identity?.key).toBe('codex:account:account123456');
   db.close();
 });
+
+test('未写完的末行等待补齐，截断重写后不重复统计', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'token-rotation-'));
+  tempPaths.push(root);
+  const codexDir = path.join(root, 'codex');
+  const claudeDir = path.join(root, 'claude');
+  mkdirSync(codexDir);
+  mkdirSync(claudeDir);
+  process.env.TOKEN_CODEX_SESSIONS_DIR = codexDir;
+  process.env.TOKEN_CLAUDE_PROJECTS_DIR = claudeDir;
+  const file = path.join(codexDir, 'session.jsonl');
+  const event = (response: string) => ({ type: 'token_usage_record', timestamp: '2026-01-01T12:00:00Z',
+    payload: { session_id: 's1', response_id: response, usage: { input_tokens: 10, output_tokens: 2, total_tokens: 12 } } });
+  writeFileSync(file, jsonl(event('r1')));
+  const db = await AppDatabase.open(path.join(root, 'token.sqlite'));
+  const scanner = new UsageScanner(db);
+  await scanner.scan();
+  expect(scanner.statuses()[0].factCount).toBe(1);
+  const second = JSON.stringify(event('r2'));
+  appendFileSync(file, second.slice(0, 30));
+  await scanner.scan();
+  expect(scanner.statuses()[0].factCount).toBe(1);
+  appendFileSync(file, second.slice(30) + '\n');
+  await scanner.scan();
+  expect(scanner.statuses()[0].factCount).toBe(2);
+  writeFileSync(file, jsonl(event('r1'), event('r3')));
+  await scanner.scan();
+  expect(scanner.statuses()[0].factCount).toBe(3);
+  db.close();
+});

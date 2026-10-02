@@ -35,10 +35,12 @@ export function ReportPanel({ user, users }: { user: PublicUser; users: PublicUs
 
   React.useEffect(() => {
     let active = true;
-    window.tokenApi.queryUsage(query).then(value => {
+    const refresh = () => window.tokenApi.queryUsage(query).then(value => {
       if (active) { setReport(value); setError(''); }
     }).catch(e => { if (active) setError(displayError(e)); });
-    return () => { active = false; };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 15_000);
+    return () => { active = false; window.clearInterval(timer); };
   }, [query]);
 
   function update<K extends keyof ReportQuery>(key: K, value: ReportQuery[K]) {
@@ -70,12 +72,14 @@ export function ReportPanel({ user, users }: { user: PublicUser; users: PublicUs
       <label>工具<select aria-label="工具筛选" value={query.provider} onChange={e => setQuery(current => ({ ...current, provider: e.target.value as Provider | 'all', model: '' }))}><option value="all">全部工具</option><option value="codex">Codex</option><option value="claude">Claude Code</option></select></label>
       <label>模型<select aria-label="模型筛选" value={query.model} onChange={e => update('model', e.target.value)}><option value="">全部模型</option>{report?.availableModels.map(model => <option key={model} value={model}>{model}</option>)}</select></label>
       {user.role === 'admin' && <label>用户<select aria-label="用户筛选" value={query.userId} onChange={e => update('userId', e.target.value)}><option value="all">全部用户与未归属</option><option value="unassigned">未归属</option>{users.map(item => <option key={item.id} value={item.id}>{item.username}</option>)}</select></label>}
-      <div className="timezone-note">统计时区：{query.timeZone}</div>
+      <label>统计时区<select aria-label="统计时区" value={query.timeZone} onChange={e => update('timeZone', e.target.value)}>
+        {[...new Set([query.timeZone, 'Asia/Shanghai', 'UTC', 'America/Los_Angeles', 'Europe/London'])].map(zone => <option key={zone} value={zone}>{zone}</option>)}
+      </select></label>
     </div>
     {error && <div className="error" role="alert">{error}</div>}
     {!report ? <div className="panel empty-row">正在计算报表…</div> : <>
       <div className="metric-grid">
-        <div className="metric-card"><span>总 Token</span><strong>{number(report.totals.totalTokens)}</strong><small>{number(report.totals.requests)} 次请求</small></div>
+        <div className="metric-card"><span>总 Token</span><strong>{number(report.totals.totalTokens)}</strong><small>{number(report.totals.requests)} 条用量记录</small></div>
         <div className="metric-card"><span>输入 Token</span><strong>{number(report.totals.inputTokens)}</strong><small>按工具原始口径</small></div>
         <div className="metric-card"><span>输出 Token</span><strong>{number(report.totals.outputTokens)}</strong><small>包含推理输出</small></div>
         <div className="metric-card"><span>缓存读取</span><strong>{number(report.totals.cacheReadTokens)}</strong><small>Codex 中属于输入子集</small></div>
@@ -84,7 +88,7 @@ export function ReportPanel({ user, users }: { user: PublicUser; users: PublicUs
         {report.points.length ? <div className="chart-scroll"><div className="bar-chart">{report.points.map(point => <div className="bar-column" key={point.period} title={`${point.period} · ${number(point.totalTokens)} Token`}><div className="bar-value">{number(point.totalTokens)}</div><div className="bar-track"><div className="bar" style={{ height: `${Math.max(3, point.totalTokens / maxPoint * 100)}%` }} /></div><div className="bar-label">{point.period}</div></div>)}</div></div> : <div className="empty-row">{hasCoverage ? '该时间范围没有匹配的用量记录。' : '尚未采集到可用记录，请检查数据来源。'}</div>}
       </section>
       <section className="panel"><div className="panel-head"><h2>模型用量</h2><span>{report.models.length} 个模型</span></div><div className="table-wrap"><table><thead><tr><th>工具 / 模型</th><th>输入</th><th>输出</th><th>缓存读取</th><th>缓存写入</th><th>总 Token</th></tr></thead><tbody>{report.models.map(item => <tr key={`${item.provider}:${item.model}`}><td><strong>{item.model}</strong><small className="model-provider">{item.provider === 'codex' ? 'Codex' : 'Claude Code'}</small></td><td>{number(item.inputTokens)}</td><td>{number(item.outputTokens)}</td><td>{number(item.cacheReadTokens)}</td><td>{number(item.cacheCreationTokens)}</td><td><strong>{number(item.totalTokens)}</strong></td></tr>)}</tbody></table>{report.models.length === 0 && <div className="empty-row">暂无模型用量。</div>}</div></section>
-      <p className="report-footnote">总 Token 按各工具原始计量规则计算。Codex 的缓存读取包含在输入 Token 中；Claude Code 的缓存读取和写入单独计入总量。本报表仅覆盖本机已采集的记录。</p>
+      <p className="report-footnote">总 Token 按各工具原始计量规则计算。Codex 的缓存读取包含在输入 Token 中；Claude Code 的缓存读取和写入单独计入总量。同一工具在同一 UTC 日期有本地记录时，报表采用本地记录，不叠加遥测。</p>
     </>}
   </div>;
 }

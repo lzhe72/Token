@@ -1,6 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import type { AppState, PublicUser, Role, SourceIdentity, SourceStatus } from '../shared/types';
+import type { AppState, PublicUser, Role, SourceIdentity, SourceStatus, TelemetryConfiguration } from '../shared/types';
 import { ReportPanel } from './report';
 import './style.css';
 
@@ -24,11 +24,13 @@ function App() {
   const [username, setUsername] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [error, setError] = React.useState('');
+  const [notice, setNotice] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [tab, setTab] = React.useState<'overview' | 'report' | 'sources' | 'users'>('overview');
   const [users, setUsers] = React.useState<PublicUser[]>([]);
   const [sourceStatuses, setSourceStatuses] = React.useState<SourceStatus[]>([]);
   const [sourceIdentities, setSourceIdentities] = React.useState<SourceIdentity[]>([]);
+  const [telemetry, setTelemetry] = React.useState<TelemetryConfiguration | null>(null);
   const [newUsername, setNewUsername] = React.useState('');
   const [newPassword, setNewPassword] = React.useState('');
   const [newRole, setNewRole] = React.useState<Role>('viewer');
@@ -85,11 +87,12 @@ function App() {
   async function showSources() {
     setError('');
     try {
-      const [identities, allUsers] = await Promise.all([
-        window.tokenApi.getSourceIdentities(), window.tokenApi.listUsers()
+      const [identities, allUsers, configuration] = await Promise.all([
+        window.tokenApi.getSourceIdentities(), window.tokenApi.listUsers(), window.tokenApi.getTelemetryConfiguration()
       ]);
       setSourceIdentities(identities);
       setUsers(allUsers);
+      setTelemetry(configuration);
       setTab('sources');
     } catch (e) {
       setError(errorMessage(e));
@@ -127,6 +130,20 @@ function App() {
     } catch (e) {
       setError(errorMessage(e));
     }
+  }
+
+  async function backupDatabase() {
+    setError('');
+    setNotice('');
+    try { if (await window.tokenApi.backupDatabase()) setNotice('数据库备份已保存。'); }
+    catch (e) { setError(errorMessage(e)); }
+  }
+
+  async function restoreDatabase() {
+    setError('');
+    setNotice('');
+    try { await window.tokenApi.restoreDatabase(); }
+    catch (e) { setError(errorMessage(e)); }
   }
 
   async function createUser(event: React.FormEvent) {
@@ -207,14 +224,23 @@ function App() {
       <main className="main-content">
         <header><div><span className="eyebrow">TOKEN MONITOR</span><h1>{tab === 'users' ? '用户管理' : tab === 'sources' ? '数据来源' : tab === 'report' ? '用量报表' : '用量概览'}</h1></div><div className="date-chip">本机 · 离线</div></header>
         {error && <div className="error banner" role="alert">{error}</div>}
+        {notice && <div className="notice banner" role="status">{notice}</div>}
         {tab === 'overview' ? <>
           <div className="hero-card"><div><span className="eyebrow light">WELCOME TO TOKEN</span><h2>你的 AI 编程用量，<br />从这里变得清晰。</h2><p>本机会话记录持续更新。打开用量报表，按时间、模型和工具查看消耗。</p><button className="hero-button" onClick={showReport}>查看用量报表 →</button></div><div className="hero-art"><div className="orbit one" /><div className="orbit two" /><div className="hero-core">T</div></div></div>
           <div className="section-heading"><h2>数据来源</h2><span>每 30 秒检查新记录</span></div>
-          <div className="source-grid"><div className="source-card"><div className="source-icon codex">◈</div><div><h3>Codex</h3><p>{codexStatus ? `${codexStatus.factCount.toLocaleString()} 条用量记录` : '正在检查本机会话记录'}</p></div><span className="status-pill">{sourceStatusLabel(codexStatus)}</span></div><div className="source-card"><div className="source-icon claude">✳</div><div><h3>Claude Code</h3><p>{claudeStatus ? `${claudeStatus.factCount.toLocaleString()} 条用量记录` : '正在检查本机会话记录'}</p></div><span className="status-pill">{sourceStatusLabel(claudeStatus)}</span></div></div>
+          <div className="source-grid"><div className="source-card"><div className="source-icon codex">◈</div><div><h3>Codex</h3><p>{codexStatus ? `${codexStatus.factCount.toLocaleString()} 条本地 · ${codexStatus.telemetryFactCount.toLocaleString()} 条遥测` : '正在检查本机会话记录'}</p></div><span className="status-pill">{sourceStatusLabel(codexStatus)}</span></div><div className="source-card"><div className="source-icon claude">✳</div><div><h3>Claude Code</h3><p>{claudeStatus ? `${claudeStatus.factCount.toLocaleString()} 条本地 · ${claudeStatus.telemetryFactCount.toLocaleString()} 条遥测` : '正在检查本机会话记录'}</p></div><span className="status-pill">{sourceStatusLabel(claudeStatus)}</span></div></div>
         </> : tab === 'report' ? <ReportPanel user={state.user} users={users} /> : tab === 'sources' ? <>
           <p className="page-lead">只读取当前 macOS 账户可访问的本机会话记录。采集器不会保存提示词、回复正文或源码。</p>
-          <div className="source-grid"><div className="source-card"><div className="source-icon codex">◈</div><div><h3>Codex</h3><p>{codexStatus?.detail || `${codexStatus?.fileCount ?? 0} 个会话文件 · ${codexStatus?.factCount ?? 0} 条用量`}</p></div><span className="status-pill">{sourceStatusLabel(codexStatus)}</span></div><div className="source-card"><div className="source-icon claude">✳</div><div><h3>Claude Code</h3><p>{claudeStatus?.detail || `${claudeStatus?.fileCount ?? 0} 个会话文件 · ${claudeStatus?.factCount ?? 0} 条用量`}</p></div><span className="status-pill">{sourceStatusLabel(claudeStatus)}</span></div></div>
+          <div className="source-grid"><div className="source-card"><div className="source-icon codex">◈</div><div><h3>Codex</h3><p>{codexStatus?.detail || `${codexStatus?.fileCount ?? 0} 个会话文件 · ${codexStatus?.factCount ?? 0} 条本地 · ${codexStatus?.telemetryFactCount ?? 0} 条遥测`}</p></div><span className="status-pill">{sourceStatusLabel(codexStatus)}</span></div><div className="source-card"><div className="source-icon claude">✳</div><div><h3>Claude Code</h3><p>{claudeStatus?.detail || `${claudeStatus?.fileCount ?? 0} 个会话文件 · ${claudeStatus?.factCount ?? 0} 条本地 · ${claudeStatus?.telemetryFactCount ?? 0} 条遥测`}</p></div><span className="status-pill">{sourceStatusLabel(claudeStatus)}</span></div></div>
           <div className="source-actions"><button className="primary" disabled={busy} onClick={scanSources}>{busy ? '扫描中…' : '立即扫描'}</button><span>首次导入大量历史记录可能需要几分钟。</span></div>
+          <section className="panel telemetry-panel"><div className="panel-head"><h2>可选遥测接入</h2><span>{telemetry?.running ? '本机接收器已就绪' : '接收器未启动'}</span></div>
+            <p className="hint">本地记录会自动扫描。需要持续接收官方遥测时，将下方配置手动加入对应工具的用户设置。已有遥测目标或组织设置请先核对，应用不会替你覆盖。配置含本机密钥，请勿分享。</p>
+            {telemetry?.error && <div className="error">接收器启动失败：{telemetry.error}</div>}
+            <details><summary>Codex 配置（~/.codex/config.toml）</summary><pre>{telemetry?.codex}</pre></details>
+            <details><summary>Claude Code 配置（启动前的终端环境）</summary><pre>{telemetry?.claude}</pre></details>
+            <p className="hint">接收器仅监听 127.0.0.1，验证密钥后只保存 Token 计数。与本地记录同一天的遥测不加入报表，以避免重复统计。</p>
+          </section>
+          <section className="panel data-panel"><div className="panel-head"><h2>数据备份与恢复</h2></div><p className="hint">备份包含本机账户和用量统计数据，请妥善保管。恢复前会自动保留当前数据库副本，并重启应用。</p><div className="source-actions"><button className="primary" onClick={backupDatabase}>保存备份</button><button className="text-button" onClick={restoreDatabase}>从备份恢复</button></div></section>
           <section className="panel"><div className="panel-head"><h2>来源归属</h2><span>{sourceIdentities.length} 个来源</span></div><p className="hint">为来源指定应用用户后，普通用户才能在报表中看到对应记录。无法确认的来源可保留为未归属。</p><div className="table-wrap"><table><thead><tr><th>来源</th><th>工具</th><th>记录</th><th>归属用户</th></tr></thead><tbody>{sourceIdentities.map(identity => <tr key={identity.key}><td><strong>{identity.label}</strong></td><td>{identity.provider === 'codex' ? 'Codex' : 'Claude Code'}</td><td>{identity.factCount.toLocaleString()}</td><td><select className="owner-select" value={identity.ownerUserId ?? ''} onChange={e => bindSource(identity.key, e.target.value || null)}><option value="">未归属</option>{users.filter(user => user.active).map(user => <option key={user.id} value={user.id}>{user.username}</option>)}</select></td></tr>)}</tbody></table>{sourceIdentities.length === 0 && <div className="empty-row">扫描完成后会在这里显示可识别的来源。</div>}</div></section>
         </> : <>
           <p className="page-lead">管理可以登录此应用的账户，并在“数据来源”中指定用量归属。</p>
