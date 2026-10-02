@@ -21,6 +21,7 @@ for (let number = from; number <= to; number++) {
     cwd: process.cwd(), encoding: 'utf8', maxBuffer: 20 * 1024 * 1024
   });
   const exitCode = run.status ?? 1;
+  mkdirSync(directory, { recursive: true });
   writeFileSync(path.join(directory, `${id}.log`), `${run.stdout || ''}${run.stderr || ''}`);
   results.push({ id, startedAt, exitCode, log: `${id}.log` });
   process.stdout.write(`${id} ${exitCode === 0 ? 'PASS' : 'FAIL'}\n`);
