@@ -31,7 +31,7 @@ const cases = [
   ['TC-025', 'e2e', 'tests/e2e/restore.spec.ts', '管理员备份、恢复后账户回到备份状态', '恢复前副本和状态回退'],
   ['TC-026', ...app, '跨进程权限和数据边界'],
   ['TC-027', 'manual', '未签名 DMG 本机验收', '对本次构建的 DMG 执行 hdiutil verify；挂载并复制 Token.app；在当前 Mac 启动、登录、采集并留存脱敏结果。'],
-  ['TC-028', 'manual', '签名公证及目标 Mac 验收', '在发布环境签名、公证；在另一台目标 Mac 安装并完成启动、登录和采集。当前没有此项通过证据。'],
+  ['TC-028', 'manual', '签名公证及目标 Mac 验收', '在已配置 Developer ID 和公证凭据的发布环境运行 npm run pack:signed，核对 release/signed 中的核验记录；随后在另一台目标 Mac 安装，并记录启动、登录、采集和脱敏证据。缺少证书、凭据或目标 Mac 时保持待验证。'],
   ['TC-029', 'unit', 'tests/next-report.test.ts', 'TC-029 CSV 表头和数据列对齐', 'CSV 表头与数据列对齐'],
   ['TC-030', 'unit', 'tests/next-auth.test.ts', 'TC-030 勾选信任后重启恢复且未勾选不恢复', '信任设备恢复登录'],
   ['TC-031', 'unit', 'tests/next-auth.test.ts', 'TC-031 退出停用重置密码撤销受信凭证', '撤销与账户失效'],
@@ -77,7 +77,8 @@ const cases = [
   ['TC-071', 'e2e', 'tests/e2e/m6-admin.spec.ts', 'TC-071 固定 admin 创建管理员与普通用户且角色边界生效', '超级管理员界面'],
   ['TC-072', 'manual', '目标 Mac 文件权限授予与撤销', '使用独立测试账户及专用数据库，先拒绝 Token 读取会话目录并截图采集诊断未知状态；在系统设置手动授予完全磁盘访问权限，重启并重新扫描，截图恢复状态；再次撤销并确认回到未知。记录 macOS 版本、授权范围、命令和脱敏证据。'],
   ['TC-073', 'unit', 'tests/collector-fallback.test.ts', 'TC-073 Codex fallback 跨扫描替换与旧库修复保持幂等', 'Codex fallback 跨扫描归并'],
-  ['TC-074', 'unit', 'tests/server-ownership.test.ts', 'TC-074 聚合上报拒绝跨设备跨用户覆盖并保留原快照', '聚合上报设备与用户归属授权回归']
+  ['TC-074', 'unit', 'tests/server-ownership.test.ts', 'TC-074 聚合上报拒绝跨设备跨用户覆盖并保留原快照', '聚合上报设备与用户归属授权回归'],
+  ['TC-075', 'unit', 'tests/signed-release.test.ts', 'TC-075 签名发布预检与命令构造', '签名发布脚本预检与命令构造']
 ];
 const extraRuns = {
   'TC-030': [{ kind: 'e2e', file: 'tests/e2e/trust.spec.ts', testName: 'TC-030 应用重启自动登录并在退出后撤销' }],
