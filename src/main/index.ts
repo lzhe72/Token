@@ -146,6 +146,10 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
     const actor = currentUser(event, auth);
     return reports.query(query, actor);
   });
+  ipcMain.handle('usage:details', (event, query: unknown, page: unknown, period: unknown) => {
+    const actor = currentUser(event, auth);
+    return reports.details(query, page, period, actor);
+  });
   ipcMain.handle('reports:export-csv', async (event, query: unknown) => {
     const actor = currentUser(event, auth);
     const csv = reports.csv(query, actor);

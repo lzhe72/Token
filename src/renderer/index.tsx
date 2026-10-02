@@ -13,6 +13,7 @@ function sourceStatusLabel(status?: SourceStatus): string {
   switch (status?.status) {
     case 'ready': return '已采集';
     case 'scanning': return '扫描中';
+    case 'no_records': return '暂无记录';
     case 'not_found': return '未找到';
     case 'error': return '需要检查';
     default: return '等待扫描';
@@ -236,8 +237,8 @@ function App() {
           <section className="panel telemetry-panel"><div className="panel-head"><h2>可选遥测接入</h2><span>{telemetry?.running ? '本机接收器已就绪' : '接收器未启动'}</span></div>
             <p className="hint">本地记录会自动扫描。需要持续接收官方遥测时，将下方配置手动加入对应工具的用户设置。已有遥测目标或组织设置请先核对，应用不会替你覆盖。配置含本机密钥，请勿分享。</p>
             {telemetry?.error && <div className="error">接收器启动失败：{telemetry.error}</div>}
-            <details><summary>Codex 配置（~/.codex/config.toml）</summary><pre>{telemetry?.codex}</pre></details>
-            <details><summary>Claude Code 配置（启动前的终端环境）</summary><pre>{telemetry?.claude}</pre></details>
+            <details><summary>Codex 配置（~/.codex/config.toml）</summary>{telemetry?.codexWarning && <p className="config-warning">{telemetry.codexWarning}</p>}<p className="hint">检查现有 [otel] 段后，将以下内容合并到用户配置。</p><pre>{telemetry?.codex}</pre></details>
+            <details><summary>Claude Code 配置（启动前的终端环境）</summary>{telemetry?.claudeWarning && <p className="config-warning">{telemetry.claudeWarning}</p>}<p className="hint">在启动 Claude Code 的终端中设置以下变量，再启动新会话。</p><pre>{telemetry?.claude}</pre></details>
             <p className="hint">接收器仅监听 127.0.0.1，验证密钥后只保存 Token 计数。与本地记录同一天的遥测不加入报表，以避免重复统计。</p>
           </section>
           <section className="panel data-panel"><div className="panel-head"><h2>数据备份与恢复</h2></div><p className="hint">备份包含本机账户和用量统计数据，请妥善保管。恢复前会自动保留当前数据库副本，并重启应用。</p><div className="source-actions"><button className="primary" onClick={backupDatabase}>保存备份</button><button className="text-button" onClick={restoreDatabase}>从备份恢复</button></div></section>

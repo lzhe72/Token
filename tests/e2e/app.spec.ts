@@ -1,5 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -20,11 +20,12 @@ test('管理员创建、用户管理与普通用户权限', async () => {
   }) + '\n');
   const packaged = process.env.TOKEN_E2E_EXECUTABLE;
   const executablePath = packaged || (require('electron') as string);
-  const app = await electron.launch({
+  const launch = () => electron.launch({
     executablePath,
     args: [...(packaged ? [] : [path.resolve('.')]), `--token-user-data=${userData}`],
     env: { ...process.env, TOKEN_CODEX_SESSIONS_DIR: codexDir, TOKEN_CLAUDE_PROJECTS_DIR: claudeDir }
   });
+  let app = await launch();
   try {
     const page = await app.firstWindow();
     await expect(page.getByRole('heading', { name: '创建管理员账户' })).toBeVisible();
@@ -52,7 +53,24 @@ test('管理员创建、用户管理与普通用户权限', async () => {
     await page.getByLabel('开始日期').fill('2026-01-01');
     await page.getByLabel('结束日期').fill('2026-01-02');
     await expect(page.locator('.metric-card').first().locator('strong')).toHaveText('26');
-    await expect(page.getByRole('table').getByText('claude-test')).toBeVisible();
+    await expect(page.locator('.model-panel').getByText('claude-test')).toBeVisible();
+    await expect(page.locator('.detail-panel tbody tr')).toHaveCount(2);
+    await page.getByRole('button', { name: '查看 2026-01-01 用量明细' }).click();
+    await expect(page.locator('.detail-panel tbody tr')).toHaveCount(2);
+    const csvFile = path.join(userData, 'usage.csv');
+    await app.evaluate(({ dialog }, filePath) => {
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath });
+    }, csvFile);
+    await page.getByRole('button', { name: '导出 CSV' }).click();
+    await expect.poll(() => existsSync(csvFile)).toBe(true);
+    const csv = readFileSync(csvFile, 'utf8');
+    expect(csv).toContain('gpt-test');
+    expect(csv).toContain('claude-test');
+    expect(csv).toContain(',12,1');
+    expect(csv).toContain(',14,1');
+    await page.locator('.model-panel').getByRole('button', { name: 'claude-test' }).click();
+    await expect(page.locator('.detail-panel tbody tr')).toHaveCount(1);
+    await expect(page.locator('.detail-panel tbody tr').first()).toContainText('14');
     await page.getByRole('button', { name: /用户管理/ }).click();
     await page.getByRole('button', { name: '重设密码' }).last().click();
     await page.getByPlaceholder('新密码至少 10 位').fill('viewer-new-password-123');
@@ -67,14 +85,28 @@ test('管理员创建、用户管理与普通用户权限', async () => {
     await page.getByLabel('开始日期').fill('2026-01-01');
     await page.getByLabel('结束日期').fill('2026-01-02');
     await expect(page.locator('.metric-card').first().locator('strong')).toHaveText('12');
-    await expect(page.getByRole('table').getByText('gpt-test')).toBeVisible();
-    await expect(page.getByRole('table').getByText('claude-test')).toHaveCount(0);
+    await expect(page.locator('.model-panel').getByText('gpt-test')).toBeVisible();
+    await expect(page.locator('.model-panel').getByText('claude-test')).toHaveCount(0);
+    await expect(page.locator('.detail-panel tbody tr')).toHaveCount(1);
     const results = await page.evaluate(async () => Promise.allSettled([
       window.tokenApi.listUsers(), window.tokenApi.getTelemetryConfiguration(), window.tokenApi.backupDatabase()
     ]));
     expect(results.map(result => result.status)).toEqual(['rejected', 'rejected', 'rejected']);
-  } finally {
     await app.close();
+    app = await launch();
+    const reopened = await app.firstWindow();
+    await expect(reopened.getByRole('heading', { name: '欢迎回来' })).toBeVisible();
+    await reopened.getByPlaceholder('例如 lzhe72').fill('owner');
+    await reopened.getByPlaceholder('输入密码').fill('safe-password-123');
+    await reopened.getByRole('button', { name: '登录', exact: true }).click();
+    await reopened.getByRole('button', { name: /数据来源/ }).click();
+    await reopened.getByRole('button', { name: '立即扫描' }).click();
+    await reopened.getByRole('button', { name: /用量报表/ }).first().click();
+    await reopened.getByLabel('开始日期').fill('2026-01-01');
+    await reopened.getByLabel('结束日期').fill('2026-01-02');
+    await expect(reopened.locator('.metric-card').first().locator('strong')).toHaveText('26');
+  } finally {
+    await app.close().catch(() => {});
     rmSync(userData, { recursive: true, force: true });
   }
 });

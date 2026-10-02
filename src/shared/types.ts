@@ -17,7 +17,7 @@ export type Provider = 'codex' | 'claude';
 
 export interface SourceStatus {
   provider: Provider;
-  status: 'scanning' | 'ready' | 'not_found' | 'error' | 'idle';
+  status: 'scanning' | 'ready' | 'no_records' | 'not_found' | 'error' | 'idle';
   fileCount: number;
   factCount: number;
   telemetryFactCount: number;
@@ -39,6 +39,8 @@ export interface TelemetryConfiguration {
   error: string | null;
   codex: string;
   claude: string;
+  codexWarning: string | null;
+  claudeWarning: string | null;
 }
 
 export type Granularity = 'day' | 'week' | 'month' | 'year';
@@ -81,6 +83,27 @@ export interface UsageReport {
   coverage: SourceStatus[];
 }
 
+export interface UsageDetail {
+  id: string;
+  provider: Provider;
+  model: string;
+  occurredAt: string;
+  source: 'local' | 'telemetry';
+  sourceLabel: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  totalTokens: number;
+}
+
+export interface UsageDetailsPage {
+  records: UsageDetail[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 export interface TokenApi {
   getState(): Promise<AppState>;
   setupAdmin(username: string, password: string): Promise<PublicUser>;
@@ -98,5 +121,6 @@ export interface TokenApi {
   backupDatabase(): Promise<boolean>;
   restoreDatabase(): Promise<boolean>;
   queryUsage(query: ReportQuery): Promise<UsageReport>;
+  queryUsageDetails(query: ReportQuery, page: number, period: string): Promise<UsageDetailsPage>;
   exportCsv(query: ReportQuery): Promise<boolean>;
 }

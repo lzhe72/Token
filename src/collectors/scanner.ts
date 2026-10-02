@@ -174,7 +174,9 @@ export class UsageScanner {
       try {
         await this.scanProvider(provider, directories[provider]);
       } catch (error) {
-        this.saveStatus(provider, 'error', 0, error instanceof Error ? error.message : '采集失败');
+        const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
+        this.saveStatus(provider, 'error', 0,
+          code === 'EACCES' || code === 'EPERM' ? '无法读取会话目录，请检查文件权限' : '扫描失败，请检查来源目录');
       } finally {
         this.scanning.delete(provider);
       }
@@ -189,18 +191,23 @@ export class UsageScanner {
     const files = await walkJsonl(root);
     let malformed = 0;
     let oversized = 0;
+    let unreadable = 0;
     for (const file of files) {
       try {
         const result = await this.scanFile(provider, file);
         malformed += result.malformed;
         oversized += result.oversized;
       } catch (error) {
-        malformed++;
+        unreadable++;
         // A single unreadable or rotated file does not stop other sessions.
       }
     }
-    const detail = malformed || oversized ? `${malformed} 条记录无法解析，${oversized} 条记录超过大小限制` : null;
-    this.saveStatus(provider, malformed || oversized ? 'error' : 'ready', files.length, detail);
+    const detail = unreadable || malformed || oversized
+      ? `${unreadable} 个文件读取失败，${malformed} 条记录无法解析，${oversized} 条记录超过大小限制`
+      : files.length === 0 ? '会话目录中没有记录文件' : null;
+    const localCount = Number(this.db.one("SELECT COUNT(*) AS count FROM usage_facts WHERE provider = ? AND source_key NOT LIKE 'otel:%'", [provider])?.count ?? 0);
+    this.saveStatus(provider, unreadable || malformed || oversized ? 'error' : localCount === 0 ? 'no_records' : 'ready', files.length,
+      detail ?? (localCount === 0 ? '尚未找到可识别的 Token 用量记录' : null));
   }
 
   private async scanFile(provider: Provider, file: string): Promise<{ malformed: number; oversized: number }> {
@@ -217,7 +224,7 @@ export class UsageScanner {
       (cursor.offset > 0 && cursor.tailHash !== await tailHash(file, cursor.offset));
     const state: ParserState = reset ? {} : cursor.state;
     const start = reset ? 0 : cursor.offset;
-    if (stat.size === start) return { malformed: 0, oversized: 0 };
+    if (stat.size === start) return { malformed: state.malformedRecords ?? 0, oversized: state.oversizedRecords ?? 0 };
     const fileKey = hashPath(file);
     const context: LineContext = {
       fileKey,
@@ -245,6 +252,8 @@ export class UsageScanner {
       }
     });
     state.skippingOversized = result.skippingOversized;
+    state.malformedRecords = (state.malformedRecords ?? 0) + malformed;
+    state.oversizedRecords = (state.oversizedRecords ?? 0) + result.oversized;
     if (provider === 'codex' && !state.hasUsageRecords) {
       for (const fact of fallback) facts.set(fact.sourceKey, fact);
     }
@@ -257,7 +266,7 @@ export class UsageScanner {
         byte_offset=excluded.byte_offset, state_json=excluded.state_json, tail_hash=excluded.tail_hash, updated_at=excluded.updated_at`,
         [file, provider, fileId, result.offset, JSON.stringify(state), committedTailHash, new Date().toISOString()]);
     });
-    return { malformed, oversized: result.oversized };
+    return { malformed: state.malformedRecords, oversized: state.oversizedRecords };
   }
 
   private upsertFact(fact: UsageFact): void {
@@ -290,14 +299,14 @@ export class UsageScanner {
       const localStatus = row?.status as SourceStatus['status'] ?? 'idle';
       return {
         provider,
-        status: this.scanning.has(provider) ? 'scanning' : telemetryFactCount > 0 && localStatus === 'not_found' ? 'ready' : localStatus,
+        status: this.scanning.has(provider) ? 'scanning' : telemetryFactCount > 0 && (localStatus === 'not_found' || localStatus === 'no_records') ? 'ready' : localStatus,
         fileCount: Number(row?.file_count ?? 0),
         factCount: Number(row?.fact_count ?? 0),
         telemetryFactCount,
         lastTelemetry: telemetry?.latest ? String(telemetry.latest) : null,
         lastScan: row?.last_scan ? String(row.last_scan) : null,
-        detail: telemetryFactCount > 0 && localStatus === 'not_found'
-          ? '本地目录未找到；已收到遥测数据'
+        detail: telemetryFactCount > 0 && (localStatus === 'not_found' || localStatus === 'no_records')
+          ? '本地暂无可用记录；已收到遥测数据'
           : row?.detail ? String(row.detail) : null
       };
     });

@@ -13,7 +13,7 @@
     "test:e2e": "npm run build && playwright test",
     "test:e2e:packaged": "TOKEN_E2E_EXECUTABLE=release/mac/Token.app/Contents/MacOS/Token playwright test",
     "pack:dir": "npm run build && electron-builder --mac dir",
-    "pack:dmg": "npm run build && electron-builder --mac dmg"
+    "pack:dmg": "npm run build && node scripts/package-dmg.mjs"
   },
   "dependencies": {
     "react": "19.3.0",

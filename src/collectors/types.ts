@@ -24,6 +24,8 @@ export interface ParserState {
   turnModels?: Record<string, string>;
   hasUsageRecords?: boolean;
   skippingOversized?: boolean;
+  malformedRecords?: number;
+  oversizedRecords?: number;
 }
 
 export interface ParsedLine {
@@ -38,7 +40,9 @@ export interface LineContext {
 }
 
 export function tokenCount(value: unknown): number {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0;
+  if (value === undefined || value === null) return 0;
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return value;
+  throw new Error('Token 用量字段无效');
 }
 
 export function validTimestamp(value: unknown): string | null {

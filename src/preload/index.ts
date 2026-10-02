@@ -18,6 +18,7 @@ const api: TokenApi = {
   backupDatabase: () => ipcRenderer.invoke('data:backup'),
   restoreDatabase: () => ipcRenderer.invoke('data:restore'),
   queryUsage: query => ipcRenderer.invoke('usage:query', query),
+  queryUsageDetails: (query, page, period) => ipcRenderer.invoke('usage:details', query, page, period),
   exportCsv: query => ipcRenderer.invoke('reports:export-csv', query)
 };
 

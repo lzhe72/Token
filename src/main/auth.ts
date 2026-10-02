@@ -119,6 +119,7 @@ export class AuthService {
     const hash = await hashPassword(password);
     try {
       this.db.transaction(() => {
+        if (actorId === null && !this.needsSetup()) throw new Error('管理员已创建');
         this.db.run('INSERT INTO users (id, username, password_hash, role, active, created_at) VALUES (?, ?, ?, ?, 1, ?)', [id, username, hash, role, createdAt]);
         this.audit(actorId, 'user.created', id);
       });

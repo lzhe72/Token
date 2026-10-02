@@ -51,6 +51,23 @@ function hash(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
+export function inspectConfig(file: string, kind: 'codex' | 'claude'): string | null {
+  try {
+    if (!fs.existsSync(file)) return null;
+    if (fs.statSync(file).size > 1024 * 1024) return '现有设置文件较大，请手动检查已有遥测目标。';
+    const content = fs.readFileSync(file, 'utf8');
+    if (kind === 'codex') {
+      return /^\s*\[otel\]\s*$/m.test(content) ? '已发现 [otel] 设置段。请编辑现有段，不要添加第二个同名段。' : null;
+    }
+    const settings = record(JSON.parse(content) as unknown);
+    const env = record(settings.env);
+    return Object.keys(env).some(key => key === 'CLAUDE_CODE_ENABLE_TELEMETRY' || key.startsWith('OTEL_'))
+      ? '已发现 Claude Code 遥测环境变量。请核对当前目标和组织设置，避免覆盖。' : null;
+  } catch {
+    return '无法检查现有用户设置，请手动核对遥测目标。';
+  }
+}
+
 interface Observation {
   key: string;
   provider: Provider;
@@ -102,12 +119,14 @@ export class TelemetryReceiver {
     this.server = null;
   }
 
-  configuration(): { running: boolean; error: string | null; codex: string; claude: string } {
+  configuration(): { running: boolean; error: string | null; codex: string; claude: string; codexWarning: string | null; claudeWarning: string | null } {
     const address = this.server?.address();
     const endpoint = `http://127.0.0.1:${address && typeof address !== 'string' ? address.port : this.port}`;
     return {
       running: !!this.server,
       error: this.error,
+      codexWarning: inspectConfig(path.join(process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), 'config.toml'), 'codex'),
+      claudeWarning: inspectConfig(path.join(os.homedir(), '.claude', 'settings.json'), 'claude'),
       codex: `[otel]\nlog_user_prompt = false\nexporter = { otlp-http = { endpoint = "${endpoint}/v1/logs", protocol = "json", headers = { "Authorization" = "Bearer ${this.secret}" } } }`,
       claude: `export CLAUDE_CODE_ENABLE_TELEMETRY=1\nexport OTEL_METRICS_EXPORTER=otlp\nexport OTEL_LOGS_EXPORTER=none\nexport OTEL_EXPORTER_OTLP_METRICS_PROTOCOL=http/json\nexport OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=${endpoint}/v1/metrics\nexport OTEL_EXPORTER_OTLP_METRICS_HEADERS="Authorization=Bearer ${this.secret}"`
     };

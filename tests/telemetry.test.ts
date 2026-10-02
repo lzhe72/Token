@@ -1,11 +1,11 @@
 import { afterEach, expect, test } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { AppDatabase } from '../src/main/database';
 import { UsageScanner } from '../src/collectors/scanner';
 import { ReportService } from '../src/main/report';
-import { TelemetryReceiver } from '../src/main/telemetry';
+import { inspectConfig, TelemetryReceiver } from '../src/main/telemetry';
 import type { PublicUser, ReportQuery } from '../src/shared/types';
 
 const roots: string[] = [];
@@ -65,4 +65,16 @@ test('本机遥测只接受密钥，Codex 去重，Claude 累计点计算增量�
     receiver.stop();
     db.close();
   }
+});
+
+test('遥测配置提示现有用户设置而不修改文件', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'token-settings-'));
+  roots.push(root);
+  const codex = path.join(root, 'config.toml');
+  const claude = path.join(root, 'settings.json');
+  writeFileSync(codex, '[otel]\nexporter = "none"\n');
+  writeFileSync(claude, JSON.stringify({ env: { OTEL_EXPORTER_OTLP_ENDPOINT: 'http://collector.example' } }));
+  expect(inspectConfig(codex, 'codex')).toContain('已发现');
+  expect(inspectConfig(claude, 'claude')).toContain('已发现');
+  expect(inspectConfig(path.join(root, 'missing'), 'codex')).toBeNull();
 });

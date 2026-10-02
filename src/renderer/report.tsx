@@ -1,5 +1,5 @@
 import React from 'react';
-import type { Granularity, Provider, PublicUser, ReportQuery, UsageReport } from '../shared/types';
+import type { Granularity, Provider, PublicUser, ReportQuery, SourceStatus, UsageDetailsPage, UsageReport } from '../shared/types';
 
 function localDate(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -23,6 +23,15 @@ function initialQuery(): ReportQuery {
 
 const number = (value: number) => value.toLocaleString('zh-CN');
 
+function coverageLabel(source: SourceStatus): string {
+  if (source.status === 'ready') return '已采集';
+  if (source.status === 'scanning') return '扫描中';
+  if (source.status === 'no_records') return '暂无用量记录';
+  if (source.status === 'not_found') return '未找到本地目录';
+  if (source.status === 'error') return '需检查来源';
+  return '等待扫描';
+}
+
 function displayError(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': Error: /, '');
 }
@@ -30,6 +39,9 @@ function displayError(error: unknown): string {
 export function ReportPanel({ user, users }: { user: PublicUser; users: PublicUser[] }) {
   const [query, setQuery] = React.useState<ReportQuery>(initialQuery);
   const [report, setReport] = React.useState<UsageReport | null>(null);
+  const [details, setDetails] = React.useState<UsageDetailsPage | null>(null);
+  const [detailPage, setDetailPage] = React.useState(1);
+  const [detailPeriod, setDetailPeriod] = React.useState('');
   const [error, setError] = React.useState('');
   const [exporting, setExporting] = React.useState(false);
 
@@ -43,8 +55,20 @@ export function ReportPanel({ user, users }: { user: PublicUser; users: PublicUs
     return () => { active = false; window.clearInterval(timer); };
   }, [query]);
 
+  React.useEffect(() => {
+    let active = true;
+    const refresh = () => window.tokenApi.queryUsageDetails(query, detailPage, detailPeriod)
+      .then(value => { if (active) setDetails(value); })
+      .catch(e => { if (active) setError(displayError(e)); });
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 15_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [query, detailPage, detailPeriod]);
+
   function update<K extends keyof ReportQuery>(key: K, value: ReportQuery[K]) {
     setQuery(current => ({ ...current, [key]: value }));
+    setDetailPage(1);
+    setDetailPeriod('');
   }
 
   async function exportCsv() {
@@ -69,7 +93,7 @@ export function ReportPanel({ user, users }: { user: PublicUser; users: PublicUs
       <button className="export-button" disabled={exporting || !report} onClick={exportCsv}>{exporting ? '导出中…' : '导出 CSV'}</button>
     </div>
     <div className="report-filters">
-      <label>工具<select aria-label="工具筛选" value={query.provider} onChange={e => setQuery(current => ({ ...current, provider: e.target.value as Provider | 'all', model: '' }))}><option value="all">全部工具</option><option value="codex">Codex</option><option value="claude">Claude Code</option></select></label>
+      <label>工具<select aria-label="工具筛选" value={query.provider} onChange={e => { setQuery(current => ({ ...current, provider: e.target.value as Provider | 'all', model: '' })); setDetailPage(1); setDetailPeriod(''); }}><option value="all">全部工具</option><option value="codex">Codex</option><option value="claude">Claude Code</option></select></label>
       <label>模型<select aria-label="模型筛选" value={query.model} onChange={e => update('model', e.target.value)}><option value="">全部模型</option>{report?.availableModels.map(model => <option key={model} value={model}>{model}</option>)}</select></label>
       {user.role === 'admin' && <label>用户<select aria-label="用户筛选" value={query.userId} onChange={e => update('userId', e.target.value)}><option value="all">全部用户与未归属</option><option value="unassigned">未归属</option>{users.map(item => <option key={item.id} value={item.id}>{item.username}</option>)}</select></label>}
       <label>统计时区<select aria-label="统计时区" value={query.timeZone} onChange={e => update('timeZone', e.target.value)}>
@@ -78,6 +102,7 @@ export function ReportPanel({ user, users }: { user: PublicUser; users: PublicUs
     </div>
     {error && <div className="error" role="alert">{error}</div>}
     {!report ? <div className="panel empty-row">正在计算报表…</div> : <>
+      <div className="coverage-strip">{report.coverage.map(source => <div key={source.provider}><strong>{source.provider === 'codex' ? 'Codex' : 'Claude Code'}</strong><span>{coverageLabel(source)} · {number(source.factCount)} 条本地 · {number(source.telemetryFactCount)} 条遥测</span></div>)}</div>
       <div className="metric-grid">
         <div className="metric-card"><span>总 Token</span><strong>{number(report.totals.totalTokens)}</strong><small>{number(report.totals.requests)} 条用量记录</small></div>
         <div className="metric-card"><span>输入 Token</span><strong>{number(report.totals.inputTokens)}</strong><small>按工具原始口径</small></div>
@@ -85,9 +110,15 @@ export function ReportPanel({ user, users }: { user: PublicUser; users: PublicUs
         <div className="metric-card"><span>缓存读取</span><strong>{number(report.totals.cacheReadTokens)}</strong><small>Codex 中属于输入子集</small></div>
       </div>
       <section className="panel trend-panel"><div className="panel-head"><h2>用量趋势</h2><span>{query.from} 至 {query.to}</span></div>
-        {report.points.length ? <div className="chart-scroll"><div className="bar-chart">{report.points.map(point => <div className="bar-column" key={point.period} title={`${point.period} · ${number(point.totalTokens)} Token`}><div className="bar-value">{number(point.totalTokens)}</div><div className="bar-track"><div className="bar" style={{ height: `${Math.max(3, point.totalTokens / maxPoint * 100)}%` }} /></div><div className="bar-label">{point.period}</div></div>)}</div></div> : <div className="empty-row">{hasCoverage ? '该时间范围没有匹配的用量记录。' : '尚未采集到可用记录，请检查数据来源。'}</div>}
+        {report.points.length ? <div className="chart-scroll"><div className="bar-chart">{report.points.map(point => <button type="button" className={detailPeriod === point.period ? 'bar-column selected' : 'bar-column'} key={point.period} title={`${point.period} · ${number(point.totalTokens)} Token`} aria-label={`查看 ${point.period} 用量明细`} onClick={() => { setDetailPeriod(point.period); setDetailPage(1); }}><div className="bar-value">{number(point.totalTokens)}</div><div className="bar-track"><div className="bar" style={{ height: `${Math.max(3, point.totalTokens / maxPoint * 100)}%` }} /></div><div className="bar-label">{point.period}</div></button>)}</div></div> : <div className="empty-row">{hasCoverage ? '该时间范围没有匹配的用量记录。' : '尚未采集到可用记录，请检查数据来源。'}</div>}
       </section>
-      <section className="panel"><div className="panel-head"><h2>模型用量</h2><span>{report.models.length} 个模型</span></div><div className="table-wrap"><table><thead><tr><th>工具 / 模型</th><th>输入</th><th>输出</th><th>缓存读取</th><th>缓存写入</th><th>总 Token</th></tr></thead><tbody>{report.models.map(item => <tr key={`${item.provider}:${item.model}`}><td><strong>{item.model}</strong><small className="model-provider">{item.provider === 'codex' ? 'Codex' : 'Claude Code'}</small></td><td>{number(item.inputTokens)}</td><td>{number(item.outputTokens)}</td><td>{number(item.cacheReadTokens)}</td><td>{number(item.cacheCreationTokens)}</td><td><strong>{number(item.totalTokens)}</strong></td></tr>)}</tbody></table>{report.models.length === 0 && <div className="empty-row">暂无模型用量。</div>}</div></section>
+      <section className="panel model-panel"><div className="panel-head"><h2>模型用量</h2><span>{report.models.length} 个模型</span></div><div className="table-wrap"><table><thead><tr><th>工具 / 模型</th><th>输入</th><th>输出</th><th>缓存读取</th><th>缓存写入</th><th>总 Token</th></tr></thead><tbody>{report.models.map(item => <tr key={`${item.provider}:${item.model}`}><td><button type="button" className="model-link" onClick={() => update('model', item.model)}>{item.model}</button><small className="model-provider">{item.provider === 'codex' ? 'Codex' : 'Claude Code'}</small></td><td>{number(item.inputTokens)}</td><td>{number(item.outputTokens)}</td><td>{number(item.cacheReadTokens)}</td><td>{number(item.cacheCreationTokens)}</td><td><strong>{number(item.totalTokens)}</strong></td></tr>)}</tbody></table>{report.models.length === 0 && <div className="empty-row">暂无模型用量。</div>}</div></section>
+      <section className="panel detail-panel"><div className="panel-head"><h2>用量明细</h2><span>{details ? `${number(details.total)} 条记录` : '加载中'}</span></div>
+        <p className="hint">选择趋势柱或模型名称可定位对应记录。时间按 {query.timeZone} 显示，仅含用量字段。</p>
+        {(detailPeriod || query.model) && <div className="detail-filters">{detailPeriod && <button className="text-button" onClick={() => { setDetailPeriod(''); setDetailPage(1); }}>{detailPeriod} ×</button>}{query.model && <button className="text-button" onClick={() => update('model', '')}>{query.model} ×</button>}</div>}
+        <div className="table-wrap"><table><thead><tr><th>时间</th><th>工具 / 模型</th><th>来源</th><th>输入</th><th>输出</th><th>缓存读</th><th>缓存写</th><th>总 Token</th></tr></thead><tbody>{details?.records.map(item => <tr key={item.id}><td>{new Date(item.occurredAt).toLocaleString('zh-CN', { timeZone: query.timeZone })}</td><td><strong>{item.model}</strong><small className="model-provider">{item.provider === 'codex' ? 'Codex' : 'Claude Code'}</small></td><td title={item.sourceLabel}>{item.source === 'local' ? '本地' : '遥测'}</td><td>{number(item.inputTokens)}</td><td>{number(item.outputTokens)}</td><td>{number(item.cacheReadTokens)}</td><td>{number(item.cacheCreationTokens)}</td><td><strong>{number(item.totalTokens)}</strong></td></tr>)}</tbody></table>{details?.records.length === 0 && <div className="empty-row">当前筛选没有明细。</div>}</div>
+        {details && details.total > details.pageSize && <div className="detail-pager"><button disabled={detailPage === 1} onClick={() => setDetailPage(page => page - 1)}>上一页</button><span>{detailPage} / {Math.ceil(details.total / details.pageSize)}</span><button disabled={detailPage * details.pageSize >= details.total} onClick={() => setDetailPage(page => page + 1)}>下一页</button></div>}
+      </section>
       <p className="report-footnote">总 Token 按各工具原始计量规则计算。Codex 的缓存读取包含在输入 Token 中；Claude Code 的缓存读取和写入单独计入总量。同一工具在同一 UTC 日期有本地记录时，报表采用本地记录，不叠加遥测。</p>
     </>}
   </div>;

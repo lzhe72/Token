@@ -1,8 +1,11 @@
+import { createHash } from 'node:crypto';
 import type { AppDatabase, Row } from './database';
-import type { Granularity, ModelTotal, Provider, PublicUser, ReportPoint, ReportQuery, TokenTotals, UsageReport } from '../shared/types';
+import type { Granularity, ModelTotal, Provider, PublicUser, ReportPoint, ReportQuery, TokenTotals, UsageDetailsPage, UsageReport } from '../shared/types';
 import type { UsageScanner } from '../collectors/scanner';
 
 interface FactRow extends Row {
+  source_key: string;
+  source_label: string;
   provider: Provider;
   model: string;
   occurred_at: string;
@@ -95,7 +98,7 @@ export class ReportService {
   private selectFacts(query: ReportQuery): FactRow[] {
     const lower = new Date(Date.parse(`${query.from}T00:00:00Z`) - 2 * 86_400_000).toISOString();
     const upper = new Date(Date.parse(`${query.to}T00:00:00Z`) + 2 * 86_400_000).toISOString();
-    return this.db.all(`SELECT f.*, s.owner_user_id FROM usage_facts f
+    return this.db.all(`SELECT f.*, s.owner_user_id, s.label AS source_label FROM usage_facts f
       LEFT JOIN source_identities s ON s.key = f.source_identity_key
       WHERE f.occurred_at >= ? AND f.occurred_at < ?
         AND (f.source_key NOT LIKE 'otel:%' OR NOT EXISTS (
@@ -148,6 +151,36 @@ export class ReportService {
       providers: [...providers.values()].sort((a, b) => b.totalTokens - a.totalTokens),
       availableModels: [...availableModels].sort(),
       coverage: this.scanner.statuses()
+    };
+  }
+
+  details(input: unknown, pageInput: unknown, periodInput: unknown, actor: PublicUser): UsageDetailsPage {
+    const query = safeQuery(input, actor);
+    if (typeof pageInput !== 'number' || !Number.isSafeInteger(pageInput) || pageInput < 1) throw new Error('页码无效');
+    if (typeof periodInput !== 'string' || periodInput.length > 20 || (periodInput && !/^[0-9]{4}(?:-(?:[0-9]{2}(?:-[0-9]{2})?|W[0-9]{2}))?$/.test(periodInput))) {
+      throw new Error('时间分组无效');
+    }
+    const facts = [...this.filteredFacts(query, this.selectFacts(query))]
+      .filter(({ fact, period }) => (!query.model || fact.model === query.model) && (!periodInput || period === periodInput))
+      .sort((a, b) => b.fact.occurred_at.localeCompare(a.fact.occurred_at));
+    const pageSize = 50;
+    return {
+      total: facts.length,
+      page: pageInput,
+      pageSize,
+      records: facts.slice((pageInput - 1) * pageSize, pageInput * pageSize).map(({ fact }) => ({
+        id: createHash('sha256').update(fact.source_key).digest('hex').slice(0, 12),
+        provider: fact.provider,
+        model: fact.model,
+        occurredAt: fact.occurred_at,
+        source: fact.source_key.startsWith('otel:') ? 'telemetry' : 'local',
+        sourceLabel: fact.source_label || '未知来源',
+        inputTokens: Number(fact.input_tokens),
+        outputTokens: Number(fact.output_tokens),
+        cacheReadTokens: Number(fact.cache_read_tokens),
+        cacheCreationTokens: Number(fact.cache_creation_tokens),
+        totalTokens: Number(fact.total_tokens)
+      }))
     };
   }
 

@@ -2,6 +2,7 @@ node_modules/
 .npm-cache/
 dist/
 release/
+/*.dmg
 coverage/
 playwright-report/
 test-results/

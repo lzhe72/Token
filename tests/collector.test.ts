@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, appendFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, appendFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { AppDatabase } from '../src/main/database';
@@ -84,5 +84,71 @@ test('未写完的末行等待补齐，截断重写后不重复统计', async ()
   writeFileSync(file, jsonl(event('r1'), event('r3')));
   await scanner.scan();
   expect(scanner.statuses()[0].factCount).toBe(3);
+  db.close();
+});
+
+test('空目录、错误字段及不可读文件显示可辨认的状态', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'token-errors-'));
+  tempPaths.push(root);
+  const codexDir = path.join(root, 'codex');
+  const claudeDir = path.join(root, 'claude');
+  mkdirSync(codexDir);
+  mkdirSync(claudeDir);
+  process.env.TOKEN_CODEX_SESSIONS_DIR = codexDir;
+  process.env.TOKEN_CLAUDE_PROJECTS_DIR = claudeDir;
+  const db = await AppDatabase.open(path.join(root, 'token.sqlite'));
+  const scanner = new UsageScanner(db);
+  await scanner.scan();
+  expect(scanner.statuses().map(status => status.status)).toEqual(['no_records', 'no_records']);
+  const bad = path.join(codexDir, 'bad.jsonl');
+  writeFileSync(bad, jsonl({ type: 'token_usage_record', timestamp: '2026-01-01T00:00:00Z',
+    payload: { usage: { input_tokens: 'unknown', output_tokens: 2 } } }));
+  await scanner.scan();
+  expect(scanner.statuses()[0]).toMatchObject({ status: 'error', factCount: 0 });
+  expect(scanner.statuses()[0].detail).toContain('无法解析');
+  const unreadable = path.join(claudeDir, 'private.jsonl');
+  writeFileSync(unreadable, jsonl({ type: 'assistant' }));
+  chmodSync(unreadable, 0o000);
+  try {
+    await scanner.scan();
+    expect(scanner.statuses()[0].status).toBe('error');
+    expect(scanner.statuses()[1].status).toBe('error');
+    expect(scanner.statuses()[1].detail).toContain('文件读取失败');
+  } finally {
+    chmodSync(unreadable, 0o600);
+    db.close();
+  }
+});
+
+test('模型切换与 Claude 子代理记录按实际模型归档', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'token-model-switch-'));
+  tempPaths.push(root);
+  const codexDir = path.join(root, 'codex');
+  const claudeDir = path.join(root, 'claude');
+  mkdirSync(codexDir);
+  mkdirSync(claudeDir);
+  process.env.TOKEN_CODEX_SESSIONS_DIR = codexDir;
+  process.env.TOKEN_CLAUDE_PROJECTS_DIR = claudeDir;
+  writeFileSync(path.join(codexDir, 'session.jsonl'), jsonl(
+    { type: 'session_meta', payload: { session_id: 's1' } },
+    { type: 'turn_context', payload: { turn_id: 't1', model: 'gpt-a' } },
+    { type: 'token_usage_record', timestamp: '2026-01-01T00:00:00Z', payload: { session_id: 's1', turn_id: 't1', response_id: 'r1', usage: { input_tokens: 10, cached_input_tokens: 4, output_tokens: 2, total_tokens: 12 } } },
+    { type: 'turn_context', payload: { turn_id: 't2', model: 'gpt-b' } },
+    { type: 'token_usage_record', timestamp: '2026-01-01T01:00:00Z', payload: { session_id: 's1', turn_id: 't2', response_id: 'r2', usage: { input_tokens: 5, output_tokens: 3, total_tokens: 8 } } }
+  ));
+  writeFileSync(path.join(claudeDir, 'session.jsonl'), jsonl(
+    { type: 'assistant', timestamp: '2026-01-01T02:00:00Z', sessionId: 's2', requestId: 'r1', message: { model: 'claude-a', usage: { input_tokens: 1, output_tokens: 2, cache_read_input_tokens: 3, cache_creation_input_tokens: 4 } } },
+    { type: 'assistant', isSidechain: true, agentId: 'agent-1', timestamp: '2026-01-01T03:00:00Z', sessionId: 's2', requestId: 'r2', message: { model: 'claude-b', usage: { input_tokens: 2, output_tokens: 3, cache_read_input_tokens: 4, cache_creation_input_tokens: 5 } } }
+  ));
+  const db = await AppDatabase.open(path.join(root, 'token.sqlite'));
+  const scanner = new UsageScanner(db);
+  await scanner.scan();
+  expect(db.all('SELECT provider, model, total_tokens FROM usage_facts ORDER BY provider, model'))
+    .toMatchObject([
+      { provider: 'claude', model: 'claude-a', total_tokens: 10 },
+      { provider: 'claude', model: 'claude-b', total_tokens: 14 },
+      { provider: 'codex', model: 'gpt-a', total_tokens: 12 },
+      { provider: 'codex', model: 'gpt-b', total_tokens: 8 }
+    ]);
   db.close();
 });

@@ -25,6 +25,9 @@ test('报表按本地时区与 ISO 周汇总，并限制普通用户归属', asy
     expect(adminResult.totals.totalTokens).toBe(26);
     expect(adminResult.points).toMatchObject([{ period: '2020-W53', totalTokens: 26 }]);
     expect(adminResult.models).toHaveLength(2);
+    const detail = report.details(query, 1, '2020-W53', admin);
+    expect(detail.total).toBe(2);
+    expect(detail.records.reduce((sum, item) => sum + item.totalTokens, 0)).toBe(26);
     expect(report.query({ ...query, granularity: 'day' }, admin).points[0].period).toBe('2021-01-01');
     expect(report.query({ ...query, granularity: 'month' }, admin).points[0].period).toBe('2021-01');
     expect(report.query({ ...query, granularity: 'year' }, admin).points[0].period).toBe('2021');
@@ -33,10 +36,14 @@ test('报表按本地时区与 ISO 周汇总，并限制普通用户归属', asy
     expect(csv).toContain("\"'=2+2\"");
     expect(csv).not.toContain("\"=2+2\"");
     expect(report.query(query, viewer).totals.totalTokens).toBe(0);
+    expect(report.details(query, 1, '', viewer).total).toBe(0);
     scanner.bindIdentity('codex:local', 'viewer', 'admin');
     expect(report.query(query, viewer).totals.totalTokens).toBe(12);
+    expect(report.details(query, 1, '', viewer).records).toMatchObject([{ provider: 'codex', totalTokens: 12 }]);
+    expect(report.details({ ...query, model: 'claude-test' }, 1, '', viewer).total).toBe(0);
     expect(report.query({ ...query, userId: 'unassigned' }, admin).totals.totalTokens).toBe(14);
     expect(() => report.query({ ...query, from: '2021-02-30' }, admin)).toThrow('日期范围无效');
+    expect(() => report.details(query, 0, '', admin)).toThrow('页码无效');
     db.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });

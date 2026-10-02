@@ -12,6 +12,8 @@ export function parseClaudeLine(value: unknown, state: ParserState, context: Lin
   state.sessionId = sessionId;
   const model = nonempty(message.model, '未知模型');
   const requestId = nonempty(line.requestId, nonempty(message.id, nonempty(line.uuid, `${context.fileKey}:${context.lineOffset}`)));
+  if (['input_tokens', 'output_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens']
+    .every(key => usage[key] === undefined)) throw new Error('Claude Code 用量字段缺失');
   const inputTokens = tokenCount(usage.input_tokens);
   const outputTokens = tokenCount(usage.output_tokens);
   const cacheReadTokens = tokenCount(usage.cache_read_input_tokens);

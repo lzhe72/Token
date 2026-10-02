@@ -17,6 +17,7 @@ function usageFact(
   state: ParserState,
   context: LineContext
 ): UsageFact {
+  if (usage.input_tokens === undefined || usage.output_tokens === undefined) throw new Error('Codex 用量字段缺失');
   const inputTokens = tokenCount(usage.input_tokens);
   const outputTokens = tokenCount(usage.output_tokens);
   return {
