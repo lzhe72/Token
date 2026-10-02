@@ -12,6 +12,8 @@
 | `src/collectors/scanner.ts` | 只读扫描、增量游标、去重入库、状态及来源绑定 |
 | `src/main/auth.ts`、`database.ts` | 账户和权限、`sql.js` SQLite 文件持久化与备份 |
 | `src/main/telemetry.ts` | 可选本机 OTLP 接收、密钥验证及遥测归并 |
+| `src/main/trusted-device.ts`、`server-connection.ts`、`update-client.ts`、`usage-sync.ts` | 受信凭证、本地/配置服务连接、更新包校验与聚合上报 |
+| `src/server/` | 独立服务、版本清单与安装包、聚合接收和鉴权 |
 | `src/main/report.ts` | 筛选、时区分桶、明细和 CSV 的统一计算口径 |
 | `src/main/index.ts`、`src/preload/index.ts`、`src/shared/types.ts` | 主进程 IPC、最小化预加载 API、跨进程类型 |
 | `src/renderer/` | React 界面、报表交互与样式 |
@@ -26,7 +28,8 @@
 - 来源归属必须显式绑定；普通用户的查询范围由主进程登录态约束。每个 IPC 在主进程验证发送方、权限和参数；预加载脚本只暴露命名方法，不能暴露通用 IPC、文件系统或 SQL。
 - 只保存用量字段和必要的来源元数据。禁止提交真实会话 JSONL、提示词、回复、源码、数据库、凭证和遥测密钥；测试使用人工构造的无正文样本，临时数据目录在测试后清理。
 - 遥测接收器只监听本机地址并验证随机密钥。只读检查已有 Codex/Claude 配置，不自动覆盖既有或组织管理设置。CSV 文本字段必须防公式注入。
-- `REQ-014` 当前有 `DEV-019` / `TC-029` 待处理：CSV 表头 8 列、数据行 9 列，列名与数值语义尚未完全对应。
+- `REQ-014` 的历史 CSV 表头错位由 `DEV-019` / `TC-029` 自动断言覆盖；每次修改导出结构时重跑该编号与公式注入用例 TC-023。
+- M5 的 `TC-030`–`TC-049` 已有单编号入口；受信设备、独立服务、十分钟扫描、聚合上报及界面有相应测试。自动化的实际覆盖与缺口见[逐项验收](test-case-acceptance.md#m5-用例绑定与覆盖tc-030tc-049)，不得以模拟包测试代替真实 macOS 安装。
 - 本机开发版 DMG 未签名；公开分发的签名、公证和目标设备验收独立于本机打包通过。
 
 ## 常用命令
@@ -43,3 +46,8 @@
 | 打包目录 | `CSC_IDENTITY_AUTO_DISCOVERY=false npm run pack:dir` |
 | 打包应用端到端 | `npm run test:e2e:packaged` |
 | 本机未签名 DMG | `npm run pack:dmg` |
+| 独立启动更新与聚合服务 | `npm run server`（默认 `127.0.0.1:47839`） |
+| 发布更新包 | `npm run publish:update -- <dmg> <version> <arch> <server-dir>` |
+| 批量逐编号验收 | `npm run test:acceptance -- 29 49` |
+
+服务端监听地址由 `TOKEN_SERVER_HOST`、`TOKEN_SERVER_PORT` 配置，非回环监听还需 `TOKEN_SERVER_TLS_CERT` 和 `TOKEN_SERVER_TLS_KEY`。App 连接地址与密钥可配置；非回环连接必须使用 HTTPS。更新清单、安装包和聚合上报都需要 bearer 密钥。不要提交服务密钥、证书私钥或服务数据库。

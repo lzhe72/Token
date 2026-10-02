@@ -10,9 +10,10 @@ Token 是一个 macOS 桌面应用，用于汇总本机 Codex 与 Claude Code �
 - [产品与技术设计](docs/design.md)
 - [开发计划与验收标准](docs/development-plan.md)
 - [M0 本机数据可行性验证](docs/feasibility.md)
-- [首版验收记录](docs/validation.md)
+- [验收记录（首版与 M5）](docs/validation.md)
+- [项目变更日志](docs/CHANGELOG.md)
 
-第一版定位为本机离线应用。账户、采集结果和报表存储在当前 Mac；跨设备同步与云端管理不在第一版范围内。
+第一版定位为本机离线应用。M5 增加独立服务，用于更新包和已归属用量的聚合快照；默认在本机 `127.0.0.1:47839` 通信，监听与连接地址可配置。跨设备同步与云端账户管理仍不在当前验收范围内。
 
 ## 当前进度
 
@@ -21,12 +22,13 @@ Token 是一个 macOS 桌面应用，用于汇总本机 Codex 与 Claude Code �
 - M2：完成 Codex 与 Claude Code 本地记录的历史导入、增量扫描、去重和来源归属；可选接收官方 OTLP/HTTP JSON 遥测。
 - M3：完成日、周、月、年报表、工具、模型、用户、时区筛选与 CSV 导出。
 - M4：完成数据库备份/恢复、打包版 Playwright 测试和未签名 DMG；已在当前 Mac 从 DMG 复制应用运行验收。面向其他 Mac 分发仍需签名、公证和对应设备验收。
+- M5：已实现可选“信任此设备”、每 10 分钟扫描后聚合上报、独立服务版本清单与安装包下载、K→M→P 显示，以及概览和趋势图修复。版本提交 `96e99be` 的 TC-029–049 自动验收为 21/21；真实新版本安装发布、签名公证和另一台 Mac 安装仍待人工验收，详细限制见[逐项验收](docs/test-case-acceptance.md)。
 
 ## 使用流程
 
-1. 首次启动创建本地管理员账户。
-2. 应用自动扫描当前 macOS 账户可读取的 `~/.codex/sessions` 与 `~/.claude/projects`，每 30 秒检查新记录。管理员可在“数据来源”页立即扫描、查看采集状态并把来源绑定到应用用户。
-3. 在“用量报表”页选择日期、日/周/月/年、工具、模型、用户和统计时区。点击趋势柱或模型名称可追溯分页明细；报表每 15 秒刷新，可导出当前筛选结果的 CSV。
+1. 首次启动创建本地管理员账户；登录时可主动勾选“信任此设备”，手动退出会撤销信任。
+2. 应用启动时扫描当前 macOS 账户可读取的 `~/.codex/sessions` 与 `~/.claude/projects`，之后每 10 分钟扫描；管理员可在“数据来源”页立即扫描、查看采集/上报状态并把来源绑定到应用用户。完整扫描后向配置的独立服务上传聚合快照。
+3. 在“用量报表”页选择日期、日/周/月/年、工具、模型、用户和统计时区。点击趋势柱或模型名称可追溯分页明细；显示值按 1024 逐级使用 K→M→P，明细和 CSV 保留原始 Token 整数。
 4. 管理员可在“数据来源”页保存 SQLite 备份，或从备份恢复。恢复会先保存当前数据库副本，再重启应用。
 
 ## 可选官方遥测
@@ -54,7 +56,10 @@ npm run test:e2e
 CSC_IDENTITY_AUTO_DISCOVERY=false npm run pack:dir
 npm run test:e2e:packaged
 npm run pack:dmg
+npm run test:acceptance -- 29 49
 ```
 
+独立服务可用 `npm run server` 启动；默认监听 `127.0.0.1:47839`，可用 `TOKEN_SERVER_HOST`、`TOKEN_SERVER_PORT`、`TOKEN_SERVER_DATA_DIR` 配置。非回环监听须配置 `TOKEN_SERVER_TLS_CERT` 和 `TOKEN_SERVER_TLS_KEY`，App 的非回环连接须使用 HTTPS。更新清单、安装包和聚合上报都需要服务 bearer 密钥。将已准备好的 DMG 放入服务发布目录可执行 `npm run publish:update -- <dmg> <version> <arm64|x64> <server-dir>`；此命令不替代签名、公证和目标 Mac 安装验证。
+
 打包目录位于 `release/mac/Token.app`。当前构建未签名，仅用于本机开发验证。
-DMG 位于项目根目录 `Token-0.1.0.dmg`，也未签名。公开分发前需在具备 Apple 开发者证书的环境中签名和公证。
+当前应用版本为 `0.2.0`；`npm run pack:dmg` 在项目根目录生成 `Token-0.2.0.dmg`。该包未签名；公开分发前需在具备 Apple 开发者证书的环境中签名、公证并在目标 Mac 验收。

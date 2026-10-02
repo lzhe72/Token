@@ -1,8 +1,8 @@
 # 测试执行与数据隔离
 
-`TC-001` 至 `TC-029` 的编号以[追溯工作簿](../outputs/20261002-token-docs/Token-需求开发测试追溯.xlsx)为准。每个编号在 `scripts/test-cases.mjs` 中有一个入口，可用同一脚本重复执行。多个 TC 可以共享一个覆盖较广的测试，但每个 TC 都必须明确指向具体测试名称。新增用例时，同步增加注册项和断言。
+`TC-001` 至 `TC-049` 的编号以[追溯工作簿](../outputs/20261002-token-docs/Token-需求开发测试追溯.xlsx)为准。每个编号在 `scripts/test-cases.mjs` 中有一个入口，可用同一脚本重复执行。多个 TC 可以共享一个覆盖较广的测试，但每个 TC 都必须明确指向具体测试名称。新增用例时，同步增加注册项和断言。
 
-M5 另规划 `TC-030` 至 `TC-049`，目前只有[逐项验收条件](test-case-acceptance.md#m5-计划用例tc-030tc-049)和工作簿编号，**尚未注册到运行器，也没有测试通过结果**。开发时须补测试与注册项后才能执行相应编号；现有 `test:cases:check` 只校验已注册的 TC-001–029。
+M5 的 `TC-030` 至 `TC-049` 及 CSV 修复用例 `TC-029` 已绑定自动测试；[逐项验收](test-case-acceptance.md#m5-用例绑定与覆盖tc-030tc-049)列出实际断言和仍需验证的边界。`npm run test:cases:check` 当前核对 49 个入口；测试代码存在并不自动表示真实安装、非回环部署或目标 Mac 人工验收通过。
 
 ## 命令
 
@@ -11,12 +11,15 @@ M5 另规划 `TC-030` 至 `TC-049`，目前只有[逐项验收条件](test-case-
 | 查看所有用例入口 | `npm run test:case -- --list` |
 | 运行一个自动用例 | `npm run test:case -- TC-020` |
 | 核对编号和测试绑定 | `npm run test:cases:check` |
+| 按编号批量验收并留日志 | `npm run test:acceptance -- 29 49` |
 | 运行交付门禁 | `npm run test:gate` |
 | 运行打包应用端到端测试 | `npm run test:e2e:packaged` |
 
-`test:gate` 依次运行类型检查、用例注册检查、全部 Vitest 测试和构建后的 Electron Playwright 测试。自动用例失败则命令返回非零。涉及打包行为的变更还需运行打包应用端到端测试，并保留实际命令与结果。
+`test:gate` 依次运行类型检查、用例注册检查、全部 Vitest 测试和构建后的 Electron Playwright 测试。自动用例失败则命令返回非零。涉及打包行为的变更还需运行打包应用端到端测试，并保留实际命令与结果。`TC-030` 和 `TC-038` 的单编号命令各运行单元与 Electron 两层测试；`TC-048`、`TC-049` 运行 Electron 测试。
 
-人工用例也使用 `npm run test:case -- TC-001` 这样的命令读取操作清单。完成后用 `npm run test:case -- TC-001 pass /绝对路径/脱敏证据文件` 记录结果；失败时改用 `fail`。缺少证据、尚未操作时命令返回非零。记录写入被 Git 忽略的 `test-results/manual/`，不能把真实会话正文、凭证或用户数据库提交到仓库。`TC-029` 是已登记的 CSV 表头缺陷，修复并改成自动断言前脚本不允许标记通过。`TC-028` 的签名、公证及另一台 Mac 验收仍需真实发布环境。
+`test:acceptance` 逐编号调用同一个单用例运行器，把输出写入被 Git 忽略的 `test-results/acceptance/TC-###.log`，并生成 `summary.json`（提交、时间、平台、Node、每条退出码和日志文件名）。任何编号失败时批量命令非零退出。该摘要只证明所运行的自动断言；TC-027/028 的真实机器安装、签名和公证仍须按人工入口另留证据。固定开发提交前的临时运行结果不得当作最终验收记录。
+
+人工用例也使用 `npm run test:case -- TC-001` 这样的命令读取操作清单。完成后用 `npm run test:case -- TC-001 pass /绝对路径/脱敏证据文件` 记录结果；失败时改用 `fail`。缺少证据、尚未操作时命令返回非零。记录写入被 Git 忽略的 `test-results/manual/`，不能把真实会话正文、凭证或用户数据库提交到仓库。`TC-029` 已改成自动断言；`TC-028` 的签名、公证及另一台 Mac 验收仍需真实发布环境。
 
 ## 测试数据库
 

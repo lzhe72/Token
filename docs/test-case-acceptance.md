@@ -1,10 +1,10 @@
 # Token 测试用例逐项验收
 
-本文逐条说明追溯工作簿中的 TC-001 至 TC-029 如何执行、实际绑定哪段测试、需要什么证据以及何时判为失败。以下命令均从仓库根目录执行，先用 `npm ci` 安装锁定依赖。用例注册以 `scripts/test-cases.mjs` 为准，执行入口为 `scripts/run-test-case.mjs`。工作簿 H/I 列保留历史验收状态和证据，不代表本轮已经复验。
+本文逐条说明追溯工作簿中的 TC-001 至 TC-049 如何执行、实际绑定哪段测试、需要什么证据以及何时判为失败。以下命令均从仓库根目录执行，先用 `npm ci` 安装锁定依赖。用例注册以 `scripts/test-cases.mjs` 为准，执行入口为 `scripts/run-test-case.mjs`。工作簿 H/I 列保留对应版本的验收状态和证据，不代表后续版本已经复验。
 
 ## 执行与证据边界
 
-- 共 29 条：23 条有自动运行入口，6 条为人工入口。多条编号可能运行同一测试函数，命令可单独调用，但结果并非独立断言。
+- 共 49 条：44 条有自动运行入口，5 条为人工入口。多条编号可能运行同一测试函数，命令可单独调用，但结果并非独立断言；TC-030、TC-038 还各自绑定额外端到端测试。
 - 自动入口在缺少 `TOKEN_E2E_EXECUTABLE` 时会先构建应用；Vitest 以 `-t`、Playwright 以 `--grep` 精确选择注册的测试名称。任一绑定函数失败，`npm run test:case -- TC-###` 非零退出。
 - 单元和端到端造数由 `tests/support/test-workspace.ts` 在系统临时目录 `token-test-db-<label>-*` 创建：`token.sqlite`、`codex/`、`claude/` 均在其中。端到端将该目录作为 `--token-user-data`；测试结束清理。不要使用真实用户数据库或真实会话正文。
 - 自动入口不会自动保存证据文件。可先执行 `mkdir -p test-results/acceptance`，再将单用例输出重定向到 `test-results/acceptance/TC-###.log`，紧接着记录退出码、提交、macOS 和测试日期。`test-results/` 已被 Git 忽略；日志只保留脱敏断言与环境信息。
@@ -18,7 +18,7 @@ echo $?
 ```
 
 - 人工入口只打印操作清单并以退出码 2 结束，不代表通过。先在 `test-results/manual/evidence/` 写入脱敏证据文件，再执行 `npm run test:case -- TC-### pass "$PWD/test-results/manual/evidence/TC-###.md"`；失败时把 `pass` 改为 `fail`。运行器会写入 `test-results/manual/TC-###.json`；缺文件或证据路径不是绝对路径时退出码 2，`fail` 的退出码为 1。
-- TC-029 是已知 CSV 表头缺陷。当前运行器拒绝其 `pass`，退出码 2。历史 A1–A10 或代码中的断言不能代替当前版本、当前环境的逐项结果。
+- TC-029 已绑定 CSV 列结构单元断言；旧版关于“禁止通过”的说明仅对应修复前提交。历史 A1–A10 或代码中的断言不能代替当前版本、当前环境的逐项结果。
 
 ## 本次命令核对
 
@@ -330,12 +330,13 @@ echo $?
 (
 set -e
 npm run pack:dmg
-hdiutil verify Token-0.1.0.dmg
+TOKEN_TC_DMG="Token-$(node -p 'require("./package.json").version').dmg"
+hdiutil verify "$TOKEN_TC_DMG"
 TOKEN_TC_MOUNT=$(mktemp -d /tmp/token-tc027-mount.XXXXXX)
 TOKEN_TC_COPY=$(mktemp -d /tmp/token-tc027-copy.XXXXXX)
 TOKEN_TC_ATTACHED=0
 trap 'if [ "$TOKEN_TC_ATTACHED" = 1 ]; then hdiutil detach "$TOKEN_TC_MOUNT" || true; fi; rm -R "$TOKEN_TC_COPY"; rmdir "$TOKEN_TC_MOUNT"' EXIT
-hdiutil attach Token-0.1.0.dmg -nobrowse -mountpoint "$TOKEN_TC_MOUNT"
+hdiutil attach "$TOKEN_TC_DMG" -nobrowse -mountpoint "$TOKEN_TC_MOUNT"
 TOKEN_TC_ATTACHED=1
 ditto "$TOKEN_TC_MOUNT/Token.app" "$TOKEN_TC_COPY/Token.app"
 hdiutil detach "$TOKEN_TC_MOUNT"
@@ -365,19 +366,20 @@ xcrun stapler validate release/mac/Token.app
 
 ### TC-029 CSV 表头与数据列对齐
 
-- **历史状态**：待验证；src/main/report.ts 当前表头 8 列、数据行 9 列。本轮结果以本次命令和证据为准。
+- **历史状态**：修复前版本表头 8 列、数据行 9 列；该历史缺陷不代表当前实现。本轮结果以固定提交的命令和证据为准。
 - **执行命令**：`npm run test:case -- TC-029`。
-- **实际绑定**：无自动测试函数；`scripts/test-cases.mjs` 仅给出人工清单。
-- **自动化覆盖**：已知缺陷；禁止通过。
-- **前置与造数**：当前 CSV 实现存在已知 8 列表头与 9 列数据；至少导出一条人工构造用量行，使用 CSV 解析器逐列核对。
-- **验收断言或人工操作**：修复后的表头与每行均为 9 列，并明确“总 Token”和“用量记录数”两列语义；现状不满足。
-- **脱敏证据**：脱敏 CSV 表头/行列数对比与解析结果；修复前仅可记录 fail，不得记录 pass。
-- **失败或未验证条件**：runner 对 pass 固定退出码 2；表头仍为 8 列或总 Token 错位时验收失败。
-- **人工结果登记**：先建立证据文件；当前缺陷只能执行 `npm run test:case -- TC-029 fail "$PWD/test-results/manual/evidence/TC-029.md"`。运行器拒绝 `pass`。
+- **实际绑定**：`tests/next-report.test.ts` 中 `test('TC-029 CSV 表头和数据列对齐')`，由 Vitest 按名称运行。
+- **自动化覆盖**：人工构造一行用量，检查 CSV 表头及数据行为 9 列，`总 Token` 列名与数值 `12` 对齐，末列记录数为 `1`。测试以逗号拆分固定造数，不覆盖所有引号、换行与公式转义组合；CSV 公式注入另见 TC-023。
+- **前置与造数**：`tests/support/test-workspace.ts` 创建独立临时库，插入 12 Token 的 `gpt-test` 记录。
+- **脱敏证据**：保存该编号命令、退出码、测试日志、代码提交和环境；无需人工 `pass` 登记。
+- **失败或未验证条件**：列数、列名或列值不符时 Vitest 非零退出；未运行固定提交时不把“有测试代码”当作已验证。
+- **本轮结果**：提交 `96e99be` 的 `npm run test:acceptance -- 29 49` 中该编号退出码 0；本机日志在被 Git 忽略的 `test-results/acceptance/TC-029.log`。
 
-## M5 计划用例（TC-030–TC-049）
+## M5 用例绑定与覆盖（TC-030–TC-049）
 
-以下均为**待验证**。`npm run test:case -- TC-030` 至 `TC-049` 只是计划中的逐项命令；`scripts/test-cases.mjs` 尚无这些编号，当前执行会失败，不能用清单或历史 A1–A10 记作通过。实施者须使用临时数据库、假时钟、可配置地址的测试服务和人工构造的脱敏记录，新增按编号注册项及实际断言；对 macOS 手工场景需记录包哈希、系统版本、操作和结果。每条证据须含提交、日期、环境、命令、退出码与脱敏结果。
+`TC-030` 至 `TC-049` 已在 `scripts/test-cases.mjs` 注册。执行单条用例用 `npm run test:case -- TC-###`；除标明额外端到端绑定的编号外，入口运行下表对应的一个 Vitest 或 Playwright 函数。下表描述**当前断言实际覆盖**，与上面的验收目标仍有差距的地方写在“限制”列。证据须含固定代码提交、日期、环境、命令、退出码与脱敏结果。未执行或缺目标环境时，不因入口存在而写成通过。
+
+本轮固定提交 `96e99be` 执行 `npm run test:acceptance -- 29 49`，`summary.json` 记录 TC-029–049 **21/21 退出码 0**；逐编号日志位于本机 `test-results/acceptance/`（Git 忽略）。这证明下表列出的自动断言通过，未覆盖的人工和环境边界仍保持待验证。
 
 | 用例 | 关联 | 前置与操作 | 通过标准与证据重点 |
 | --- | --- | --- | --- |
@@ -402,4 +404,31 @@ xcrun stapler validate release/mac/Token.app
 | TC-048 趋势图窗口缩放 | REQ-030 / DEV-033 | Electron 在窄/宽多个窗口尺寸下显示长日期、大 Token 数值并连续缩放 | 图随容器重排，柱顶数值和横轴日期的边界框不相交、不被裁切；保存截图和布局断言 |
 | TC-049 周月日期标签 | REQ-030 / DEV-033 | 构造 ISO 跨年周和跨月样本，切换周/月并点击柱 | 周显示该 ISO 周周一 `YYYY-MM-DD`，月显示 `YYYY-MM`；悬浮和下钻区间一致；保存标签与桶起点断言 |
 
-新增用例全部需要对应单元、集成、Electron 或目标 macOS 断言，以及 `scripts/test-cases.mjs` 注册；规划文档本身不构成通过证据。
+### 实际绑定与剩余验证
+
+下表文件中以 `TC-###` 开头的 `test(...)` 函数就是该编号的实际绑定。每条命令可单独运行；TC-030、TC-038 的命令会先运行单元测试，再运行额外的 Electron 测试。`TC-036` 的注入式打开回调不等于在真实 macOS 中完成安装，`TC-028` 的签名、公证和另一台 Mac 验收依旧独立待办。
+
+| 编号 | 实际绑定文件 | 当前断言与限制 |
+| --- | --- | --- |
+| TC-030 | `tests/next-auth.test.ts`；`tests/e2e/trust.spec.ts` | 单元验证凭证跨数据库重开与未勾选存储为空；Electron 验证勾选后重启自动登录及退出后回登录页。未覆盖另一 macOS 账户。 |
+| TC-031 | `tests/next-auth.test.ts` | 单元验证无固定到期、退出撤销、重置密码/停用失效及损坏凭证；管理员界面操作路径未单独验收。 |
+| TC-032 | `tests/next-server.test.ts` | 验证默认回环、`localhost` 配置、无 TLS 的 `0.0.0.0` 被拒；临时自签证书下实际绑定 `0.0.0.0` 并经 HTTPS 健康检查成功。测试客户端关闭证书校验，尚未验证可信证书、异机连接和地址不匹配。 |
+| TC-033 | `tests/next-server.test.ts` | 合成包的清单、大小、SHA-256 与路径穿越拒绝；未用真实发布 DMG 验证。 |
+| TC-034 | `tests/next-update.test.ts` | 同版、旧版、架构不符、坏摘要与较新版提示；版本差异及下载由合成包验证。 |
+| TC-035 | `tests/next-update.test.ts` | 停服后下载失败、清理临时文件和重启服务重试；未单独注入超时、磁盘不足。 |
+| TC-036 | `tests/next-update.test.ts` | 校验后调用注入的打开回调且旧文件不变；未在真实 macOS 打开 DMG、取消安装或验证安装失败回退。 |
+| TC-037 | `tests/next-sync.test.ts` | 假时钟检查启动、10 分钟及手动调用扫描；扫描函数被 mock，未单独断言并发串行、失败扫描不上传。上传主流程另见 TC-038。 |
+| TC-038 | `tests/next-sync.test.ts`；`tests/e2e/upload.spec.ts` | 单元检查聚合入库无会话/路径标识，Electron 验证手动扫描后服务器入库及上报成功；敏感字段白名单另见 TC-047。 |
+| TC-039 | `tests/next-sync.test.ts` | 同快照重复发送不增行、修订后总量替换；未在多设备并发下验证。 |
+| TC-040 | `tests/next-sync.test.ts` | 停服积压、数据库重开和恢复补传；退避时间通过手动调整元数据推进，未长时间运行验证。 |
+| TC-041 | `tests/next-report.test.ts` | 检查 1023、K/M/P 边界及 CSV 原值；未覆盖超过 JavaScript 安全整数的精确表示。 |
+| TC-042 | `tests/next-report.test.ts` | 检查等长区间数值和比较文案；未用 Electron 验证所有界面筛选联动。 |
+| TC-043 | `tests/next-report.test.ts` | 日/周/月点与明细求和，周/月界面点击另见 TC-049；未覆盖全部时区。 |
+| TC-044 | `tests/next-report.test.ts` | 按总量降序、同值稳定和模型明细；未知模型及界面点击未单独断言。 |
+| TC-045 | `tests/next-report.test.ts` | `no_records`、错误状态与比较文案分离；未单独验证所有缺失/权限状态在界面的呈现。 |
+| TC-046 | `tests/next-report.test.ts` | 来源事实数、最近扫描时间、未找到目录文案；未覆盖格式不支持等全部状态卡片。 |
+| TC-047 | `tests/next-server.test.ts` | 错误凭证、非法字段、Origin 拒绝、HTTPS 配置限制；本用例尚未在非回环 HTTPS 连接上执行鉴权，也未验证跨用户授权。 |
+| TC-048 | `tests/e2e/trend.spec.ts` | 在 1180、860 两种窗口宽度截屏并断言数值/日期边界框不重叠；未覆盖更窄窗口、所有本地化字体及裁切边界。 |
+| TC-049 | `tests/e2e/trend.spec.ts` | ISO 跨年周周一标签、月标签及点击明细行数；其他时区和长期跨度需另验。 |
+
+上述限制是后续补测清单，不把未覆盖部分写成已通过。`TC-027` 的本机安装验收和 `TC-028` 的外部分发验收仍按各自人工证据独立判定。
