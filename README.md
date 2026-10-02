@@ -25,6 +25,8 @@ Token 是一个 macOS 桌面应用，用于汇总本机 Codex 与 Claude Code �
 - M5：已实现可选“信任此设备”、每 10 分钟扫描后聚合上报、独立服务版本清单与安装包下载、K→M→P 显示，以及概览和趋势图修复。版本提交 `96e99be` 的 TC-029–049 自动验收为 21/21；`44a96e8` 验证了 0.2.0→0.3.0 本机隔离更新交接和应用替换，`b224dde` 补验取消替换后旧版及数据可用、注入式打开失败不替换旧文件。Finder 安装失败回退、手动拖拽、生产库迁移、签名公证及另一台 Mac 仍待验证，详见[逐项验收](docs/test-case-acceptance.md)。
 - M6：v0.3.0 增加按会话工作目录识别本机项目、项目/模型分析、固定侧栏与面包屑、集中设置、权限指引、采集诊断、反馈及固定 `admin` 超管。最终提交 `6223c30` 的 TC-050–071 自动验收为 22/22；TC-027 的 0.3.0 本机未签名 DMG 复制版人工验收通过。TC-072 目标 Mac 文件权限操作、生产数据迁移、签名公证和外部分发仍待验证，详见[逐项验收](docs/test-case-acceptance.md)。
 - 0.3.1 本机候选：`867a03a` 将版本升至 0.3.1，重建未签名 x64 DMG；隔离升级验收中，旧版 0.3.0 同库 1280→2560 Token 重复计数升级后修复为 1280，受信登录保持。本机更新服务目录已发布该包及版本清单；实际生产账户 App 连接/安装、生产库迁移、Finder `/Applications` 手动安装、签名公证和目标 Mac 未验证，见[验收记录](docs/validation.md)。
+- 0.3.2 阶段候选：`ca0f37f` 实现 DEV-048 的设备上报令牌与用户范围校验；`533992e` 只补 TC-047 测试清理。随后发现服务切换竞态，0.3.2 不作为最新交付版本。
+- 0.3.3 本机候选：`3d60b5e` 为 TC-074 补配置代次检查和服务切换竞态回归，四项绑定通过；未签名 x64 DMG 已核验并发布到本机更新服务目录。实际生产账户/数据库、Finder `/Applications`、可信证书、异机 HTTPS、签名公证和目标 Mac 仍待验，见[验收记录](docs/validation.md)。
 
 ## 使用流程
 
@@ -62,9 +64,11 @@ npm run test:acceptance -- 29 49
 npm run test:acceptance -- 50 71
 npm run test:upgrade:local -- /Users/lz/文档/Token/Token-0.2.0.dmg /Users/lz/文档/Token/Token-0.3.0.dmg
 npm run test:upgrade:local -- /Users/lz/文档/Token/Token-0.3.0.dmg /Users/lz/文档/Token/Token-0.3.1.dmg --fallback-repair
+npm run test:upgrade:local -- /Users/lz/文档/Token/Token-0.3.1.dmg /Users/lz/文档/Token/Token-0.3.2.dmg
+npm run test:upgrade:local -- /Users/lz/文档/Token/Token-0.3.2.dmg /Users/lz/文档/Token/Token-0.3.3.dmg
 ```
 
-独立服务可用 `npm run server` 启动；默认监听 `127.0.0.1:47839`，可用 `TOKEN_SERVER_HOST`、`TOKEN_SERVER_PORT`、`TOKEN_SERVER_DATA_DIR` 配置。非回环监听须配置 `TOKEN_SERVER_TLS_CERT` 和 `TOKEN_SERVER_TLS_KEY`，App 的非回环连接须使用 HTTPS。更新清单、安装包和聚合上报都需要服务 bearer 密钥。将已准备好的 DMG 放入服务发布目录可执行 `npm run publish:update -- <dmg> <version> <arm64|x64> <server-dir>`；此命令不替代签名、公证和目标 Mac 安装验证。
+独立服务可用 `npm run server` 启动；默认监听 `127.0.0.1:47839`，可用 `TOKEN_SERVER_HOST`、`TOKEN_SERVER_PORT`、`TOKEN_SERVER_DATA_DIR` 配置。非回环监听须配置 `TOKEN_SERVER_TLS_CERT` 和 `TOKEN_SERVER_TLS_KEY`，App 的非回环连接须使用 HTTPS。更新清单、安装包继续使用服务全局 bearer；聚合上报须先由全局密钥和管理密钥登记设备，再使用签发的设备令牌。远端首次登记需管理员配置管理密钥。将已准备好的 DMG 放入服务发布目录可执行 `npm run publish:update -- <dmg> <version> <arm64|x64> <server-dir>`；此命令不替代签名、公证和目标 Mac 安装验证。
 
 打包目录位于 `release/mac/Token.app`。当前构建未签名，仅用于本机开发验证。
-当前应用版本为 `0.3.1`；`npm run pack:dmg` 在项目根目录生成 `Token-0.3.1.dmg`。本机候选包 SHA-256 为 `7e56933298505f5d08def3811b891e187b6cefb264bfab3538e5accdb6235a7c`，`hdiutil verify` 为 VALID，隔离 0.3.0→0.3.1 同库修复场景通过。本机更新服务目录已发布同哈希的 `Token-0.3.1-x64.dmg` 和清单；尚未以实际生产账户 App 安装。历史 `Token-0.3.0.dmg` 哈希为 `64917685d073d0c631ef492df58eb3a3bec96657f15372177af466c68a34fec8`，不含 TC-073 修复。两个包均未签名；公开分发前需签名、公证并在目标 Mac 验收。
+当前应用版本为 `0.3.3`；`npm run pack:dmg` 在项目根目录生成 `Token-0.3.3.dmg`。本机未签名 x64 候选包大小 142566178 字节，SHA-256 为 `0030246d50b5fed9a1980c8839e6c7ad97afd229d0718ad71116294a39d6ec85`，`hdiutil verify` 为 VALID；本机更新服务目录的 `Token-0.3.3-x64.dmg` 与清单同哈希。隔离 0.3.2→0.3.3 升级通过，取消安装时旧版数据保留。历史 0.3.1 包不含 DEV-048 修复，0.3.2 包不含服务切换竞态修复；0.3.3 尚未用实际生产账户/数据库安装验证。公开分发前需签名、公证并在目标 Mac 验收。
