@@ -2,6 +2,7 @@ import { expect, test } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import https from 'node:https';
 import path from 'node:path';
 import { createTestWorkspace } from './support/test-workspace';
 import { LocalServer, type UsageSnapshot } from '../src/server/server';
@@ -31,6 +32,20 @@ test('TC-032 服务默认地址可配置且停服不影响本机数据库', asyn
       const anotherPort = await configured.start(0, 'localhost');
       expect((await fetch(`http://localhost:${anotherPort}/health`)).ok).toBe(true);
     } finally { await configured.stop(); }
+    const key = path.join(workspace.root, 'test.key');
+    const cert = path.join(workspace.root, 'test.crt');
+    execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key,
+      '-out', cert, '-subj', '/CN=localhost', '-days', '1'], { stdio: 'ignore' });
+    const network = new LocalServer(path.join(workspace.root, 'tls-server'), { key: fs.readFileSync(key), cert: fs.readFileSync(cert) });
+    try {
+      const tlsPort = await network.start(0, '0.0.0.0');
+      const status = await new Promise<number>((resolve, reject) => {
+        https.get(`https://127.0.0.1:${tlsPort}/health`, { rejectUnauthorized: false }, response => {
+          response.resume(); resolve(response.statusCode ?? 0);
+        }).on('error', reject);
+      });
+      expect(status).toBe(200);
+    } finally { await network.stop(); }
   } finally { workspace.cleanup(); }
 });
 
