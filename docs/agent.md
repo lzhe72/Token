@@ -10,11 +10,13 @@
 | --- | --- |
 | `src/collectors/codex.ts`、`claude.ts` | 本地记录解析和提供方专属 Token 口径 |
 | `src/collectors/scanner.ts` | 只读扫描、增量游标、去重入库、状态及来源绑定 |
+| `src/collectors/project.ts` | 从会话 cwd 推导本机项目键与展示名，原始路径不入库或外发 |
 | `src/main/auth.ts`、`database.ts` | 账户和权限、`sql.js` SQLite 文件持久化与备份 |
 | `src/main/telemetry.ts` | 可选本机 OTLP 接收、密钥验证及遥测归并 |
 | `src/main/trusted-device.ts`、`server-connection.ts`、`update-client.ts`、`usage-sync.ts` | 受信凭证、本地/配置服务连接、更新包校验与聚合上报 |
 | `src/server/` | 独立服务、版本清单与安装包、聚合接收和鉴权 |
 | `src/main/report.ts` | 筛选、时区分桶、明细和 CSV 的统一计算口径 |
+| `src/main/feedback.ts`、`src/renderer/feedback.tsx`、`diagnostics.tsx`、`settings.tsx` | 本机反馈待传、诊断与设置界面 |
 | `src/main/index.ts`、`src/preload/index.ts`、`src/shared/types.ts` | 主进程 IPC、最小化预加载 API、跨进程类型 |
 | `src/renderer/` | React 界面、报表交互与样式 |
 | `tests/*.test.ts`、`tests/e2e/*.spec.ts` | 规则测试和 Electron 端到端流程 |
@@ -30,7 +32,7 @@
 - 遥测接收器只监听本机地址并验证随机密钥。只读检查已有 Codex/Claude 配置，不自动覆盖既有或组织管理设置。CSV 文本字段必须防公式注入。
 - `REQ-014` 的历史 CSV 表头错位由 `DEV-019` / `TC-029` 自动断言覆盖；每次修改导出结构时重跑该编号与公式注入用例 TC-023。
 - M5 的 `TC-030`–`TC-049` 已有单编号入口；受信设备、独立服务、十分钟扫描、聚合上报及界面有相应测试。自动化的实际覆盖与缺口见[逐项验收](test-case-acceptance.md#m5-用例绑定与覆盖tc-030tc-049)，不得以模拟包测试代替真实 macOS 安装。
-- M6 的 REQ-031–039、DEV-034–046、TC-050–072 目前只有[设计](design.md)、[计划](development-plan.md)和追溯记录；新 TC 尚未注册或执行。实现项目识别时只从 Codex/Claude 会话 cwd 提取归属，完整项目路径只留本机，聚合、反馈和诊断外发均不含路径或本机项目身份。固定 `admin` 的库角色继续存 `admin`，仅该用户名与库角色同时符合时对外派生 `superadmin`；旧管理员权限和冲突迁移规则见设计第 18 节。开发任务必须先按 SOP 核对阶段条件，再补各编号独立临时库测试和单用例注册，不得把规划状态改写成通过。
+- M6 的 REQ-031–039、DEV-034–046 已在 v0.3.0 本机实现，TC-050–071 在最终代码 `6223c30` 有逐编号自动结果；TC-072 已注册人工清单但目标 Mac 权限验证未完成。项目归属只从 Codex/Claude 会话 cwd 提取，当前仅保存哈希项目键与展示名，聚合、反馈和诊断外发不得含完整路径或本机项目身份。固定 `admin` 的库角色仍为 `admin`，仅精确用户名和库角色同时符合时对外派生 `superadmin`；旧管理员权限和冲突迁移规则见设计第 18 节。自动结果与剩余边界见[逐项验收](test-case-acceptance.md)，后续改动先按 SOP 核对阶段条件并复验受影响编号。
 - 本机开发版 DMG 未签名；公开分发的签名、公证和目标设备验收独立于本机打包通过。
 
 ## 常用命令
@@ -49,6 +51,7 @@
 | 本机未签名 DMG | `npm run pack:dmg` |
 | 独立启动更新与聚合服务 | `npm run server`（默认 `127.0.0.1:47839`） |
 | 发布更新包 | `npm run publish:update -- <dmg> <version> <arch> <server-dir>` |
-| 批量逐编号验收 | `npm run test:acceptance -- 29 49` |
+| M6 批量逐编号验收 | `npm run test:acceptance -- 50 71` |
+| 目标 Mac 人工权限验收清单 | `npm run test:case -- TC-072` |
 
-服务端监听地址由 `TOKEN_SERVER_HOST`、`TOKEN_SERVER_PORT` 配置，非回环监听还需 `TOKEN_SERVER_TLS_CERT` 和 `TOKEN_SERVER_TLS_KEY`。App 连接地址与密钥可配置；非回环连接必须使用 HTTPS。更新清单、安装包和聚合上报都需要 bearer 密钥。不要提交服务密钥、证书私钥或服务数据库。
+服务端监听地址由 `TOKEN_SERVER_HOST`、`TOKEN_SERVER_PORT` 配置，非回环监听还需 `TOKEN_SERVER_TLS_CERT` 和 `TOKEN_SERVER_TLS_KEY`。App 连接地址与密钥可配置；非回环连接必须使用 HTTPS。更新清单、安装包、聚合上报与反馈提交都需要 bearer 密钥；反馈管理读取和状态修改另需独立管理密钥。不要提交服务密钥、管理密钥、证书私钥、反馈正文或服务数据库。

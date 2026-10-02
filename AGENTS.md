@@ -1,8 +1,8 @@
 # Token 仓库协作入口
 
-在本仓库执行开发任务前，先阅读 [docs/agent.md](docs/agent.md)。该文件是 Codex 的项目级工作规则。文档目录及权威来源见 [docs/README.md](docs/README.md)。
+在本仓库执行任何项目任务前，先阅读[项目 SOP](docs/sop/README.md)和对应阶段章节。SOP 指导大模型在本项目中的所有行为；[docs/agent.md](docs/agent.md)补充仓库技术事实与命令，不能替代或降低 SOP 要求。文档目录及权威来源见 [docs/README.md](docs/README.md)。
 
-迭代任务按[项目 SOP](docs/sop/README.md)执行；该 SOP 的新增、更新和删除由建立本体系的项目会话统一维护。
+SOP 的新增、更新和删除由独立的 SOP 会话维护；非 SOP 文档由文档会话维护。
 
 功能与 `REQ-###`、`DEV-###`、`TC-###` 的对应关系以 [追溯工作簿](outputs/20261002-token-docs/Token-需求开发测试追溯.xlsx) 为准；编号不复用。
 
