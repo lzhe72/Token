@@ -1,12 +1,12 @@
 # Token 测试用例逐项验收
 
-本文逐条说明追溯工作簿中的 TC-001 至 TC-072 的目标、实际绑定和证据边界。TC-050 至 TC-071 已有 M6 自动入口和逐编号结果；TC-072 仅有人工作业清单，尚无目标 Mac 通过证据。已注册用例的命令均从仓库根目录执行，先用 `npm ci` 安装锁定依赖。用例注册以 `scripts/test-cases.mjs` 为准，执行入口为 `scripts/run-test-case.mjs`。工作簿 H/I 列保留对应版本的验收状态和证据，不代表后续版本已经复验。
+本文逐条说明追溯工作簿中的 TC-001 至 TC-073 的目标、实际绑定和证据边界。TC-050 至 TC-071 已有 M6 自动入口和逐编号结果；TC-072 仅有人工作业清单，尚无目标 Mac 通过证据；TC-073 是后续新增的独立 Codex 回归。已注册用例的命令均从仓库根目录执行，先用 `npm ci` 安装锁定依赖。用例注册以 `scripts/test-cases.mjs` 为准，执行入口为 `scripts/run-test-case.mjs`。工作簿 H/I 列保留对应版本的验收状态和证据，不代表后续版本已经复验。
 
-2026-10-03 另规划 `TC-073`，关联既有 `REQ-006` 与新增 `DEV-047`；当前仅有下方验收设计，尚未注册或执行，不计入上述 72 个可核对入口。
+2026-10-03 曾规划 `TC-073`，关联既有 `REQ-006` 与新增 `DEV-047`；`aa6d91b` 已注册并执行。下方先保留开发前验收设计，再记录实际绑定与结果。
 
 ## 执行与证据边界
 
-- 共 72 条：TC-001–049 中 44 条有自动入口、5 条为人工入口；M6 的 TC-050–071 另有 22 条自动入口、TC-072 为人工入口。多条旧编号可能运行同一测试函数；M6 每个自动编号绑定自己以 `TC-###` 开头的测试函数。TC-030、TC-038 还各自绑定额外端到端测试。
+- 共 73 条：TC-001–049 中 44 条有自动入口、5 条为人工入口；M6 的 TC-050–071 另有 22 条自动入口、TC-072 为人工入口；TC-073 是独立单元入口。多条旧编号可能运行同一测试函数；M6 每个自动编号绑定自己以 `TC-###` 开头的测试函数。TC-030、TC-038 还各自绑定额外端到端测试。
 - 自动入口在缺少 `TOKEN_E2E_EXECUTABLE` 时会先构建应用；Vitest 以 `-t`、Playwright 以 `--grep` 精确选择注册的测试名称。任一绑定函数失败，`npm run test:case -- TC-###` 非零退出。
 - 单元和端到端造数由 `tests/support/test-workspace.ts` 在系统临时目录 `token-test-db-<label>-*` 创建：`token.sqlite`、`codex/`、`claude/` 均在其中。端到端将该目录作为 `--token-user-data`；测试结束清理。不要使用真实用户数据库或真实会话正文。
 - 自动入口不会自动保存证据文件。可先执行 `mkdir -p test-results/acceptance`，再将单用例输出重定向到 `test-results/acceptance/TC-###.log`，紧接着记录退出码、提交、macOS 和测试日期。`test-results/` 已被 Git 忽略；日志只保留脱敏断言与环境信息。
@@ -498,7 +498,7 @@ xcrun stapler validate release/mac/Token.app
 | TC-071 | `tests/e2e/m6-admin.spec.ts`：`TC-071 固定 admin 创建管理员与普通用户且角色边界生效` | 超管界面创建两类账号；普通管理员不能停用/重置固定账号；完整审计功能未纳入本轮。 |
 | TC-072 | `scripts/test-cases.mjs` 人工清单 | **待验证**：目标 Mac 拒绝、授予、撤销文件访问权限后的状态与重扫均无人工证据。 |
 
-## TC-073 Codex fallback 跨扫描归并（计划）
+## TC-073 Codex fallback 跨扫描归并（2026-10-03 规划记录）
 
 - **关联**：REQ-006 / DEV-047；现有 TC-010 的历史通过只覆盖同批记录与一般重扫，不覆盖此缺陷。
 - **计划独立命令**：`npm run test:case -- TC-073`；待开发会话将 `tests/collector-fallback.test.ts` 中以 `TC-073` 开头的独立测试函数注册到 `scripts/test-cases.mjs` 后才可执行。
@@ -506,3 +506,9 @@ xcrun stapler validate release/mac/Token.app
 - **跨扫描断言**：首扫只有 `event_msg:token_count`，先确认 fallback 可见；随后向同一会话文件追加 `token_usage_record` 并增量扫描，核对该会话只剩正式事实，明细、汇总和导出总量只取正式值，旧 fallback 不再累计。
 - **旧库与幂等断言**：合成旧库预置同会话 fallback 和正式事实，另置不同 Codex 会话、Claude 来源及不同项目事实；应用启动修复后只回收目标 fallback，其他事实、归属与项目不变。重复扫描、关闭重开数据库及再次启动修复后，事实数和报表总量不变；异常中断不得造成仅删除 fallback 的半成品。
 - **状态与证据**：**待注册、待验证**。保存单编号命令、提交、环境、退出码、各阶段事实键/数量和报表合计的脱敏日志；完成后再写回工作簿与[验收记录](validation.md)，不得沿用 TC-010 的 A5 历史结果。
+
+### TC-073 当前实现与验收（2026-10-03）
+
+- **执行与绑定**：`npm run test:case -- TC-073` 已由 `scripts/test-cases.mjs` 注册到 `tests/collector-fallback.test.ts` 的 `test('TC-073 Codex fallback 跨扫描替换与旧库修复保持幂等')`；在 `aa6d91b` 上单编号 1/1 通过，不能用 TC-010 的共享测试替代。
+- **实际覆盖**：独立临时 `token.sqlite` 场景先以 fallback 12 Token 入库，再追加同会话正式 12 Token；注入游标写入失败时回滚，复跑后仅正式事实保留，报表汇总/明细/CSV 为 12 Token。另一个文件后到 fallback 不再新增；重扫和重开库稳定。第二个独立库预置同会话 fallback/正式、另一 Codex 会话 fallback 和 Claude 事实；注入旧库清理失败时事实与项目关联全数回滚，成功修复后只删目标 fallback 及其项目关联，其他事实、项目关联、两类来源身份保持，Codex `fact_count` 为 2；再重扫、重启仍稳定。
+- **证据与边界**：开发工作树的 `test-results/acceptance/TC-073.log`、`TC-010-fallback-regression.log` 为本机 Git 忽略日志；开发会话报告先见到两条各 12 Token 的失败复现，再在修复后通过。文档会话复跑 `npm run test:cases:check`、TC-073 1/1 与 TC-010 的单元加 Electron，均退出码 0，环境 macOS 15.7.4 x86_64 / Node v24.15.0。此证据只覆盖合成样本和临时库；真实生产库迁移、更多未知 Codex 记录格式、打包应用及新 DMG 尚未验证。现有 0.3.0 DMG 不含该修复。详见[新增验收记录](validation.md)。

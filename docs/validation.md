@@ -96,3 +96,15 @@
 ## REQ-006 Codex fallback 跨扫描缺口登记（2026-10-03；待修）
 
 文档会话只读核对 `src/collectors/scanner.ts`、`src/collectors/codex.ts` 和 `tests/collector.test.ts`：当前扫描器可在首批只有 `event_msg:token_count` 时入库 `codex:fallback`，后批 `token_usage_record` 将解析状态标为已有正式记录，但未见清理先前持久化 fallback 的步骤。TC-010 的历史 A5 证据只覆盖同批出现两类记录及重扫，不能证明跨扫描替换。此处登记的是代码审查发现的**潜在重复计数缺口**，本轮没有新增复现实验或修复结果。已规划 DEV-047、TC-073；完成独立临时库测试后，再按提交和实际日志追加验收结论。
+
+## DEV-047 / TC-073 Codex fallback 修复验收（2026-10-03）
+
+本节追加代码 `aa6d91b` 的结果，上节仍是修复前的历史缺口记录。开发会话报告在修复前新用例曾看到同会话 fallback 与正式事实各 12 Token 的预期失败；提交修复后，开发工作树 `test-results/acceptance/TC-073.log` 记录 TC-073 1/1 通过，`TC-010-fallback-regression.log` 记录 TC-010 的单元与 Electron 均通过。日志只在本机、被 Git 忽略。开发会话报告 `npm run test:gate` 为 73 个编号入口、41 个单元用例、17 个 Electron 用例通过；本节未归档该门禁原始输出。文档会话在 macOS 15.7.4 x86_64、Node v24.15.0 上复跑编号检查、TC-073 和 TC-010，均退出码 0。
+
+| 核对项 | 可核实结果 | 边界 |
+| --- | --- | --- |
+| 跨扫描替换 | 首批仅 fallback 12 Token 可见；后批正式记录到来时，在同一事务写正式事实、删同会话 fallback/项目关联并提交游标；注入游标写入失败则回滚，复跑后汇总、明细和 CSV 只取正式 12 Token | 人工合成 Codex JSONL 与独立临时库；未遍历所有真实工具版本格式 |
+| 跨文件与重启 | 另一文件后到 fallback 不再新增；重复扫描、重开库后事实数与总量稳定 | 测试时间窗及会话有限 |
+| 旧库修复 | 合成旧库预置双事实、另一 Codex 会话与 Claude 事实；启动清理仅删目标 fallback/项目关联，其他事实、项目关联和来源身份保留，`source_status.fact_count` 更新；注入清理失败则事务回滚，重启仍幂等 | 未使用真实生产数据库或执行生产备份恢复演练 |
+
+**结论：DEV-047 的代码和 TC-073 合成数据回归在 `aa6d91b` 上通过。**项目根目录现有 `Token-0.3.0.dmg` 的 SHA-256 仍为 `64917685d073d0c631ef492df58eb3a3bec96657f15372177af466c68a34fec8`，是修复前构建，**不包含 `aa6d91b`**；本次未重打包或验收修复后的 DMG。生产库迁移、更多真实 Codex 格式及修复后打包应用的验证另行记录。

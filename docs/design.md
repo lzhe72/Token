@@ -103,11 +103,15 @@ Codex App Server 的 `thread/tokenUsage/updated` 可作为连接到该服务的�
 - 遥测指标接收端明确处理 delta/cumulative temporality；重复批次按流标识和时间区间幂等写入。
 - 模型切换按每次请求的实际模型归档；无法确定模型时归为“未知模型”，不强行归到会话初始模型。
 
-### 4.4 Codex fallback 跨扫描归并（REQ-006；2026-10-03 待修）
+### 4.4 Codex fallback 跨扫描归并（REQ-006；2026-10-03 规划记录）
 
 Codex 会话先写出 `event_msg:token_count`、后续增量才写出 `token_usage_record` 时，前者可暂作 `codex:fallback` 用量；正式记录到来后，同一会话的 fallback 必须退出有效事实集，报表和导出只按正式记录计量。若正式记录尚未出现，fallback 仍应可见。此规则沿用 REQ-006 的增量幂等要求，不改变 Codex Token 分类、Claude Code 解析规则、本地与遥测优先级或其他会话的归属。
 
 当前 `scanFile` 在没有正式记录的扫描批次会写入 fallback，后续批次将 `hasUsageRecords` 设为 true，却只停止写入新的 fallback；已持久化的旧 fallback 尚无清理步骤，可能重复计数。修复需把同一 Codex 会话的正式事实写入、对应 fallback 回收和游标提交作为一致的处理结果；仅清理可确认属于该会话的 `codex:fallback` 事实，不触碰其他会话、Claude/遥测来源、来源身份或项目归属。旧库若已同时保存两类事实，启动时应在报表使用前幂等修复；失败时不得留下只删除了 fallback、尚未保存正式事实的半成品。文件重扫、应用重启及重复执行旧库修复后，事实数和总量仍稳定。实现与旧库恢复策略由 DEV-047 落地，TC-073 用独立临时数据库验证这些不变量；TC-010 的历史通过不覆盖此跨扫描场景。
+
+### 4.5 Codex fallback 修复实现与边界（2026-10-03）
+
+上节是 `200e1a0` 的修复前规划。代码 `aa6d91b` 在 `UsageScanner` 入库事务中先写同会话正式事实，再删除该 Codex 会话的 `codex:fallback` 事实及其 `fact_projects` 关联，最后提交游标；任一步失败则整笔回滚。扫描器构造时对旧库中正式事实与 fallback 并存的会话做同范围的幂等清理，并更新 Codex `source_status.fact_count`。`src/main/database.ts` 本次未修改；现有正式事实、其他 Codex 会话、Claude 事实、来源身份和其他项目关联应保持原值。正式记录尚未出现的会话继续使用 fallback；跨文件后到 fallback 不得重新累计。TC-073 在合成临时库覆盖这些条件及注入失败回滚，实际断言见[逐项验收](test-case-acceptance.md#tc-073-当前实现与验收2026-10-03)。本机未签名 0.3.0 DMG 仍是修复前制品，打包应用和生产库迁移未在本次复验。
 
 ## 5. 数据库与统计
 

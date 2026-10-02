@@ -19,7 +19,7 @@ Token 是一个 macOS 桌面应用，用于汇总本机 Codex 与 Claude Code �
 
 - M0：验证了本机 Codex 和 Claude Code 用量记录的可采集性。
 - M1：完成 Electron 应用骨架、本地管理员与普通用户、受控 IPC。
-- M2：已实现 Codex 与 Claude Code 本地记录的历史导入、增量扫描、去重和来源归属；可选接收官方 OTLP/HTTP JSON 遥测。Codex fallback 先入库、正式用量记录后到时可能重复计数，已按 REQ-006 / DEV-047 / TC-073 登记为待修、待验。
+- M2：已实现 Codex 与 Claude Code 本地记录的历史导入、增量扫描、去重和来源归属；可选接收官方 OTLP/HTTP JSON 遥测。`aa6d91b` 修复了 Codex fallback 先入库、正式记录后到的重复计数，REQ-006 / DEV-047 / TC-073 的本机代码验收通过；现有 `Token-0.3.0.dmg` 仍是修复前构建，不含此变更。
 - M3：完成日、周、月、年报表、工具、模型、用户、时区筛选与 CSV 导出。
 - M4：完成数据库备份/恢复、打包版 Playwright 测试和未签名 DMG；已在当前 Mac 从 DMG 复制应用运行验收。面向其他 Mac 分发仍需签名、公证和对应设备验收。
 - M5：已实现可选“信任此设备”、每 10 分钟扫描后聚合上报、独立服务版本清单与安装包下载、K→M→P 显示，以及概览和趋势图修复。版本提交 `96e99be` 的 TC-029–049 自动验收为 21/21；`44a96e8` 验证了 0.2.0→0.3.0 本机隔离更新交接和应用替换，`b224dde` 补验取消替换后旧版及数据可用、注入式打开失败不替换旧文件。Finder 安装失败回退、手动拖拽、生产库迁移、签名公证及另一台 Mac 仍待验证，详见[逐项验收](docs/test-case-acceptance.md)。
@@ -65,4 +65,4 @@ npm run test:upgrade:local -- /Users/lz/文档/Token/Token-0.2.0.dmg /Users/lz/�
 独立服务可用 `npm run server` 启动；默认监听 `127.0.0.1:47839`，可用 `TOKEN_SERVER_HOST`、`TOKEN_SERVER_PORT`、`TOKEN_SERVER_DATA_DIR` 配置。非回环监听须配置 `TOKEN_SERVER_TLS_CERT` 和 `TOKEN_SERVER_TLS_KEY`，App 的非回环连接须使用 HTTPS。更新清单、安装包和聚合上报都需要服务 bearer 密钥。将已准备好的 DMG 放入服务发布目录可执行 `npm run publish:update -- <dmg> <version> <arm64|x64> <server-dir>`；此命令不替代签名、公证和目标 Mac 安装验证。
 
 打包目录位于 `release/mac/Token.app`。当前构建未签名，仅用于本机开发验证。
-当前应用版本为 `0.3.0`；`npm run pack:dmg` 在项目根目录生成 `Token-0.3.0.dmg`。开发会话生成包的 SHA-256 为 `64917685d073d0c631ef492df58eb3a3bec96657f15372177af466c68a34fec8`，本机 `hdiutil verify` 为 VALID。该包未签名；公开分发前需在具备 Apple 开发者证书的环境中签名、公证并在目标 Mac 验收。
+当前应用版本为 `0.3.0`；`npm run pack:dmg` 在项目根目录生成 `Token-0.3.0.dmg`。现有包的 SHA-256 为 `64917685d073d0c631ef492df58eb3a3bec96657f15372177af466c68a34fec8`，本机 `hdiutil verify` 为 VALID；它在 `aa6d91b` 修复前构建，**不含 TC-073 对应代码**，需要重建并重新验收才能作为该修复的制品证据。该包未签名；公开分发前需在具备 Apple 开发者证书的环境中签名、公证并在目标 Mac 验收。
