@@ -1,16 +1,14 @@
 import { expect, test } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
+import { createTestWorkspace } from './support/test-workspace';
 import { AppDatabase } from '../src/main/database';
 import { UsageScanner } from '../src/collectors/scanner';
 import { ReportService } from '../src/main/report';
 import type { PublicUser, ReportQuery } from '../src/shared/types';
 
 test('报表按本地时区与 ISO 周汇总，并限制普通用户归属', async () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'token-report-'));
+  const workspace = createTestWorkspace('report');
   try {
-    const db = await AppDatabase.open(path.join(dir, 'token.sqlite'));
+    const db = await AppDatabase.open(workspace.databasePath);
     const scanner = new UsageScanner(db);
     const report = new ReportService(db, scanner);
     const admin: PublicUser = { id: 'admin', username: 'admin', role: 'admin', active: true, createdAt: '2020-01-01T00:00:00Z' };
@@ -46,6 +44,6 @@ test('报表按本地时区与 ISO 周汇总，并限制普通用户归属', asy
     expect(() => report.details(query, 0, '', admin)).toThrow('页码无效');
     db.close();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    workspace.cleanup();
   }
 });

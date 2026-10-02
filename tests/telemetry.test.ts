@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { AppDatabase } from '../src/main/database';
+import { createTestWorkspace } from './support/test-workspace';
 import { UsageScanner } from '../src/collectors/scanner';
 import { ReportService } from '../src/main/report';
 import { inspectConfig, TelemetryReceiver } from '../src/main/telemetry';
@@ -14,9 +14,10 @@ afterEach(() => roots.splice(0).forEach(root => rmSync(root, { recursive: true, 
 const attr = (key: string, value: string) => ({ key, value: { stringValue: value } });
 
 test('本机遥测只接受密钥，Codex 去重，Claude 累计点计算增量，报表避免双来源相加', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'token-otel-'));
+  const workspace = createTestWorkspace('otel');
+  const root = workspace.root;
   roots.push(root);
-  const db = await AppDatabase.open(path.join(root, 'token.sqlite'));
+  const db = await AppDatabase.open(workspace.databasePath);
   const scanner = new UsageScanner(db);
   const receiver = new TelemetryReceiver(db, root, 0);
   await receiver.start();
@@ -78,7 +79,7 @@ test('本机遥测只接受密钥，Codex 去重，Claude 累计点计算增量�
 });
 
 test('遥测配置提示现有用户设置而不修改文件', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'token-settings-'));
+  const root = createTestWorkspace('settings').root;
   roots.push(root);
   const codex = path.join(root, 'config.toml');
   const claude = path.join(root, 'settings.json');

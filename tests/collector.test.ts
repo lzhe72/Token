@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, appendFileSync, chmodSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync, writeFileSync, appendFileSync, chmodSync } from 'node:fs';
 import path from 'node:path';
 import { AppDatabase } from '../src/main/database';
+import { createTestWorkspace } from './support/test-workspace';
 import { UsageScanner } from '../src/collectors/scanner';
 
 const tempPaths: string[] = [];
@@ -18,12 +18,10 @@ function jsonl(...events: object[]): string {
 }
 
 test('两个采集器按请求去重，重扫和增量扫描不重复计数', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'token-collector-'));
+  const workspace = createTestWorkspace('collector');
+  const root = workspace.root;
   tempPaths.push(root);
-  const codexDir = path.join(root, 'codex');
-  const claudeDir = path.join(root, 'claude');
-  mkdirSync(codexDir);
-  mkdirSync(claudeDir);
+  const { codexDir, claudeDir } = workspace;
   process.env.TOKEN_CODEX_SESSIONS_DIR = codexDir;
   process.env.TOKEN_CLAUDE_PROJECTS_DIR = claudeDir;
   const codexFile = path.join(codexDir, 'session.jsonl');
@@ -39,7 +37,7 @@ test('两个采集器按请求去重，重扫和增量扫描不重复计数', as
     message: { id: 'msg1', model: 'claude-test', usage: { input_tokens: 1, output_tokens: output, cache_read_input_tokens: 20, cache_creation_input_tokens: 5 } }
   });
   writeFileSync(claudeFile, jsonl(claudeEvent(3), claudeEvent(4), claudeEvent(4)));
-  const db = await AppDatabase.open(path.join(root, 'token.sqlite'));
+  const db = await AppDatabase.open(workspace.databasePath);
   const scanner = new UsageScanner(db);
   await scanner.scan();
   expect(scanner.statuses().map(status => status.factCount)).toEqual([1, 1]);
@@ -58,19 +56,17 @@ test('两个采集器按请求去重，重扫和增量扫描不重复计数', as
 });
 
 test('未写完的末行等待补齐，截断重写后不重复统计', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'token-rotation-'));
+  const workspace = createTestWorkspace('rotation');
+  const root = workspace.root;
   tempPaths.push(root);
-  const codexDir = path.join(root, 'codex');
-  const claudeDir = path.join(root, 'claude');
-  mkdirSync(codexDir);
-  mkdirSync(claudeDir);
+  const { codexDir, claudeDir } = workspace;
   process.env.TOKEN_CODEX_SESSIONS_DIR = codexDir;
   process.env.TOKEN_CLAUDE_PROJECTS_DIR = claudeDir;
   const file = path.join(codexDir, 'session.jsonl');
   const event = (response: string) => ({ type: 'token_usage_record', timestamp: '2026-01-01T12:00:00Z',
     payload: { session_id: 's1', response_id: response, usage: { input_tokens: 10, output_tokens: 2, total_tokens: 12 } } });
   writeFileSync(file, jsonl(event('r1')));
-  const db = await AppDatabase.open(path.join(root, 'token.sqlite'));
+  const db = await AppDatabase.open(workspace.databasePath);
   const scanner = new UsageScanner(db);
   await scanner.scan();
   expect(scanner.statuses()[0].factCount).toBe(1);
@@ -91,15 +87,13 @@ test('未写完的末行等待补齐，截断重写后不重复统计', async ()
 });
 
 test('空目录、错误字段及不可读文件显示可辨认的状态', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'token-errors-'));
+  const workspace = createTestWorkspace('errors');
+  const root = workspace.root;
   tempPaths.push(root);
-  const codexDir = path.join(root, 'codex');
-  const claudeDir = path.join(root, 'claude');
-  mkdirSync(codexDir);
-  mkdirSync(claudeDir);
+  const { codexDir, claudeDir } = workspace;
   process.env.TOKEN_CODEX_SESSIONS_DIR = codexDir;
   process.env.TOKEN_CLAUDE_PROJECTS_DIR = claudeDir;
-  const db = await AppDatabase.open(path.join(root, 'token.sqlite'));
+  const db = await AppDatabase.open(workspace.databasePath);
   const scanner = new UsageScanner(db);
   await scanner.scan();
   expect(scanner.statuses().map(status => status.status)).toEqual(['no_records', 'no_records']);
@@ -124,12 +118,10 @@ test('空目录、错误字段及不可读文件显示可辨认的状态', async
 });
 
 test('模型切换与 Claude 子代理记录按实际模型归档', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'token-model-switch-'));
+  const workspace = createTestWorkspace('model-switch');
+  const root = workspace.root;
   tempPaths.push(root);
-  const codexDir = path.join(root, 'codex');
-  const claudeDir = path.join(root, 'claude');
-  mkdirSync(codexDir);
-  mkdirSync(claudeDir);
+  const { codexDir, claudeDir } = workspace;
   process.env.TOKEN_CODEX_SESSIONS_DIR = codexDir;
   process.env.TOKEN_CLAUDE_PROJECTS_DIR = claudeDir;
   writeFileSync(path.join(codexDir, 'session.jsonl'), jsonl(
@@ -143,7 +135,7 @@ test('模型切换与 Claude 子代理记录按实际模型归档', async () => 
     { type: 'assistant', timestamp: '2026-01-01T02:00:00Z', sessionId: 's2', requestId: 'r1', message: { model: 'claude-a', usage: { input_tokens: 1, output_tokens: 2, cache_read_input_tokens: 3, cache_creation_input_tokens: 4 } } },
     { type: 'assistant', isSidechain: true, agentId: 'agent-1', timestamp: '2026-01-01T03:00:00Z', sessionId: 's2', requestId: 'r2', message: { model: 'claude-b', usage: { input_tokens: 2, output_tokens: 3, cache_read_input_tokens: 4, cache_creation_input_tokens: 5 } } }
   ));
-  const db = await AppDatabase.open(path.join(root, 'token.sqlite'));
+  const db = await AppDatabase.open(workspace.databasePath);
   const scanner = new UsageScanner(db);
   await scanner.scan();
   expect(db.all('SELECT provider, model, total_tokens FROM usage_facts ORDER BY provider, model'))

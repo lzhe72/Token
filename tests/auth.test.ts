@@ -1,14 +1,12 @@
 import { expect, test } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
+import { createTestWorkspace } from './support/test-workspace';
 import { AppDatabase } from '../src/main/database';
 import { AuthService } from '../src/main/auth';
 
 test('首次管理员、重启后的登录和失败尝试限速', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'token-auth-'));
+  const workspace = createTestWorkspace('auth');
   try {
-    const file = path.join(root, 'token.sqlite');
+    const file = workspace.databasePath;
     let db = await AppDatabase.open(file);
     let auth = new AuthService(db);
     await auth.setupAdmin('owner', 'safe-password-123');
@@ -21,6 +19,6 @@ test('首次管理员、重启后的登录和失败尝试限速', async () => {
     await expect(auth.login('owner', 'safe-password-123')).rejects.toThrow('登录尝试过多');
     db.close();
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    workspace.cleanup();
   }
 });

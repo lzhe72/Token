@@ -1,14 +1,15 @@
 import { expect, test } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
+import { createTestWorkspace } from './support/test-workspace';
 import path from 'node:path';
 import { AppDatabase } from '../src/main/database';
 import { UsageScanner } from '../src/collectors/scanner';
 
 test('数据库备份完整性校验并保留账户与用量', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'token-backup-'));
+  const workspace = createTestWorkspace('backup');
+  const root = workspace.root;
   try {
-    const db = await AppDatabase.open(path.join(root, 'live.sqlite'));
+    const db = await AppDatabase.open(workspace.databasePath);
     new UsageScanner(db);
     db.run("INSERT INTO users VALUES ('a', 'admin', 'unused', 'admin', 1, '2026-01-01T00:00:00Z')");
     db.run("INSERT INTO source_identities VALUES ('test', 'codex', 'Test', 'a')");
@@ -23,6 +24,6 @@ test('数据库备份完整性校验并保留账户与用量', async () => {
     await expect(AppDatabase.validateBackup(path.join(root, 'broken.sqlite'))).rejects.toThrow();
     db.close();
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    workspace.cleanup();
   }
 });

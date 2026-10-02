@@ -1,21 +1,19 @@
 import { test, expect, _electron as electron } from '@playwright/test';
-import { existsSync, mkdtempSync, mkdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
+import { createTestWorkspace } from '../support/test-workspace';
 
 test('管理员备份、恢复后账户回到备份状态', async () => {
-  const userData = mkdtempSync(path.join(tmpdir(), 'token-restore-'));
-  const codexDir = path.join(userData, 'codex');
-  const claudeDir = path.join(userData, 'claude');
-  mkdirSync(codexDir);
-  mkdirSync(claudeDir);
+  const workspace = createTestWorkspace('restore');
+  const userData = workspace.root;
+  const { codexDir, claudeDir } = workspace;
   const packaged = process.env.TOKEN_E2E_EXECUTABLE;
   const launch = () => electron.launch({
     executablePath: packaged || (require('electron') as string),
     args: [...(packaged ? [] : [path.resolve('.')]), `--token-user-data=${userData}`],
     env: { ...process.env, TOKEN_CODEX_SESSIONS_DIR: codexDir, TOKEN_CLAUDE_PROJECTS_DIR: claudeDir }
   });
-  let app = await launch();
+  let app = await launch().catch(error => { workspace.cleanup(); throw error; });
   try {
     const page = await app.firstWindow();
     await page.getByPlaceholder('例如 lzhe72').fill('owner');
@@ -50,6 +48,6 @@ test('管理员备份、恢复后账户回到备份状态', async () => {
     await expect(reopened.getByRole('cell', { name: 'temporary' })).toHaveCount(0);
   } finally {
     await app.close().catch(() => {});
-    rmSync(userData, { recursive: true, force: true });
+    workspace.cleanup();
   }
 });

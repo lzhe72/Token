@@ -1,13 +1,13 @@
 import { test, expect, _electron as electron } from '@playwright/test';
-import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { createTestWorkspace } from '../support/test-workspace';
 
 test('工具目录缺失、无权限和空目录有清晰状态', async () => {
-  const userData = mkdtempSync(path.join(tmpdir(), 'token-status-'));
+  const workspace = createTestWorkspace('status');
+  const userData = workspace.root;
   const codexDir = path.join(userData, 'codex-missing');
-  const claudeDir = path.join(userData, 'claude');
-  mkdirSync(claudeDir);
+  const claudeDir = workspace.claudeDir;
   const unreadable = path.join(claudeDir, 'session.jsonl');
   writeFileSync(unreadable, '{}\n');
   chmodSync(unreadable, 0o000);
@@ -16,7 +16,7 @@ test('工具目录缺失、无权限和空目录有清晰状态', async () => {
     executablePath: packaged || (require('electron') as string),
     args: [...(packaged ? [] : [path.resolve('.')]), `--token-user-data=${userData}`],
     env: { ...process.env, TOKEN_CODEX_SESSIONS_DIR: codexDir, TOKEN_CLAUDE_PROJECTS_DIR: claudeDir }
-  });
+  }).catch(error => { workspace.cleanup(); throw error; });
   try {
     const page = await app.firstWindow();
     await page.getByPlaceholder('例如 lzhe72').fill('owner');
@@ -31,8 +31,8 @@ test('工具目录缺失、无权限和空目录有清晰状态', async () => {
     await page.getByRole('button', { name: '立即扫描' }).click();
     await expect(sources.nth(0).locator('.status-pill')).toHaveText('暂无记录');
   } finally {
-    await app.close();
+    await app.close().catch(() => {});
     chmodSync(unreadable, 0o600);
-    rmSync(userData, { recursive: true, force: true });
+    workspace.cleanup();
   }
 });

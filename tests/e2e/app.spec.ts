@@ -1,14 +1,12 @@
 import { test, expect, _electron as electron } from '@playwright/test';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { createTestWorkspace } from '../support/test-workspace';
 
 test('管理员创建、用户管理与普通用户权限', async () => {
-  const userData = mkdtempSync(path.join(tmpdir(), 'token-e2e-'));
-  const codexDir = path.join(userData, 'codex');
-  const claudeDir = path.join(userData, 'claude');
-  mkdirSync(codexDir);
-  mkdirSync(claudeDir);
+  const workspace = createTestWorkspace('app');
+  const userData = workspace.root;
+  const { codexDir, claudeDir } = workspace;
   writeFileSync(path.join(codexDir, 'session.jsonl'), [
     JSON.stringify({ type: 'session_meta', payload: { session_id: 'test-session' } }),
     JSON.stringify({ type: 'turn_context', payload: { turn_id: 'turn-1', model: 'gpt-test' } }),
@@ -25,7 +23,7 @@ test('管理员创建、用户管理与普通用户权限', async () => {
     args: [...(packaged ? [] : [path.resolve('.')]), `--token-user-data=${userData}`],
     env: { ...process.env, TOKEN_CODEX_SESSIONS_DIR: codexDir, TOKEN_CLAUDE_PROJECTS_DIR: claudeDir }
   });
-  let app = await launch();
+  let app = await launch().catch(error => { workspace.cleanup(); throw error; });
   try {
     const page = await app.firstWindow();
     await expect(page.getByRole('heading', { name: '创建管理员账户' })).toBeVisible();
@@ -107,6 +105,6 @@ test('管理员创建、用户管理与普通用户权限', async () => {
     await expect(reopened.locator('.metric-card').first().locator('strong')).toHaveText('26');
   } finally {
     await app.close().catch(() => {});
-    rmSync(userData, { recursive: true, force: true });
+    workspace.cleanup();
   }
 });
