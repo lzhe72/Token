@@ -31,10 +31,10 @@
 - 只保存用量字段和必要的来源元数据。禁止提交真实会话 JSONL、提示词、回复、源码、数据库、凭证和遥测密钥；测试使用人工构造的无正文样本，临时数据目录在测试后清理。
 - 遥测接收器只监听本机地址并验证随机密钥。只读检查已有 Codex/Claude 配置，不自动覆盖既有或组织管理设置。CSV 文本字段必须防公式注入。
 - `REQ-014` 的历史 CSV 表头错位由 `DEV-019` / `TC-029` 自动断言覆盖；每次修改导出结构时重跑该编号与公式注入用例 TC-023。
-- `REQ-006` 的 Codex fallback 跨扫描重复计数缺陷已由 `DEV-047` 在 `aa6d91b` 修复，`TC-073` 已注册并在该提交上本机通过；`TC-010` 的既有历史结果与本次回归分别保留。当前修复在 `src/collectors/scanner.ts` 的扫描事务与扫描器启动修复中，独立测试见 `tests/collector-fallback.test.ts`；实际边界见[设计第 4.5 节](design.md#45-codex-fallback-修复实现与边界2026-10-03)和[逐项验收](test-case-acceptance.md#tc-073-当前实现与验收2026-10-03)。现有 0.3.0 DMG 尚未重打，不包含此代码。
+- `REQ-006` 的 Codex fallback 跨扫描重复计数缺陷已由 `DEV-047` 在 `aa6d91b` 修复，`TC-073` 已注册并在该提交上本机通过；`TC-010` 的既有历史结果与本次回归分别保留。修复在 `src/collectors/scanner.ts` 的扫描事务与扫描器启动修复中，独立测试见 `tests/collector-fallback.test.ts`；`867a03a` 的 0.3.1 本机未签名候选包又通过隔离 0.3.0→0.3.1 同库修复场景。实际边界见[设计第 4.5 节](design.md#45-codex-fallback-修复实现与边界2026-10-03)和[逐项验收](test-case-acceptance.md#tc-073-当前实现与验收2026-10-03)。历史 0.3.0 DMG 不含此代码。
 - M5 的 `TC-030`–`TC-049` 已有单编号入口；受信设备、独立服务、十分钟扫描、聚合上报及界面有相应测试。TC-036 有 `44a96e8` 的本机隔离 0.2.0→0.3.0 更新交接与替换证据，`b224dde` 又验证隔离取消后旧版及数据可用、注入式打开失败时不替换旧文件；实际 Finder 安装失败回退、手动安装、生产数据迁移、目标 Mac 和签名公证仍待验。自动化的实际覆盖与缺口见[逐项验收](test-case-acceptance.md#m5-用例绑定与覆盖tc-030tc-049)。
 - M6 的 REQ-031–039、DEV-034–046 已在 v0.3.0 本机实现，TC-050–071 在最终代码 `6223c30` 有逐编号自动结果；TC-072 已注册人工清单但目标 Mac 权限验证未完成。项目归属只从 Codex/Claude 会话 cwd 提取，当前仅保存哈希项目键与展示名，聚合、反馈和诊断外发不得含完整路径或本机项目身份。固定 `admin` 的库角色仍为 `admin`，仅精确用户名和库角色同时符合时对外派生 `superadmin`；旧管理员权限和冲突迁移规则见设计第 18 节。自动结果与剩余边界见[逐项验收](test-case-acceptance.md)，后续改动先按 SOP 核对阶段条件并复验受影响编号。
-- 本机开发版 DMG 未签名；公开分发的签名、公证和目标设备验收独立于本机打包通过。
+- 本机 0.3.1 候选 DMG 未签名；SHA-256 `7e56933298505f5d08def3811b891e187b6cefb264bfab3538e5accdb6235a7c`。本机更新服务目录已发布同哈希包及清单，实际生产账户 App 连接/安装、签名、公证和目标设备验收仍须单独完成。
 
 ## 常用命令
 
@@ -52,7 +52,8 @@
 | 本机未签名 DMG | `npm run pack:dmg` |
 | 独立启动更新与聚合服务 | `npm run server`（默认 `127.0.0.1:47839`） |
 | 发布更新包 | `npm run publish:update -- <dmg> <version> <arch> <server-dir>` |
-| 本机隔离升级复验 | `npm run test:upgrade:local -- /绝对路径/Token-0.2.0.dmg /绝对路径/Token-0.3.0.dmg` |
+| 本机隔离升级复验 | `npm run test:upgrade:local -- /绝对路径/旧版.dmg /绝对路径/新版.dmg` |
+| Codex fallback 同库升级复验 | `npm run test:upgrade:local -- /绝对路径/Token-0.3.0.dmg /绝对路径/Token-0.3.1.dmg --fallback-repair` |
 | M6 批量逐编号验收 | `npm run test:acceptance -- 50 71` |
 | 目标 Mac 人工权限验收清单 | `npm run test:case -- TC-072` |
 
