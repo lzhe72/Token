@@ -86,6 +86,7 @@ const extraRuns = {
   'TC-017': [{ kind: collector[0], file: collector[1], testName: '空目录、错误字段及不可读文件显示可辨认的状态' }],
   'TC-074': [
     { kind: 'unit', file: 'tests/server-ownership.test.ts', testName: 'TC-074 客户端加密保存设备令牌且撤销后须显式重新登记' },
+    { kind: 'unit', file: 'tests/server-ownership.test.ts', testName: 'TC-074 切换服务器时不向新地址发送旧设备令牌' },
     { kind: 'unit', file: 'tests/next-sync.test.ts', testName: 'TC-074 管理员重新配置后可立即重试待传快照' }
   ],
   'TC-047': [{ kind: 'unit', file: 'tests/next-server.test.ts', testName: 'TC-047 非回环 HTTPS 监听仍执行清单与上报鉴权' }],

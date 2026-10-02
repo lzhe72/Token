@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -178,4 +178,32 @@ test('TC-074 客户端加密保存设备令牌且撤销后须显式重新登记'
     try { if (started) await server.stop(); }
     finally { workspace.cleanup(); }
   }
+});
+
+test('TC-074 切换服务器时不向新地址发送旧设备令牌', async () => {
+  const workspace = createTestWorkspace('tc074-switch-race');
+  try {
+    const cipher = { isEncryptionAvailable: () => true,
+      encryptString: (value: string) => Buffer.from(value),
+      decryptString: (value: Buffer) => value.toString('utf8') };
+    const client = new ServerConnection(workspace.root, cipher);
+    client.setConfiguration('https://old.example.test:47839', 'a'.repeat(64), 'b'.repeat(64));
+    const deviceId = randomUUID();
+    const ownerUserId = randomUUID();
+    let finishRegistration: ((response: Response) => void) | undefined;
+    vi.spyOn(client, 'adminRequest').mockImplementation(() => new Promise(resolve => { finishRegistration = resolve; }));
+    const pending = client.uploadUsage('{}', deviceId, [ownerUserId]);
+    expect(finishRegistration).toBeTypeOf('function');
+    client.setConfiguration('https://new.example.test:47839', 'c'.repeat(64), 'd'.repeat(64));
+    finishRegistration!({ ok: true, json: async () => ({ token: 'e'.repeat(64), deviceId,
+      ownerUserIds: [ownerUserId] }) } as Response);
+    await expect(pending).rejects.toThrow('服务器连接已切换');
+    expect(fs.existsSync(path.join(workspace.root, 'server-usage-device.json'))).toBe(false);
+    const pendingAfterSave = client.uploadUsage('{}', deviceId, [ownerUserId]);
+    client.setConfiguration('https://new.example.test:47839', 'c'.repeat(64), 'd'.repeat(64));
+    finishRegistration!({ ok: true, json: async () => ({ token: 'f'.repeat(64), deviceId,
+      ownerUserIds: [ownerUserId] }) } as Response);
+    await expect(pendingAfterSave).rejects.toThrow('服务器连接已切换');
+    expect(fs.existsSync(path.join(workspace.root, 'server-usage-device.json'))).toBe(false);
+  } finally { workspace.cleanup(); }
 });

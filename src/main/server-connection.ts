@@ -29,6 +29,7 @@ export class ServerConnection {
   private url: string;
   private error: string | null = null;
   private allowReactivation = false;
+  private configurationRevision = 0;
   private readonly configFile: string;
   private readonly secretFile: string;
   private readonly adminSecretFile: string;
@@ -110,6 +111,7 @@ export class ServerConnection {
     clear(this.usageCredentialFile);
     this.allowReactivation = true;
     this.url = url;
+    this.configurationRevision++;
     this.error = null;
   }
 
@@ -138,6 +140,8 @@ export class ServerConnection {
 
   private async usageToken(deviceId: string, ownerUserIds: string[]): Promise<string> {
     if (!this.cipher.isEncryptionAvailable()) throw new Error('设备上报需要系统安全存储');
+    const url = this.url;
+    const revision = this.configurationRevision;
     const owners = [...new Set(ownerUserIds)].sort();
     const scope = JSON.stringify(owners);
     try {
@@ -153,22 +157,27 @@ export class ServerConnection {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ deviceId, ownerUserIds: owners, reactivate: this.allowReactivation })
     });
+    if (this.url !== url || this.configurationRevision !== revision) throw new Error('服务器连接已切换，请重试上报');
     if (!response.ok) throw new Error(`设备上报登记失败 (${response.status})`);
     const body = await response.json() as { token?: unknown; deviceId?: unknown; ownerUserIds?: unknown };
+    if (this.url !== url || this.configurationRevision !== revision) throw new Error('服务器连接已切换，请重试上报');
     if (body.deviceId !== deviceId || !Array.isArray(body.ownerUserIds) ||
       JSON.stringify(body.ownerUserIds) !== scope || typeof body.token !== 'string' ||
       !/^[a-f0-9]{64}$/.test(body.token)) throw new Error('设备上报凭证无效');
     const encrypted = this.cipher.encryptString(body.token);
     const temp = `${this.usageCredentialFile}.tmp`;
-    fs.writeFileSync(temp, JSON.stringify({ url: this.url, deviceId, scope, token: encrypted.toString('base64') }), { mode: 0o600 });
+    fs.writeFileSync(temp, JSON.stringify({ url, deviceId, scope, token: encrypted.toString('base64') }), { mode: 0o600 });
     fs.renameSync(temp, this.usageCredentialFile);
     this.allowReactivation = false;
     return body.token;
   }
 
   async uploadUsage(payload: string, deviceId: string, ownerUserIds: string[], timeout = 10000): Promise<Response> {
+    const url = this.url;
+    const revision = this.configurationRevision;
     const token = await this.usageToken(deviceId, ownerUserIds);
-    return fetch(`${this.url}/v1/usage`, { method: 'POST',
+    if (this.url !== url || this.configurationRevision !== revision) throw new Error('服务器连接已切换，请重试上报');
+    return fetch(`${url}/v1/usage`, { method: 'POST',
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
       body: payload, signal: AbortSignal.timeout(timeout) });
   }
