@@ -75,7 +75,8 @@ const cases = [
   ['TC-069', 'unit', 'tests/m6-roles.test.ts', 'TC-069 普通管理员保留建户权限但不能改动固定 admin', '管理角色边界'],
   ['TC-070', 'unit', 'tests/m6-roles.test.ts', 'TC-070 旧库 admin 冲突显式处理且保留账号 ID 和哈希', '旧库迁移'],
   ['TC-071', 'e2e', 'tests/e2e/m6-admin.spec.ts', 'TC-071 固定 admin 创建管理员与普通用户且角色边界生效', '超级管理员界面'],
-  ['TC-072', 'manual', '目标 Mac 文件权限授予与撤销', '使用独立测试账户及专用数据库，先拒绝 Token 读取会话目录并截图采集诊断未知状态；在系统设置手动授予完全磁盘访问权限，重启并重新扫描，截图恢复状态；再次撤销并确认回到未知。记录 macOS 版本、授权范围、命令和脱敏证据。']
+  ['TC-072', 'manual', '目标 Mac 文件权限授予与撤销', '使用独立测试账户及专用数据库，先拒绝 Token 读取会话目录并截图采集诊断未知状态；在系统设置手动授予完全磁盘访问权限，重启并重新扫描，截图恢复状态；再次撤销并确认回到未知。记录 macOS 版本、授权范围、命令和脱敏证据。'],
+  ['TC-073', 'unit', 'tests/collector-fallback.test.ts', 'TC-073 Codex fallback 跨扫描替换与旧库修复保持幂等', 'Codex fallback 跨扫描归并']
 ];
 const extraRuns = {
   'TC-030': [{ kind: 'e2e', file: 'tests/e2e/trust.spec.ts', testName: 'TC-030 应用重启自动登录并在退出后撤销' }],

@@ -126,6 +126,7 @@ export class UsageScanner {
       CREATE INDEX IF NOT EXISTS usage_facts_time ON usage_facts(occurred_at);
       CREATE INDEX IF NOT EXISTS usage_facts_provider_model ON usage_facts(provider, model);
       CREATE INDEX IF NOT EXISTS usage_facts_identity ON usage_facts(source_identity_key);
+      CREATE INDEX IF NOT EXISTS usage_facts_provider_session ON usage_facts(provider, session_id);
       CREATE TABLE IF NOT EXISTS source_cursors (
         file_path TEXT PRIMARY KEY,
         provider TEXT NOT NULL,
@@ -165,6 +166,30 @@ export class UsageScanner {
       db.run("UPDATE source_cursors SET byte_offset = 0, state_json = '{}', tail_hash = ''");
       db.run("INSERT INTO scanner_meta VALUES ('project_backfill', '1')");
     }
+    this.repairSupersededCodexFallbacks();
+  }
+
+  private pruneCodexFallbacks(sessionId: string): void {
+    const condition = "provider = 'codex' AND session_id = ? AND source_key LIKE 'codex:fallback:%'";
+    this.db.run(`DELETE FROM fact_projects WHERE source_key IN
+      (SELECT source_key FROM usage_facts WHERE ${condition})`, [sessionId]);
+    this.db.run(`DELETE FROM usage_facts WHERE ${condition}`, [sessionId]);
+  }
+
+  private repairSupersededCodexFallbacks(): void {
+    const sessions = this.db.all(`SELECT DISTINCT official.session_id FROM usage_facts official
+      WHERE official.provider = 'codex' AND official.source_key LIKE 'codex:%'
+        AND official.source_key NOT LIKE 'codex:fallback:%'
+        AND EXISTS (SELECT 1 FROM usage_facts fallback
+          WHERE fallback.provider = 'codex' AND fallback.session_id = official.session_id
+            AND fallback.source_key LIKE 'codex:fallback:%')`);
+    if (sessions.length === 0) return;
+    this.db.transaction(() => {
+      for (const row of sessions) this.pruneCodexFallbacks(String(row.session_id));
+      this.db.run(`UPDATE source_status SET fact_count =
+        (SELECT COUNT(*) FROM usage_facts WHERE provider = 'codex' AND source_key NOT LIKE 'otel:%')
+        WHERE provider = 'codex'`);
+    });
   }
 
   start(): void {
@@ -290,8 +315,17 @@ export class UsageScanner {
       for (const fact of fallback) facts.set(fact.sourceKey, fact);
     }
     const committedTailHash = await tailHash(file, result.offset);
+    const codexSessions = provider === 'codex'
+      ? new Set([...facts.values()].map(fact => fact.sessionId))
+      : new Set<string>();
     this.db.transaction(() => {
       for (const fact of facts.values()) this.upsertFact(fact);
+      for (const sessionId of codexSessions) {
+        if (this.db.one(`SELECT 1 FROM usage_facts WHERE provider = 'codex' AND session_id = ?
+          AND source_key LIKE 'codex:%' AND source_key NOT LIKE 'codex:fallback:%' LIMIT 1`, [sessionId])) {
+          this.pruneCodexFallbacks(sessionId);
+        }
+      }
       this.db.run(`INSERT INTO source_cursors(file_path, provider, file_id, byte_offset, state_json, tail_hash, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(file_path) DO UPDATE SET provider=excluded.provider, file_id=excluded.file_id,
