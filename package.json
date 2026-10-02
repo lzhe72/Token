@@ -1,6 +1,6 @@
 {
   "name": "token-monitor",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "private": true,
   "description": "Local Codex and Claude Code token usage monitor for macOS",
   "author": "lzhe72",
@@ -20,7 +20,8 @@
     "test:cases:check": "node scripts/run-test-case.mjs --check",
     "test:gate": "npm run typecheck && npm run test:cases:check && npm test && npm run test:e2e",
     "test:acceptance": "node scripts/run-acceptance.mjs",
-    "test:upgrade:local": "node scripts/verify-local-upgrade.mjs"
+    "test:upgrade:local": "node scripts/verify-local-upgrade.mjs",
+    "test:production-copy": "node scripts/verify-production-copy.mjs"
   },
   "dependencies": {
     "react": "19.3.0",

@@ -84,6 +84,7 @@ const extraRuns = {
   'TC-038': [{ kind: 'e2e', file: 'tests/e2e/upload.spec.ts', testName: 'TC-038 应用扫描后自动上报到独立本机服务' }],
   'TC-010': [{ kind: app[0], file: app[1], testName: app[2] }],
   'TC-017': [{ kind: collector[0], file: collector[1], testName: '空目录、错误字段及不可读文件显示可辨认的状态' }],
+  'TC-073': [{ kind: 'unit', file: 'tests/collector-fallback.test.ts', testName: 'TC-073 大会话无 fallback 时启动修复保持线性耗时' }],
   'TC-074': [
     { kind: 'unit', file: 'tests/server-ownership.test.ts', testName: 'TC-074 客户端加密保存设备令牌且撤销后须显式重新登记' },
     { kind: 'unit', file: 'tests/server-ownership.test.ts', testName: 'TC-074 切换服务器时不向新地址发送旧设备令牌' },

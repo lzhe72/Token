@@ -177,12 +177,13 @@ export class UsageScanner {
   }
 
   private repairSupersededCodexFallbacks(): void {
-    const sessions = this.db.all(`SELECT DISTINCT official.session_id FROM usage_facts official
-      WHERE official.provider = 'codex' AND official.source_key LIKE 'codex:%'
-        AND official.source_key NOT LIKE 'codex:fallback:%'
-        AND EXISTS (SELECT 1 FROM usage_facts fallback
-          WHERE fallback.provider = 'codex' AND fallback.session_id = official.session_id
-            AND fallback.source_key LIKE 'codex:fallback:%')`);
+    // Start with fallback sessions. Checking every official fact against the same
+    // long session makes startup quadratic even when no fallback exists.
+    const sessions = this.db.all(`SELECT DISTINCT session_id FROM usage_facts
+      WHERE provider = 'codex' AND source_key LIKE 'codex:fallback:%'`)
+      .filter(row => this.db.one(`SELECT 1 FROM usage_facts
+        WHERE provider = 'codex' AND session_id = ? AND source_key LIKE 'codex:%'
+          AND source_key NOT LIKE 'codex:fallback:%' LIMIT 1`, [String(row.session_id)]));
     if (sessions.length === 0) return;
     this.db.transaction(() => {
       for (const row of sessions) this.pruneCodexFallbacks(String(row.session_id));

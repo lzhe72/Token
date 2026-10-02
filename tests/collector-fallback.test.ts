@@ -130,3 +130,29 @@ test('TC-073 Codex fallback 跨扫描替换与旧库修复保持幂等', async (
     legacy.cleanup();
   }
 });
+
+test('TC-073 大会话无 fallback 时启动修复保持线性耗时', async () => {
+  const workspace = createTestWorkspace('tc073-large-session');
+  let db = await AppDatabase.open(workspace.databasePath);
+  try {
+    new UsageScanner(db);
+    db.run("INSERT INTO source_identities VALUES ('codex:local', 'codex', 'Codex', NULL)");
+    db.transaction(() => {
+      for (let index = 0; index < 6000; index++) {
+        db.run('INSERT INTO usage_facts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
+          `codex:large:${index}`, 'codex', 'codex:local', 'large-session', 'gpt-test',
+          '2026-01-01T12:00:00Z', 1, 0, 0, 0, 1
+        ]);
+      }
+    });
+    db.close();
+    db = await AppDatabase.open(workspace.databasePath);
+    const started = performance.now();
+    new UsageScanner(db);
+    expect(performance.now() - started).toBeLessThan(5000);
+    expect(db.one('SELECT COUNT(*) AS count FROM usage_facts')?.count).toBe(6000);
+  } finally {
+    db.close();
+    workspace.cleanup();
+  }
+}, 15000);
