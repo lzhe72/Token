@@ -8,6 +8,8 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "start": "npm run build && electron .",
+    "server": "npm run build && node dist/server.cjs",
+    "publish:update": "node scripts/publish-update.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "npm run build && playwright test",
@@ -16,7 +18,8 @@
     "pack:dmg": "npm run build && node scripts/package-dmg.mjs",
     "test:case": "node scripts/run-test-case.mjs",
     "test:cases:check": "node scripts/run-test-case.mjs --check",
-    "test:gate": "npm run typecheck && npm run test:cases:check && npm test && npm run test:e2e"
+    "test:gate": "npm run typecheck && npm run test:cases:check && npm test && npm run test:e2e",
+    "test:acceptance": "node scripts/run-acceptance.mjs"
   },
   "dependencies": {
     "react": "19.3.0",

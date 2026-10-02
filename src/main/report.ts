@@ -147,7 +147,8 @@ export class ReportService {
     return {
       query, totals,
       points: [...periods.values()].sort((a, b) => a.period.localeCompare(b.period)),
-      models: [...models.values()].sort((a, b) => b.totalTokens - a.totalTokens),
+      models: [...models.values()].sort((a, b) => b.totalTokens - a.totalTokens ||
+        a.provider.localeCompare(b.provider) || a.model.localeCompare(b.model)),
       providers: [...providers.values()].sort((a, b) => b.totalTokens - a.totalTokens),
       availableModels: [...availableModels].sort(),
       coverage: this.scanner.statuses()
@@ -193,7 +194,7 @@ export class ReportService {
       if (!groups.has(key)) groups.set(key, { period, provider: fact.provider, model: fact.model, ...emptyTotals() });
       addFact(groups.get(key)!, fact);
     }
-    const header = ['时间', '工具', '模型', '输入 Token', '输出 Token', '缓存读取 Token', '缓存写入 Token', '用量记录数'];
+    const header = ['时间', '工具', '模型', '输入 Token', '输出 Token', '缓存读取 Token', '缓存写入 Token', '总 Token', '用量记录数'];
     const rows = [...groups.values()].sort((a, b) => a.period.localeCompare(b.period)).map(row => [
       csvCell(row.period), csvCell(row.provider), csvCell(row.model), row.inputTokens,
       row.outputTokens, row.cacheReadTokens, row.cacheCreationTokens, row.totalTokens, row.requests

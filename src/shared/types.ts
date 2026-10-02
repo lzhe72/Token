@@ -43,6 +43,27 @@ export interface TelemetryConfiguration {
   claudeWarning: string | null;
 }
 
+export interface ServerStatus {
+  url: string;
+  online: boolean;
+  error: string | null;
+  hasToken: boolean;
+}
+
+export interface UploadStatus {
+  pending: number;
+  lastSuccess: string | null;
+  lastError: string | null;
+  lastAttempt: string | null;
+}
+
+export interface UpdateStatus {
+  available: boolean;
+  version: string | null;
+  currentVersion: string;
+  error: string | null;
+}
+
 export type Granularity = 'day' | 'week' | 'month' | 'year';
 
 export interface ReportQuery {
@@ -106,8 +127,8 @@ export interface UsageDetailsPage {
 
 export interface TokenApi {
   getState(): Promise<AppState>;
-  setupAdmin(username: string, password: string): Promise<PublicUser>;
-  login(username: string, password: string): Promise<PublicUser>;
+  setupAdmin(username: string, password: string, trustDevice?: boolean): Promise<PublicUser>;
+  login(username: string, password: string, trustDevice?: boolean): Promise<PublicUser>;
   logout(): Promise<void>;
   listUsers(): Promise<PublicUser[]>;
   createUser(username: string, password: string, role: Role): Promise<PublicUser>;
@@ -118,6 +139,11 @@ export interface TokenApi {
   getSourceIdentities(): Promise<SourceIdentity[]>;
   bindSourceIdentity(key: string, userId: string | null): Promise<void>;
   getTelemetryConfiguration(): Promise<TelemetryConfiguration>;
+  getServerStatus(): Promise<ServerStatus>;
+  configureServer(url: string, token: string): Promise<ServerStatus>;
+  getUploadStatus(): Promise<UploadStatus>;
+  checkUpdate(): Promise<UpdateStatus>;
+  downloadUpdate(): Promise<string>;
   backupDatabase(): Promise<boolean>;
   restoreDatabase(): Promise<boolean>;
   queryUsage(query: ReportQuery): Promise<UsageReport>;

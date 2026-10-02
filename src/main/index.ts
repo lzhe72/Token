@@ -1,21 +1,28 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron';
 import { AppDatabase } from './database';
 import { AuthService } from './auth';
 import { UsageScanner } from '../collectors/scanner';
 import { ReportService } from './report';
 import { TelemetryReceiver } from './telemetry';
+import { TrustedDeviceStore } from './trusted-device';
+import { ServerConnection } from './server-connection';
+import { UsageSync } from './usage-sync';
+import { UpdateClient } from './update-client';
 import type { PublicUser } from '../shared/types';
 
 let mainWindow: BrowserWindow | null = null;
 let database: AppDatabase | null = null;
 let scanner: UsageScanner | null = null;
 let telemetry: TelemetryReceiver | null = null;
+let connection: ServerConnection | null = null;
+let usageSync: UsageSync | null = null;
 const sessions = new Map<number, string>();
 
 function checkSender(event: Electron.IpcMainInvokeEvent): void {
-  if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed() ||
+    event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) {
     throw new Error('请求来源无效');
   }
 }
@@ -37,27 +44,56 @@ function requireAdmin(event: Electron.IpcMainInvokeEvent, auth: AuthService): Pu
   return user;
 }
 
-function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportService, receiver: TelemetryReceiver, db: AppDatabase): void {
+function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportService, receiver: TelemetryReceiver, db: AppDatabase,
+  trusted: TrustedDeviceStore, server: ServerConnection, sync: UsageSync, updater: UpdateClient): void {
+  function forgetDevice(): void {
+    const token = trusted.read();
+    if (token) auth.revokeTrustedDevice(token);
+    trusted.clear();
+  }
+
+  function rememberDevice(user: PublicUser, enabled: unknown): void {
+    forgetDevice();
+    if (enabled === true) {
+      const token = auth.issueTrustedDevice(user.id);
+      try { trusted.write(token); }
+      catch (error) { auth.revokeTrustedDevice(token); throw error; }
+    } else if (enabled !== false && enabled !== undefined) {
+      throw new Error('信任设备参数无效');
+    }
+  }
+
   ipcMain.handle('auth:state', event => {
     checkSender(event);
-    const id = sessions.get(event.sender.id);
+    let id = sessions.get(event.sender.id);
+    if (!id) {
+      const token = trusted.read();
+      const restored = token ? auth.authenticateTrustedDevice(token) : null;
+      if (restored) {
+        id = restored.id;
+        sessions.set(event.sender.id, id);
+      } else if (token) trusted.clear();
+    }
     const user = id ? auth.getUser(id) : null;
     return { needsSetup: auth.needsSetup(), user: user?.active ? user : null };
   });
-  ipcMain.handle('auth:setup', async (event, username: unknown, password: unknown) => {
+  ipcMain.handle('auth:setup', async (event, username: unknown, password: unknown, trustDevice: unknown) => {
     checkSender(event);
     const user = await auth.setupAdmin(username, password);
+    rememberDevice(user, trustDevice);
     sessions.set(event.sender.id, user.id);
     return user;
   });
-  ipcMain.handle('auth:login', async (event, username: unknown, password: unknown) => {
+  ipcMain.handle('auth:login', async (event, username: unknown, password: unknown, trustDevice: unknown) => {
     checkSender(event);
     const user = await auth.login(username, password);
+    rememberDevice(user, trustDevice);
     sessions.set(event.sender.id, user.id);
     return user;
   });
   ipcMain.handle('auth:logout', event => {
     checkSender(event);
+    forgetDevice();
     sessions.delete(event.sender.id);
   });
   ipcMain.handle('users:list', event => {
@@ -96,6 +132,27 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
   ipcMain.handle('telemetry:configuration', event => {
     requireAdmin(event, auth);
     return receiver.configuration();
+  });
+  ipcMain.handle('server:status', event => {
+    currentUser(event, auth);
+    return server.status();
+  });
+  ipcMain.handle('server:configure', (event, url: unknown, token: unknown) => {
+    requireAdmin(event, auth);
+    server.setConfiguration(url, token);
+    return server.status();
+  });
+  ipcMain.handle('sync:status', event => {
+    currentUser(event, auth);
+    return sync.status();
+  });
+  ipcMain.handle('update:check', event => {
+    currentUser(event, auth);
+    return updater.check();
+  });
+  ipcMain.handle('update:download', event => {
+    requireAdmin(event, auth);
+    return updater.downloadAndOpen();
   });
   ipcMain.handle('data:backup', async event => {
     requireAdmin(event, auth);
@@ -138,6 +195,7 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
     fs.copyFileSync(liveFile, `${liveFile}.before-restore`);
     fs.chmodSync(`${liveFile}.before-restore`, 0o600);
     fs.renameSync(staged, liveFile);
+    trusted.clear();
     app.relaunch({ args: process.argv.slice(1) });
     setImmediate(() => app.exit(0));
     return true;
@@ -202,7 +260,15 @@ app.whenReady().then(async () => {
   scanner = new UsageScanner(database);
   telemetry = new TelemetryReceiver(database, app.getPath('userData'));
   await telemetry.start();
-  registerIpc(new AuthService(database), scanner, new ReportService(database, scanner), telemetry, database);
+  connection = new ServerConnection(app.getPath('userData'), safeStorage);
+  await connection.startLocalService();
+  usageSync = new UsageSync(database, scanner, connection);
+  scanner.setAfterScan(() => usageSync!.afterScan());
+  usageSync.start();
+  const updater = new UpdateClient(connection, path.join(app.getPath('userData'), 'updates'), app.getVersion(), process.arch,
+    file => shell.openPath(file));
+  registerIpc(new AuthService(database), scanner, new ReportService(database, scanner), telemetry, database,
+    new TrustedDeviceStore(app.getPath('userData'), safeStorage), connection, usageSync, updater);
   createWindow();
   scanner.start();
   app.on('activate', () => {
@@ -216,6 +282,8 @@ app.whenReady().then(async () => {
 app.on('before-quit', () => {
   scanner?.stop();
   telemetry?.stop();
+  usageSync?.stop();
+  connection?.stop();
   scanner = null;
   telemetry = null;
   database = null;

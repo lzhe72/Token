@@ -23,5 +23,14 @@ await Promise.all([
     target: 'node24',
     format: 'cjs',
     external: ['electron']
+  }),
+  build({
+    entryPoints: ['src/server/cli.ts'],
+    outfile: 'dist/server.cjs',
+    bundle: true,
+    platform: 'node',
+    target: 'node24',
+    format: 'cjs',
+    external: ['sql.js/dist/sql-asm.js']
   })
 ]);

@@ -1,4 +1,4 @@
-import { randomUUID, randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
+import { createHash, randomUUID, randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
 import type { AppDatabase, Row } from './database';
 import type { PublicUser, Role } from '../shared/types';
 
@@ -70,7 +70,39 @@ function publicUser(row: UserRow): PublicUser {
 export class AuthService {
   private failures = new Map<string, { count: number; until: number }>();
 
-  constructor(private readonly db: AppDatabase) {}
+  constructor(private readonly db: AppDatabase) {
+    db.run(`CREATE TABLE IF NOT EXISTS trusted_devices (
+      token_hash TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL
+    )`);
+  }
+
+  issueTrustedDevice(userId: string): string {
+    const user = this.getUser(userId);
+    if (!user?.active) throw new Error('账户不可用');
+    const token = randomBytes(32).toString('base64url');
+    this.db.run('INSERT INTO trusted_devices VALUES (?, ?, ?)', [this.trustedHash(token), userId, new Date().toISOString()]);
+    return token;
+  }
+
+  authenticateTrustedDevice(token: string): PublicUser | null {
+    if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
+    const row = this.db.one('SELECT user_id FROM trusted_devices WHERE token_hash = ?', [this.trustedHash(token)]);
+    if (!row) return null;
+    const user = this.getUser(String(row.user_id));
+    return user?.active ? user : null;
+  }
+
+  revokeTrustedDevice(token: string): void {
+    if (/^[A-Za-z0-9_-]{43}$/.test(token)) {
+      this.db.run('DELETE FROM trusted_devices WHERE token_hash = ?', [this.trustedHash(token)]);
+    }
+  }
+
+  private trustedHash(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
+  }
 
   needsSetup(): boolean {
     return Number(this.db.one('SELECT COUNT(*) AS count FROM users')?.count ?? 0) === 0;
@@ -138,6 +170,7 @@ export class AuthService {
     if (target.role === 'admin' && !active && this.activeAdminCount() <= 1) throw new Error('必须保留至少一位管理员');
     this.db.transaction(() => {
       this.db.run('UPDATE users SET active = ? WHERE id = ?', [active ? 1 : 0, userId]);
+      if (!active) this.db.run('DELETE FROM trusted_devices WHERE user_id = ?', [userId]);
       this.audit(actorId, active ? 'user.enabled' : 'user.disabled', userId);
     });
   }
@@ -147,6 +180,7 @@ export class AuthService {
     const hash = await hashPassword(validatePassword(passwordInput));
     this.db.transaction(() => {
       this.db.run('UPDATE users SET password_hash = ? WHERE id = ?', [hash, userId]);
+      this.db.run('DELETE FROM trusted_devices WHERE user_id = ?', [userId]);
       this.audit(actorId, 'user.password_changed', userId);
     });
   }

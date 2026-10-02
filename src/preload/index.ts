@@ -3,8 +3,8 @@ import type { TokenApi } from '../shared/types';
 
 const api: TokenApi = {
   getState: () => ipcRenderer.invoke('auth:state'),
-  setupAdmin: (username, password) => ipcRenderer.invoke('auth:setup', username, password),
-  login: (username, password) => ipcRenderer.invoke('auth:login', username, password),
+  setupAdmin: (username, password, trustDevice) => ipcRenderer.invoke('auth:setup', username, password, trustDevice),
+  login: (username, password, trustDevice) => ipcRenderer.invoke('auth:login', username, password, trustDevice),
   logout: () => ipcRenderer.invoke('auth:logout'),
   listUsers: () => ipcRenderer.invoke('users:list'),
   createUser: (username, password, role) => ipcRenderer.invoke('users:create', username, password, role),
@@ -15,6 +15,11 @@ const api: TokenApi = {
   getSourceIdentities: () => ipcRenderer.invoke('sources:identities'),
   bindSourceIdentity: (key, userId) => ipcRenderer.invoke('sources:bind', key, userId),
   getTelemetryConfiguration: () => ipcRenderer.invoke('telemetry:configuration'),
+  getServerStatus: () => ipcRenderer.invoke('server:status'),
+  configureServer: (url, token) => ipcRenderer.invoke('server:configure', url, token),
+  getUploadStatus: () => ipcRenderer.invoke('sync:status'),
+  checkUpdate: () => ipcRenderer.invoke('update:check'),
+  downloadUpdate: () => ipcRenderer.invoke('update:download'),
   backupDatabase: () => ipcRenderer.invoke('data:backup'),
   restoreDatabase: () => ipcRenderer.invoke('data:restore'),
   queryUsage: query => ipcRenderer.invoke('usage:query', query),

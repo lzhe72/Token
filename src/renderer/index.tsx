@@ -1,7 +1,8 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import type { AppState, PublicUser, Role, SourceIdentity, SourceStatus, TelemetryConfiguration } from '../shared/types';
+import type { AppState, PublicUser, Role, ServerStatus, SourceIdentity, SourceStatus, TelemetryConfiguration, UpdateStatus, UploadStatus } from '../shared/types';
 import { ReportPanel } from './report';
+import { OverviewPanel } from './overview';
 import './style.css';
 
 function errorMessage(error: unknown): string {
@@ -24,6 +25,7 @@ function App() {
   const [state, setState] = React.useState<AppState | null>(null);
   const [username, setUsername] = React.useState('');
   const [password, setPassword] = React.useState('');
+  const [trustDevice, setTrustDevice] = React.useState(false);
   const [error, setError] = React.useState('');
   const [notice, setNotice] = React.useState('');
   const [busy, setBusy] = React.useState(false);
@@ -32,6 +34,11 @@ function App() {
   const [sourceStatuses, setSourceStatuses] = React.useState<SourceStatus[]>([]);
   const [sourceIdentities, setSourceIdentities] = React.useState<SourceIdentity[]>([]);
   const [telemetry, setTelemetry] = React.useState<TelemetryConfiguration | null>(null);
+  const [server, setServer] = React.useState<ServerStatus | null>(null);
+  const [upload, setUpload] = React.useState<UploadStatus | null>(null);
+  const [update, setUpdate] = React.useState<UpdateStatus | null>(null);
+  const [serverUrl, setServerUrl] = React.useState('');
+  const [serverToken, setServerToken] = React.useState('');
   const [newUsername, setNewUsername] = React.useState('');
   const [newPassword, setNewPassword] = React.useState('');
   const [newRole, setNewRole] = React.useState<Role>('viewer');
@@ -44,7 +51,11 @@ function App() {
 
   React.useEffect(() => {
     if (!state?.user) return;
-    const refresh = () => window.tokenApi.getSourceStatuses().then(setSourceStatuses).catch(() => {});
+    const refresh = () => {
+      void window.tokenApi.getSourceStatuses().then(setSourceStatuses).catch(() => {});
+      void window.tokenApi.getServerStatus().then(value => { setServer(value); setServerUrl(current => current || value.url); }).catch(() => {});
+      void window.tokenApi.getUploadStatus().then(setUpload).catch(() => {});
+    };
     void refresh();
     const timer = window.setInterval(refresh, 5000);
     return () => window.clearInterval(timer);
@@ -57,8 +68,8 @@ function App() {
     setError('');
     try {
       const user = state.needsSetup
-        ? await window.tokenApi.setupAdmin(username, password)
-        : await window.tokenApi.login(username, password);
+        ? await window.tokenApi.setupAdmin(username, password, trustDevice)
+        : await window.tokenApi.login(username, password, trustDevice);
       setState({ needsSetup: false, user });
       setPassword('');
     } catch (e) {
@@ -98,6 +109,35 @@ function App() {
     } catch (e) {
       setError(errorMessage(e));
     }
+  }
+
+  async function saveServer(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      const result = await window.tokenApi.configureServer(serverUrl, serverToken);
+      setServer(result);
+      setServerToken('');
+      setNotice(result.online ? '服务器连接已更新。' : '服务器地址已保存，当前无法连接。');
+    } catch (reason) { setError(errorMessage(reason)); }
+    finally { setBusy(false); }
+  }
+
+  async function checkUpdate() {
+    setError('');
+    try { setUpdate(await window.tokenApi.checkUpdate()); }
+    catch (reason) { setError(errorMessage(reason)); }
+  }
+
+  async function downloadUpdate() {
+    setBusy(true);
+    setError('');
+    try {
+      await window.tokenApi.downloadUpdate();
+      setNotice('安装包已校验并打开，请按 macOS 提示完成安装。');
+    } catch (reason) { setError(errorMessage(reason)); }
+    finally { setBusy(false); }
   }
 
   async function showReport() {
@@ -200,9 +240,10 @@ function App() {
         <p>{state.needsSetup ? '先设置本机管理员，即可开始连接用量来源。' : '登录后查看属于你的用量报表。'}</p>
         <label>用户名<input autoFocus value={username} onChange={e => setUsername(e.target.value)} autoComplete="username" placeholder="例如 lzhe72" /></label>
         <label>密码<input type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete={state.needsSetup ? 'new-password' : 'current-password'} placeholder={state.needsSetup ? '至少 10 位' : '输入密码'} /></label>
+        <label className="trust-option"><input type="checkbox" checked={trustDevice} onChange={e => setTrustDevice(e.target.checked)} />信任此设备，保持登录直到手动退出</label>
         {error && <div className="error" role="alert">{error}</div>}
         <button className="primary" disabled={busy}>{busy ? '请稍候…' : state.needsSetup ? '创建并进入' : '登录'}</button>
-        <small>数据仅保存在这台 Mac。</small>
+        <small>登录凭证由本机安全存储保护。</small>
       </form>
     </div>
   );
@@ -223,17 +264,20 @@ function App() {
         <div className="sidebar-bottom"><div className="avatar">{state.user.username.slice(0, 1).toUpperCase()}</div><div><strong>{state.user.username}</strong><small>{state.user.role === 'admin' ? '管理员' : '普通用户'}</small></div><button className="logout" onClick={logout} aria-label="退出登录" title="退出登录">↪</button></div>
       </aside>
       <main className="main-content">
-        <header><div><span className="eyebrow">TOKEN MONITOR</span><h1>{tab === 'users' ? '用户管理' : tab === 'sources' ? '数据来源' : tab === 'report' ? '用量报表' : '用量概览'}</h1></div><div className="date-chip">本机 · 离线</div></header>
+        <header><div><span className="eyebrow">TOKEN MONITOR</span><h1>{tab === 'users' ? '用户管理' : tab === 'sources' ? '数据来源' : tab === 'report' ? '用量报表' : '用量概览'}</h1></div><div className="date-chip">{server?.online ? '服务已连接' : '本机运行'}</div></header>
         {error && <div className="error banner" role="alert">{error}</div>}
         {notice && <div className="notice banner" role="status">{notice}</div>}
-        {tab === 'overview' ? <>
-          <div className="hero-card"><div><span className="eyebrow light">WELCOME TO TOKEN</span><h2>你的 AI 编程用量，<br />从这里变得清晰。</h2><p>本机会话记录持续更新。打开用量报表，按时间、模型和工具查看消耗。</p><button className="hero-button" onClick={showReport}>查看用量报表 →</button></div><div className="hero-art"><div className="orbit one" /><div className="orbit two" /><div className="hero-core">T</div></div></div>
-          <div className="section-heading"><h2>数据来源</h2><span>每 30 秒检查新记录</span></div>
-          <div className="source-grid"><div className="source-card"><div className="source-icon codex">◈</div><div><h3>Codex</h3><p>{codexStatus ? `${codexStatus.factCount.toLocaleString()} 条本地 · ${codexStatus.telemetryFactCount.toLocaleString()} 条遥测` : '正在检查本机会话记录'}</p></div><span className="status-pill">{sourceStatusLabel(codexStatus)}</span></div><div className="source-card"><div className="source-icon claude">✳</div><div><h3>Claude Code</h3><p>{claudeStatus ? `${claudeStatus.factCount.toLocaleString()} 条本地 · ${claudeStatus.telemetryFactCount.toLocaleString()} 条遥测` : '正在检查本机会话记录'}</p></div><span className="status-pill">{sourceStatusLabel(claudeStatus)}</span></div></div>
-        </> : tab === 'report' ? <ReportPanel user={state.user} users={users} /> : tab === 'sources' ? <>
+        {tab === 'overview' ? <OverviewPanel sources={sourceStatuses} server={server} upload={upload} update={update}
+          onCheckUpdate={checkUpdate} onDownloadUpdate={downloadUpdate} onReport={showReport} />
+        : tab === 'report' ? <ReportPanel user={state.user} users={users} /> : tab === 'sources' ? <>
           <p className="page-lead">只读取当前 macOS 账户可访问的本机会话记录。采集器不会保存提示词、回复正文或源码。</p>
           <div className="source-grid"><div className="source-card"><div className="source-icon codex">◈</div><div><h3>Codex</h3><p>{codexStatus?.detail || `${codexStatus?.fileCount ?? 0} 个会话文件 · ${codexStatus?.factCount ?? 0} 条本地 · ${codexStatus?.telemetryFactCount ?? 0} 条遥测`}</p></div><span className="status-pill">{sourceStatusLabel(codexStatus)}</span></div><div className="source-card"><div className="source-icon claude">✳</div><div><h3>Claude Code</h3><p>{claudeStatus?.detail || `${claudeStatus?.fileCount ?? 0} 个会话文件 · ${claudeStatus?.factCount ?? 0} 条本地 · ${claudeStatus?.telemetryFactCount ?? 0} 条遥测`}</p></div><span className="status-pill">{sourceStatusLabel(claudeStatus)}</span></div></div>
           <div className="source-actions"><button className="primary" disabled={busy} onClick={scanSources}>{busy ? '扫描中…' : '立即扫描'}</button><span>首次导入大量历史记录可能需要几分钟。</span></div>
+          <section className="panel"><div className="panel-head"><h2>本机服务与自动上报</h2><span>{server?.online ? '已连接' : '未连接'}</span></div>
+            <p className="hint">默认连接 127.0.0.1；可改为其他服务器地址。扫描后每 10 分钟自动上报已归属的聚合用量，不上传会话正文、文件路径或密钥。</p>
+            <form className="server-form" onSubmit={saveServer}><label>服务器地址<input aria-label="服务器地址" value={serverUrl} onChange={e => setServerUrl(e.target.value)} placeholder="http://127.0.0.1:47839" /></label><label>访问密钥（更换时填写）<input aria-label="服务器访问密钥" type="password" value={serverToken} onChange={e => setServerToken(e.target.value)} placeholder="本机服务自动读取" /></label><button className="primary" disabled={busy}>保存连接</button></form>
+            <p className="hint">{server?.online ? `已连接 ${server.url}` : server?.error || '检查中'} · {upload?.pending ? `${upload.pending} 批待补传` : '无待补传'} · 最近上报 {upload?.lastSuccess ? new Date(upload.lastSuccess).toLocaleString('zh-CN') : '尚无'}{upload?.lastError ? ` · ${upload.lastError}` : ''}</p>
+          </section>
           <section className="panel telemetry-panel"><div className="panel-head"><h2>可选遥测接入</h2><span>{telemetry?.running ? '本机接收器已就绪' : '接收器未启动'}</span></div>
             <p className="hint">本地记录会自动扫描。需要持续接收官方遥测时，将下方配置手动加入对应工具的用户设置。已有遥测目标或组织设置请先核对，应用不会替你覆盖。配置含本机密钥，请勿分享。</p>
             {telemetry?.error && <div className="error">接收器启动失败：{telemetry.error}</div>}

@@ -11,6 +11,7 @@ import type { LineContext, ParserState, Provider, UsageFact } from './types';
 
 const CHUNK_SIZE = 128 * 1024;
 const MAX_LINE_SIZE = 32 * 1024 * 1024;
+export const SCAN_INTERVAL_MS = 10 * 60 * 1000;
 
 interface Cursor {
   fileId: string;
@@ -99,6 +100,7 @@ export class UsageScanner {
   private current: Promise<void> | null = null;
   private scanning = new Set<Provider>();
   private timer: NodeJS.Timeout | null = null;
+  private afterScan: (() => Promise<void>) | null = null;
 
   constructor(private readonly db: AppDatabase) {
     db.run(`
@@ -149,7 +151,11 @@ export class UsageScanner {
 
   start(): void {
     void this.scan().catch(() => {});
-    this.timer = setInterval(() => void this.scan().catch(() => {}), 30_000);
+    this.timer = setInterval(() => void this.scan().catch(() => {}), SCAN_INTERVAL_MS);
+  }
+
+  setAfterScan(callback: () => Promise<void>): void {
+    this.afterScan = callback;
   }
 
   stop(): void {
@@ -163,7 +169,7 @@ export class UsageScanner {
 
   scan(): Promise<void> {
     if (this.current) return this.current;
-    this.current = this.scanAll().finally(() => { this.current = null; });
+    this.current = this.scanAll().then(() => this.afterScan?.()).then(() => {}).finally(() => { this.current = null; });
     return this.current;
   }
 
