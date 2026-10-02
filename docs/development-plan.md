@@ -11,6 +11,8 @@
 
 **`dc37b8b` 阶段实现与剩余任务**：`package.json` 已增加 `pack:signed`，独立脚本在构建前校验签名身份、公证凭据与环境，使用 electron-builder v26 强制签名、公证和 hardened runtime/JIT entitlement；核验同一临时目录下的 App/DMG 后才原子转入 `release/signed`，写脱敏 evidence JSON。TC-075 已注册并以合成 p12 与模拟配置运行 1/1；文档会话独立复跑该编号和 75 个入口检查均通过。无公证凭据的独立预检在构建前退出码 1，未生成签名制品。此阶段 DEV-018 **发布脚本部分落地**；TC-075 构建后核验失败注入尚未自动覆盖，实际签名/公证和另一台 Mac 的 TC-028 人工验收尚无证据。开发会话报告 `dc37b8b` 的完整门禁为 75 个编号入口、51 个单元、18 个 Electron 用例通过；文档会话未独立复跑完整门禁。`pack:dmg` 未签名本机通道保持。
 
+**`2f43b00` 补齐自动失败分支**：签名发布脚本导出并在真实主流程调用 `verifySignedCandidate`、`withTemporaryReleaseDirectory`；TC-075 对四项制品核验及 Developer ID 身份核对共五个失败点逐项注入，断言抛错、临时目录清理、无 `signed` 目录。文档会话独立复跑 TC-075 1/1、75 个编号入口检查及 `npm run typecheck`，均退出码 0；开发会话报告完整门禁 75 编号、51 单元、18 Electron 通过。TC-075 的计划自动范围现有通过证据；DEV-018 仍仅部分落地，真实 Apple 签名/公证、成功制品核验和另一台 Mac 的 TC-028 人工验收未完成。模拟失败不能证明真实发布成功，现有未签名 `pack:dmg` 也未在本轮重跑。
+
 ## 1. 执行原则
 
 - 每个阶段形成可运行、可检查的交付物，完成后提交并推送至仓库 `main`。

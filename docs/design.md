@@ -162,6 +162,8 @@ Codex 会话先写出 `event_msg:token_count`、后续增量才写出 `token_usa
 
 `dc37b8b` 的 TC-075 单元函数已注册，覆盖缺失/不完整/冲突凭据、错误或多重身份、三种凭据选项、合成 p12 本地路径和 base64 解析、builder 参数与核验命令序列、无凭据运行构建前失败且没有新增发布目录。该函数未模拟每一项**构建后**核验失败，也未调用真实 Apple 公证服务；自动通过只属于上述子范围。当前 Mac 没有有效发布身份或公证凭据，真实签名、公证、票据、Gatekeeper 与另一台 Mac 验收仍须在 TC-028 留证，不能因脚本存在或 TC-075 1/1 通过宣称外部分发完成。
 
+**核验失败与清理回归（代码 `2f43b00`）**：发布主流程改为复用可注入的 `verifySignedCandidate` 和 `withTemporaryReleaseDirectory`。TC-075 在同一自动函数中分别令 `codesign --verify`、`spctl --assess`、`xcrun stapler validate`、`hdiutil verify` 与后续 Developer ID `Authority` 身份核对失败；每次都应停止进入发布分支、删除 `release/token-signed-*` 临时构建目录，且不创建 `release/signed` 候选。测试使用合成文件和注入执行器，验证的是失败控制流与清理；没有完成真实签名、公证、Gatekeeper 系统评估或 DMG 原子发布，TC-028 仍待目标环境验收。
+
 ## 8. 待在验证阶段定案的事项
 
 1. 当前 Codex 和 Claude Code 安装版本的本地记录路径、字段及历史保留时间。

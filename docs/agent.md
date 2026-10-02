@@ -61,6 +61,6 @@
 | Codex fallback 同库升级复验 | `npm run test:upgrade:local -- /绝对路径/Token-0.3.0.dmg /绝对路径/Token-0.3.1.dmg --fallback-repair` |
 | M6 批量逐编号验收 | `npm run test:acceptance -- 50 71` |
 | 目标 Mac 人工权限验收清单 | `npm run test:case -- TC-072` |
-| 签名脚本自动回归（已注册） | `npm run test:case -- TC-075`；只覆盖预检、合成 p12 和命令构造子范围 |
+| 签名脚本自动回归（已注册） | `npm run test:case -- TC-075`；覆盖预检、合成 p12、命令构造与五处模拟核验失败/清理；真实发布仍按 TC-028 |
 
 服务端监听地址由 `TOKEN_SERVER_HOST`、`TOKEN_SERVER_PORT` 配置，非回环监听还需 `TOKEN_SERVER_TLS_CERT` 和 `TOKEN_SERVER_TLS_KEY`。App 连接地址与密钥可配置；非回环连接必须使用 HTTPS。更新清单、安装包、聚合上报与反馈提交都需要 bearer 密钥；反馈管理读取和状态修改另需独立管理密钥。不要提交服务密钥、管理密钥、证书私钥、反馈正文或服务数据库。
