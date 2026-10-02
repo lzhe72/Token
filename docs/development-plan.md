@@ -7,6 +7,8 @@
 
 首版实际验收结果见[验收记录](validation.md)。
 
+**外部分发流程实施计划（REQ-018 / DEV-018，2026-10-03）**：先在 `scripts/package-dmg.mjs` 的现有未签名路径之外实现显式 `pack:signed` 与独立签名脚本，构建前检查 Developer ID Application 身份和一组完整公证凭据；任何缺项或错误身份须在构建前失败。签名路径使用 electron-builder v26 的 `forceCodeSigning: true`、`mac.notarize: true`，再逐项核对 App 的 `codesign`、Gatekeeper、stapler 票据以及 DMG 的 `hdiutil verify`、大小和 SHA-256。将制品和脱敏证据置于可区分的发布位置，不在命令、日志或仓库中保留私钥与凭据。`pack:dmg` 继续供本机未签名验证，不以其产物满足外部分发门槛。先为 TC-075 增加不接触真实签名材料的模拟预检、错误路径与命令构造回归，注册并执行 `npm run test:case -- TC-075`，再跑受影响门禁；具备有效身份和公证凭据后才执行真实 `npm run pack:signed`。最后在另一台目标 Mac 完成 TC-028 的人工签名、公证、安装和核心流程验收。当前缺少有效签名身份和异机证据，DEV-018、TC-075、TC-028 均不得标为通过；[设计第 7 节](design.md#7-发布与测试边界)与[逐项验收](test-case-acceptance.md)列出边界。
+
 ## 1. 执行原则
 
 - 每个阶段形成可运行、可检查的交付物，完成后提交并推送至仓库 `main`。

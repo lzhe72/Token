@@ -53,6 +53,7 @@
 | 打包目录 | `CSC_IDENTITY_AUTO_DISCOVERY=false npm run pack:dir` |
 | 打包应用端到端 | `npm run test:e2e:packaged` |
 | 本机未签名 DMG | `npm run pack:dmg` |
+| 外部分发签名 DMG（规划，尚未实现） | `npm run pack:signed`；实施后需先通过 TC-075，真实发布结果按 TC-028 验收 |
 | 独立启动更新与聚合服务 | `npm run server`（默认 `127.0.0.1:47839`） |
 | 发布更新包 | `npm run publish:update -- <dmg> <version> <arch> <server-dir>` |
 | 本机隔离升级复验 | `npm run test:upgrade:local -- /绝对路径/旧版.dmg /绝对路径/新版.dmg` |
@@ -60,5 +61,6 @@
 | Codex fallback 同库升级复验 | `npm run test:upgrade:local -- /绝对路径/Token-0.3.0.dmg /绝对路径/Token-0.3.1.dmg --fallback-repair` |
 | M6 批量逐编号验收 | `npm run test:acceptance -- 50 71` |
 | 目标 Mac 人工权限验收清单 | `npm run test:case -- TC-072` |
+| 签名脚本自动回归（规划，尚未注册） | `npm run test:case -- TC-075` |
 
 服务端监听地址由 `TOKEN_SERVER_HOST`、`TOKEN_SERVER_PORT` 配置，非回环监听还需 `TOKEN_SERVER_TLS_CERT` 和 `TOKEN_SERVER_TLS_KEY`。App 连接地址与密钥可配置；非回环连接必须使用 HTTPS。更新清单、安装包、聚合上报与反馈提交都需要 bearer 密钥；反馈管理读取和状态修改另需独立管理密钥。不要提交服务密钥、管理密钥、证书私钥、反馈正文或服务数据库。

@@ -154,6 +154,10 @@ Codex 会话先写出 `event_msg:token_count`、后续增量才写出 `token_usa
 
 测试目标 Mac 不需要完整 Xcode。面向其他用户分发的签名与公证是独立发布步骤，应在具备 Apple 开发者证书及所需开发工具的构建环境完成；不能把“测试无需 Xcode”推广为“签名发布无需 Xcode”。[Electron Code Signing](https://www.electronjs.org/docs/latest/tutorial/code-signing)
 
+**外部分发构建方案（REQ-018 / DEV-018 / TC-075、TC-028；2026-10-03 实施前）**：新增显式 `npm run pack:signed`，与现有本机未签名 `npm run pack:dmg` 分开。签名入口须在执行构建前检查 macOS、可用的 Developer ID Application 签名身份及完整公证凭据；身份缺失、身份类型错误、凭据缺项或互相冲突时安全失败，不留下可误认为外部分发版的新制品。使用当前 electron-builder v26 的 `forceCodeSigning: true` 防止静默产出未签名 App，以 `mac.notarize: true` 启用内置公证；公证凭据只从环境或钥匙串读取，接受完整的 API Key（`APPLE_API_KEY`、`APPLE_API_KEY_ID`、`APPLE_API_ISSUER`）、Apple ID（`APPLE_ID`、`APPLE_APP_SPECIFIC_PASSWORD`、`APPLE_TEAM_ID`）或钥匙串配置（`APPLE_KEYCHAIN`、`APPLE_KEYCHAIN_PROFILE`）之一。需按 v26 核对 hardened runtime 与实际 entitlements，不能照搬其他主版本的配置字段。签名材料、私钥、口令及原始环境变量值不得入库或写日志。[electron-builder v26 macOS 签名](https://www.electron.build/v26/docs/features/code-signing/code-signing-mac/)；[v26 配置与公证凭据](https://www.electron.build/v26/docs/api/app-builder-lib.interface.macconfiguration/)
+
+构建完成后对**同一候选**的 App 执行 `codesign --verify --deep --strict`、`spctl --assess --type execute`、`xcrun stapler validate`，对 DMG 执行 `hdiutil verify` 并计算大小和 SHA-256；记录版本、架构、代码提交、脱敏证书身份、核验命令、退出码及制品路径。任一步失败都不能发布该制品，且不得把既有未签名 0.3.4 DMG 当作签名产物。TC-075 将用模拟身份与命令执行器验证无凭据预检、错误条件和命令构造，测试本身不调用 Apple 公证、不使用真实私钥。真正的签名、公证、票据和另一台 Mac 的安装、启动、登录、采集仍由 TC-028 人工验收；TC-075 自动通过不改变 TC-028 的待验证状态。[electron-builder v26 公证指南](https://www.electron.build/v26/docs/notarization/)
+
 ## 8. 待在验证阶段定案的事项
 
 1. 当前 Codex 和 Claude Code 安装版本的本地记录路径、字段及历史保留时间。
