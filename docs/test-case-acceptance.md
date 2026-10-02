@@ -436,6 +436,8 @@ xcrun stapler validate release/mac/Token.app
 
 **TC-036 新增本机链路记录（2026-10-02，代码 `44a96e8`）**：`npm run test:upgrade:local -- /Users/lz/文档/Token/Token-0.2.0.dmg /Users/lz/文档/Token/Token-0.3.0.dmg` 使用 `scripts/verify-local-upgrade.mjs`，在本机隔离目录复制旧版应用、启动并勾选信任设备；旧版连接临时本机更新服务，发现 0.3.0、下载并打开安装包；下载 SHA-256 与发布包一致。脚本关闭旧版后以 `ditto` 在同一临时安装路径替换为新版，沿用同一临时用户数据目录启动，新版受信登录与合成报表 1280 Token 均通过。日志在开发工作树 `test-results/manual/evidence/TC-036-upgrade.log`（Git 忽略），脱敏摘要见[验收记录](validation.md)。此结果标记为**部分验证：本机隔离更新交接与替换通过**；取消安装、安装失败回退、Finder 人工拖拽至 `/Applications`、生产数据迁移、签名公证及目标 Mac 仍待验证。脚本是独立复验入口，`npm run test:case -- TC-036` 仍只运行表内单元断言。
 
+**TC-036 取消与打开失败补验（2026-10-03，代码 `b224dde`）**：同一本机脚本现在先在旧版扫描合成 1280 Token，下载打开 0.3.0 后不替换应用，关闭映像并重启旧版；0.2.0、`admin` 受信登录和已采集 1280 Token 均保留，随后成功升级路径仍通过。`npm run test:case -- TC-036` 的单元函数新增注入 `openPackage` 失败，断言报错且旧应用文件不变。开发会话记录两次升级脚本通过、单编号 1/1 通过；脱敏日志在开发工作树 `test-results/manual/evidence/TC-036-cancel.log`（Git 忽略），摘要见[验收记录](validation.md)。**当前状态仍为部分验证**：本机隔离取消操作和注入式打开失败已验；Finder 实际安装失败回退、手动拖拽 `/Applications`、生产数据库迁移、签名公证和目标 Mac 未验。上段 10-02 记录为当时事实，不代表本轮结论。
+
 ## M6 目标与实际覆盖（TC-050–TC-072）
 
 下表保留原定目标，实际覆盖以其后的绑定表为准。`scripts/test-cases.mjs` 已注册 TC-050–072，每条命令为 `npm run test:case -- TC-###`。自动用例通过 `tests/support/test-workspace.ts` 为每个编号创建独立的 `token-test-db-tc###-*` 临时目录及 `token.sqlite`；Electron 的 `--token-user-data` 指向该目录，服务端使用目录内文件和随机端口，结束清理。**每个编号有自己的数据库，即使测试文件共用，也不共享状态**。TC-072 用独立测试用户数据目录和真实目标 Mac 操作，尚未取得人工证据。所有反馈/诊断样本均为人工合成数据。
