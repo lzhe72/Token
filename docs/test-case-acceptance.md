@@ -6,7 +6,7 @@
 
 ## 执行与证据边界
 
-- 已分配并注册 74 条：TC-001–049 中 44 条有自动入口、5 条为人工入口；M6 的 TC-050–071 另有 22 条自动入口、TC-072 为人工入口；TC-073 是独立单元入口；TC-074 绑定三项服务/客户端凭据测试和一项客户端同步测试。多条旧编号可能运行同一测试函数；M6 每个自动编号绑定自己以 `TC-###` 开头的测试函数。TC-021、TC-030、TC-038 各有额外绑定；TC-021 现同时运行共享测试、独立分页单元和分页界面测试。
+- 已分配并注册 74 条：TC-001–049 中 44 条有自动入口、5 条为人工入口；M6 的 TC-050–071 另有 22 条自动入口、TC-072 为人工入口；TC-073 现绑定原归并测试及 0.3.4 大会话性能回归两项；TC-074 绑定三项服务/客户端凭据测试和一项客户端同步测试。多条旧编号可能运行同一测试函数；M6 每个自动编号绑定自己以 `TC-###` 开头的测试函数。TC-021、TC-030、TC-038 各有额外绑定；TC-021 现同时运行共享测试、独立分页单元和分页界面测试。
 - 自动入口在缺少 `TOKEN_E2E_EXECUTABLE` 时会先构建应用；Vitest 以 `-t`、Playwright 以 `--grep` 精确选择注册的测试名称。任一绑定函数失败，`npm run test:case -- TC-###` 非零退出。
 - 单元和端到端造数由 `tests/support/test-workspace.ts` 在系统临时目录 `token-test-db-<label>-*` 创建：`token.sqlite`、`codex/`、`claude/` 均在其中。端到端将该目录作为 `--token-user-data`；测试结束清理。不要使用真实用户数据库或真实会话正文。
 - 自动入口不会自动保存证据文件。可先执行 `mkdir -p test-results/acceptance`，再将单用例输出重定向到 `test-results/acceptance/TC-###.log`，紧接着记录退出码、提交、macOS 和测试日期。`test-results/` 已被 Git 忽略；日志只保留脱敏断言与环境信息。
@@ -516,6 +516,8 @@ xcrun stapler validate release/mac/Token.app
 - **证据与边界**：开发工作树的 `test-results/acceptance/TC-073.log`、`TC-010-fallback-regression.log` 为本机 Git 忽略日志；开发会话报告先见到两条各 12 Token 的失败复现，再在修复后通过。文档会话复跑 `npm run test:cases:check`、TC-073 1/1 与 TC-010 的单元加 Electron，均退出码 0，环境 macOS 15.7.4 x86_64 / Node v24.15.0。此证据只覆盖合成样本和临时库；真实生产库迁移、更多未知 Codex 记录格式、打包应用及新 DMG 尚未验证。现有 0.3.0 DMG 不含该修复。详见[新增验收记录](validation.md)。
 
 **TC-073 0.3.1 候选包补验（2026-10-03，代码 `867a03a`）**：上条是 `aa6d91b` 时的代码验收边界。0.3.1 未签名 x64 DMG 已生成，SHA-256 `7e56933298505f5d08def3811b891e187b6cefb264bfab3538e5accdb6235a7c`，本机 `hdiutil verify` VALID。`npm run test:upgrade:local -- /Users/lz/文档/Token/Token-0.3.0.dmg /Users/lz/文档/Token/Token-0.3.1.dmg --fallback-repair` 在隔离同库先以旧包复现 1280→2560 Token，再从新版包替换并回到 1280、受信登录保持；文档会话独立复跑该命令，退出码 0。开发工作树 `test-results/manual/evidence/TC-073-package-upgrade.log` 为被 Git 忽略的脱敏日志。开发会话报告新版目录包 Electron 17/17；本机更新服务目录的清单与发布包哈希也已对账。TC-073 的单编号命令和函数绑定不变；这是追加的候选包证据。生产库、实际生产账户 App 安装、Finder `/Applications`、签名公证和目标 Mac 未验，详见[验收记录](validation.md)。
+
+**TC-073 0.3.4 大会话回归（2026-10-03，代码 `7abd640`）**：`scripts/test-cases.mjs` 为同一编号增加 `tests/collector-fallback.test.ts` 的 `TC-073 大会话无 fallback 时启动修复保持线性耗时`，与原归并幂等函数一起运行。新函数在独立 `tc073-large-session` 临时 `token.sqlite` 中造 6000 条同会话正式事实、没有 fallback；重新打开数据库并构造 `UsageScanner`，要求低于 5 秒、事实数仍为 6000。文档会话在 `7abd640` 独立执行 `npm run test:case -- TC-073`，两项绑定均通过、退出码 0；该阈值是单机样本回归，不证明所有硬件或数据规模的严格线性耗时。开发会话报告门禁 74 个编号入口、48 个单元、18 个 Electron 及目录包 18/18。另用 `npm run test:production-copy -- /绝对路径/token.sqlite /绝对路径/Token.app` 对生产库的只读临时副本启动打包 App、核对完整性和账户/事实/来源身份/游标数量；文档会话独立执行退出码 0。该副本检查不读取真实来源会话、不修改原库，也不等于生产账户真实安装与界面验收；见[验收记录](validation.md)。
 
 ## TC-074 聚合上报设备与用户归属授权回归（2026-10-03 原规划与实施）
 

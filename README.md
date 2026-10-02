@@ -27,6 +27,7 @@ Token 是一个 macOS 桌面应用，用于汇总本机 Codex 与 Claude Code �
 - 0.3.1 本机候选：`867a03a` 将版本升至 0.3.1，重建未签名 x64 DMG；隔离升级验收中，旧版 0.3.0 同库 1280→2560 Token 重复计数升级后修复为 1280，受信登录保持。本机更新服务目录已发布该包及版本清单；实际生产账户 App 连接/安装、生产库迁移、Finder `/Applications` 手动安装、签名公证和目标 Mac 未验证，见[验收记录](docs/validation.md)。
 - 0.3.2 阶段候选：`ca0f37f` 实现 DEV-048 的设备上报令牌与用户范围校验；`533992e` 只补 TC-047 测试清理。随后发现服务切换竞态，0.3.2 不作为最新交付版本。
 - 0.3.3 本机候选：`3d60b5e` 为 TC-074 补配置代次检查和服务切换竞态回归，四项绑定通过；未签名 x64 DMG 已核验并发布到本机更新服务目录。实际生产账户/数据库、Finder `/Applications`、可信证书、异机 HTTPS、签名公证和目标 Mac 仍待验，见[验收记录](docs/validation.md)。
+- 0.3.4 本机候选：`7abd640` 修复大 Codex 会话下启动时 fallback 旧库修复扫描过慢的问题；TC-073 增加 6000 条合成事实的独立回归。打包应用在生产库的隔离副本上启动并核对完整性及账户、事实、来源、游标数量，未修改原库。未签名 x64 DMG 与本机更新服务目录已对账；真实生产账户安装、目标 Mac 和签名公证仍待验，见[验收记录](docs/validation.md)。
 
 ## 使用流程
 
@@ -66,9 +67,11 @@ npm run test:upgrade:local -- /Users/lz/文档/Token/Token-0.2.0.dmg /Users/lz/�
 npm run test:upgrade:local -- /Users/lz/文档/Token/Token-0.3.0.dmg /Users/lz/文档/Token/Token-0.3.1.dmg --fallback-repair
 npm run test:upgrade:local -- /Users/lz/文档/Token/Token-0.3.1.dmg /Users/lz/文档/Token/Token-0.3.2.dmg
 npm run test:upgrade:local -- /Users/lz/文档/Token/Token-0.3.2.dmg /Users/lz/文档/Token/Token-0.3.3.dmg
+npm run test:upgrade:local -- /Users/lz/文档/Token/Token-0.3.3.dmg /Users/lz/文档/Token/Token-0.3.4.dmg
+npm run test:production-copy -- /绝对路径/token.sqlite /绝对路径/Token.app
 ```
 
 独立服务可用 `npm run server` 启动；默认监听 `127.0.0.1:47839`，可用 `TOKEN_SERVER_HOST`、`TOKEN_SERVER_PORT`、`TOKEN_SERVER_DATA_DIR` 配置。非回环监听须配置 `TOKEN_SERVER_TLS_CERT` 和 `TOKEN_SERVER_TLS_KEY`，App 的非回环连接须使用 HTTPS。更新清单、安装包继续使用服务全局 bearer；聚合上报须先由全局密钥和管理密钥登记设备，再使用签发的设备令牌。远端首次登记需管理员配置管理密钥。将已准备好的 DMG 放入服务发布目录可执行 `npm run publish:update -- <dmg> <version> <arm64|x64> <server-dir>`；此命令不替代签名、公证和目标 Mac 安装验证。
 
 打包目录位于 `release/mac/Token.app`。当前构建未签名，仅用于本机开发验证。
-当前应用版本为 `0.3.3`；`npm run pack:dmg` 在项目根目录生成 `Token-0.3.3.dmg`。本机未签名 x64 候选包大小 142566178 字节，SHA-256 为 `0030246d50b5fed9a1980c8839e6c7ad97afd229d0718ad71116294a39d6ec85`，`hdiutil verify` 为 VALID；本机更新服务目录的 `Token-0.3.3-x64.dmg` 与清单同哈希。隔离 0.3.2→0.3.3 升级通过，取消安装时旧版数据保留。历史 0.3.1 包不含 DEV-048 修复，0.3.2 包不含服务切换竞态修复；0.3.3 尚未用实际生产账户/数据库安装验证。公开分发前需签名、公证并在目标 Mac 验收。
+当前应用版本为 `0.3.4`；`npm run pack:dmg` 在项目根目录生成 `Token-0.3.4.dmg`。本机未签名 x64 候选包大小 142555479 字节，SHA-256 为 `7b4d8ad523c5afe71f5004fc7d7b4e690144e1f1119af2ab7bb86635888bf588`，`hdiutil verify` 为 VALID；本机更新服务目录的 `Token-0.3.4-x64.dmg` 与清单同哈希。隔离 0.3.3→0.3.4 升级通过，取消安装时旧版数据保留。历史 0.3.3 包不含大会话启动性能修复；生产库仅以临时副本启动验证，未进行实际生产账户安装。公开分发前需签名、公证并在目标 Mac 验收。
