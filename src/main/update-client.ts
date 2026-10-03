@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { UpdateManifest } from '../server/server';
@@ -29,7 +29,7 @@ export class UpdateClient {
 
   constructor(private readonly connection: ServerConnection, private readonly directory: string,
     private readonly currentVersion: string, private readonly arch: string,
-    private readonly openPackage: (file: string) => Promise<string>) {}
+    private readonly installPackage: (file: string, manifest: UpdateManifest) => Promise<void>) {}
 
   async check(): Promise<UpdateState> {
     try {
@@ -63,18 +63,19 @@ export class UpdateClient {
     }
   }
 
-  async downloadAndOpen(): Promise<string> {
+  async downloadAndInstall(): Promise<string> {
     const manifest = this.manifest;
     if (!manifest) throw new Error('请先检查更新');
     const response = await this.connection.request('/v1/update/package', {}, 120000);
     if (!response.ok || !response.body) throw new Error('更新包下载失败');
     fs.mkdirSync(this.directory, { recursive: true, mode: 0o700 });
     const target = path.join(this.directory, manifest.filename);
-    const temp = `${target}.download`;
+    const temp = `${target}.${randomUUID()}.download`;
     const hash = createHash('sha256');
     let size = 0;
+    let downloaded = false;
     try {
-      const file = fs.openSync(temp, 'w', 0o600);
+      const file = fs.openSync(temp, 'wx', 0o600);
       try {
         const reader = response.body.getReader();
         try {
@@ -91,11 +92,12 @@ export class UpdateClient {
       } finally { fs.closeSync(file); }
       if (size !== manifest.size || hash.digest('hex') !== manifest.sha256) throw new Error('更新包完整性校验失败');
       fs.renameSync(temp, target);
-      const error = await this.openPackage(target);
-      if (error) throw new Error(`无法打开安装包：${error}`);
+      downloaded = true;
+      await this.installPackage(target, manifest);
       return target;
     } catch (error) {
       try { fs.unlinkSync(temp); } catch { /* no partial file */ }
+      if (downloaded) try { fs.unlinkSync(target); } catch { /* helper may already own it */ }
       throw error;
     }
   }

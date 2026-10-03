@@ -34,16 +34,16 @@ test('TC-034 只提示较新且架构匹配的版本并校验包摘要', async (
     const secret = fs.readFileSync(path.join(directory, 'server.secret'), 'utf8');
     const downloads = path.join(workspace.root, 'downloads');
     let opened = 0;
-    const client = new UpdateClient(connection(`http://127.0.0.1:${port}`, secret), downloads, '1.0.0', 'arm64', async () => { opened++; return ''; });
+    const client = new UpdateClient(connection(`http://127.0.0.1:${port}`, secret), downloads, '1.0.0', 'arm64', async () => { opened++; });
     expect((await client.check()).available).toBe(false);
     release(directory, '0.9.9');
     expect((await client.check()).available).toBe(false);
     release(directory, '1.1.0', '0'.repeat(64));
     expect((await client.check()).available).toBe(true);
-    await expect(client.downloadAndOpen()).rejects.toThrow('完整性校验失败');
+    await expect(client.downloadAndInstall()).rejects.toThrow('完整性校验失败');
     expect(opened).toBe(0);
-    expect(fs.existsSync(path.join(downloads, 'Token-test-arm64.dmg.download'))).toBe(false);
-    const wrongArch = new UpdateClient(connection(`http://127.0.0.1:${port}`, secret), downloads, '1.0.0', 'x64', async () => '');
+    expect(fs.readdirSync(downloads).filter(name => name.endsWith('.download'))).toEqual([]);
+    const wrongArch = new UpdateClient(connection(`http://127.0.0.1:${port}`, secret), downloads, '1.0.0', 'x64', async () => {});
     expect((await wrongArch.check()).available).toBe(false);
   } finally { await server.stop(); workspace.cleanup(); }
 });
@@ -57,22 +57,23 @@ test('TC-035 停服和下载失败可重试且不留临时包', async () => {
     const port = await server.start();
     const secret = fs.readFileSync(path.join(directory, 'server.secret'), 'utf8');
     const base = `http://127.0.0.1:${port}`;
-    const client = new UpdateClient(connection(base, secret), path.join(workspace.root, 'downloads'), '1.0.0', 'arm64', async () => '');
+    const client = new UpdateClient(connection(base, secret), path.join(workspace.root, 'downloads'), '1.0.0', 'arm64', async () => {});
     expect((await client.check()).available).toBe(true);
     await server.stop();
-    await expect(client.downloadAndOpen()).rejects.toThrow();
-    expect(fs.existsSync(path.join(workspace.root, 'downloads', 'Token-test-arm64.dmg.download'))).toBe(false);
+    await expect(client.downloadAndInstall()).rejects.toThrow();
+    const downloads = path.join(workspace.root, 'downloads');
+    expect(fs.existsSync(downloads) ? fs.readdirSync(downloads).filter(name => name.endsWith('.download')) : []).toEqual([]);
     const restarted = new LocalServer(directory);
     try {
       const newPort = await restarted.start();
-      const retry = new UpdateClient(connection(`http://127.0.0.1:${newPort}`, secret), path.join(workspace.root, 'downloads'), '1.0.0', 'arm64', async () => '');
+      const retry = new UpdateClient(connection(`http://127.0.0.1:${newPort}`, secret), path.join(workspace.root, 'downloads'), '1.0.0', 'arm64', async () => {});
       expect((await retry.check()).available).toBe(true);
-      await retry.downloadAndOpen();
+      await retry.downloadAndInstall();
     } finally { await restarted.stop(); }
   } finally { workspace.cleanup(); }
 });
 
-test('TC-036 校验后只打开安装包而不替换现有应用', async () => {
+test('TC-036 校验后只交给自动安装器且启动失败时旧版不退出', async () => {
   const workspace = createTestWorkspace('update-handoff');
   const directory = path.join(workspace.root, 'server');
   release(directory, '1.1.0');
@@ -82,17 +83,18 @@ test('TC-036 校验后只打开安装包而不替换现有应用', async () => {
     const secret = fs.readFileSync(path.join(directory, 'server.secret'), 'utf8');
     const existing = path.join(workspace.root, 'existing-app.txt');
     fs.writeFileSync(existing, 'unchanged');
-    let opened = '';
-    const client = new UpdateClient(connection(`http://127.0.0.1:${port}`, secret), path.join(workspace.root, 'downloads'), '1.0.0', 'arm64', async file => { opened = file; return ''; });
+    let submitted = '';
+    const client = new UpdateClient(connection(`http://127.0.0.1:${port}`, secret), path.join(workspace.root, 'downloads'), '1.0.0', 'arm64', async file => { submitted = file; });
     expect((await client.check()).available).toBe(true);
-    const packageFile = await client.downloadAndOpen();
-    expect(opened).toBe(packageFile);
+    const packageFile = await client.downloadAndInstall();
+    expect(submitted).toBe(packageFile);
     expect(fs.readFileSync(existing, 'utf8')).toBe('unchanged');
     expect(fs.existsSync(packageFile)).toBe(true);
-    const openFailure = new UpdateClient(connection(`http://127.0.0.1:${port}`, secret), path.join(workspace.root, 'downloads'),
-      '1.0.0', 'arm64', async () => 'synthetic open failure');
-    expect((await openFailure.check()).available).toBe(true);
-    await expect(openFailure.downloadAndOpen()).rejects.toThrow('无法打开安装包：synthetic open failure');
+    const launchFailure = new UpdateClient(connection(`http://127.0.0.1:${port}`, secret), path.join(workspace.root, 'downloads'),
+      '1.0.0', 'arm64', async () => { throw new Error('synthetic launch failure'); });
+    expect((await launchFailure.check()).available).toBe(true);
+    await expect(launchFailure.downloadAndInstall()).rejects.toThrow('synthetic launch failure');
     expect(fs.readFileSync(existing, 'utf8')).toBe('unchanged');
+    expect(fs.existsSync(packageFile)).toBe(false);
   } finally { await server.stop(); workspace.cleanup(); }
 });

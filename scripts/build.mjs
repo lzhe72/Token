@@ -32,5 +32,13 @@ await Promise.all([
     target: 'node24',
     format: 'cjs',
     external: ['sql.js/dist/sql-asm.js']
+  }),
+  build({
+    entryPoints: ['src/main/update-helper.ts'],
+    outfile: 'dist/update-helper.cjs',
+    bundle: true,
+    platform: 'node',
+    target: 'node24',
+    format: 'cjs'
   })
 ]);

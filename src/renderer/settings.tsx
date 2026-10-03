@@ -31,9 +31,9 @@ export function SettingsPanel(props: Props) {
     <p className="page-lead">应用更新、服务连接、数据管理和系统权限集中在这里。</p>
     <div className="settings-grid">
       <section className="panel"><div className="panel-head"><h2>应用更新</h2><span>当前版本 {props.update?.currentVersion || '检测中'}</span></div>
-        <p className="hint">从配置的更新服务器检查新版本。发现更新后先下载安装包并打开，由你完成安装。</p>
+        <p className="hint">从配置的更新服务器检查新版本。下载并校验后，应用会退出、自动安装并启动新版。</p>
         <div className="source-actions"><button className="primary" disabled={props.checking} onClick={props.checkUpdate}>{props.checking ? '检查中…' : '检查更新'}</button>
-          {props.update?.available && admin && <button className="export-button" disabled={props.busy} onClick={props.downloadUpdate}>下载并打开 {props.update.version}</button>}</div>
+          {props.update?.available && admin && <button className="export-button" disabled={props.busy} onClick={props.downloadUpdate}>下载并更新到 {props.update.version}</button>}</div>
         <p className="hint" role="status">{props.update?.error ? `检查失败：${props.update.error}` : props.update?.available ? `发现新版本 ${props.update.version}` : props.update ? '当前已是最新版本，或服务器尚未发布安装包。' : '尚未检查更新。'}</p>
       </section>
       <section className="panel"><div className="panel-head"><h2>文件访问权限</h2><span>{permissionIssue ? '需要检查' : '按需授权'}</span></div>

@@ -10,6 +10,8 @@ import { TrustedDeviceStore } from './trusted-device';
 import { ServerConnection } from './server-connection';
 import { UsageSync } from './usage-sync';
 import { UpdateClient } from './update-client';
+import { launchAutomaticUpdate } from './update-launch';
+import { bundleFromExecutable, markUpdatedAppReady, readInstallStatus } from './update-install';
 import { FeedbackService } from './feedback';
 import type { FeedbackItem, PublicUser } from '../shared/types';
 
@@ -80,8 +82,9 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
     return { needsSetup: auth.needsSetup(), user: user?.active ? user : null, superadminIssue: auth.superadminIssue() };
   });
   ipcMain.handle('app:info', event => {
-    currentUser(event, auth);
-    return { version: app.getVersion(), platform: process.platform };
+    checkSender(event);
+    return { version: app.getVersion(), platform: process.platform,
+      installResult: readInstallStatus(app.getPath('userData')) };
   });
   ipcMain.handle('auth:setup', async (event, username: unknown, password: unknown, trustDevice: unknown) => {
     checkSender(event);
@@ -184,7 +187,7 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
   });
   ipcMain.handle('update:download', event => {
     requireAdmin(event, auth);
-    return updater.downloadAndOpen();
+    return updater.downloadAndInstall();
   });
   ipcMain.handle('system:open-file-permissions', async event => {
     currentUser(event, auth);
@@ -309,6 +312,11 @@ function createWindow(): void {
   });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
+  const upgradeId = process.argv.find(arg => arg.startsWith('--token-upgrade-id='))?.slice('--token-upgrade-id='.length);
+  if (upgradeId) window.webContents.once('did-finish-load', () => {
+    try { markUpdatedAppReady(app.getPath('userData'), upgradeId, app.getVersion(), bundleFromExecutable(process.execPath)); }
+    catch { /* helper will restore the old application */ }
+  });
   window.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   const webContentsId = window.webContents.id;
   window.on('closed', () => {
@@ -337,7 +345,11 @@ app.whenReady().then(async () => {
   feedbackService = new FeedbackService(database, connection, app.getVersion(), process.platform);
   feedbackService.start();
   const updater = new UpdateClient(connection, path.join(app.getPath('userData'), 'updates'), app.getVersion(), process.arch,
-    file => shell.openPath(file));
+    async (file, manifest) => {
+      if (!app.isPackaged) throw new Error('自动更新需要打包后的 Token.app');
+      await launchAutomaticUpdate(file, manifest, process.execPath, app.getPath('userData'));
+      setTimeout(() => app.quit(), 250);
+    });
   registerIpc(new AuthService(database), scanner, new ReportService(database, scanner), telemetry, database,
     new TrustedDeviceStore(app.getPath('userData'), safeStorage), connection, usageSync, updater, feedbackService);
   createWindow();

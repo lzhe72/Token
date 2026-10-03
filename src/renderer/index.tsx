@@ -59,6 +59,10 @@ function App() {
 
   React.useEffect(() => {
     window.tokenApi.getState().then(setState).catch(e => setError(errorMessage(e)));
+    void window.tokenApi.getAppInfo().then(info => {
+      if (info.installResult?.status === 'rollback') setError(info.installResult.message);
+      else if (info.installResult?.status === 'success') setNotice(info.installResult.message);
+    }).catch(() => {});
   }, []);
 
   React.useEffect(() => {
@@ -175,7 +179,7 @@ function App() {
     setError('');
     try {
       await window.tokenApi.downloadUpdate();
-      setNotice('安装包已校验并打开，请按 macOS 提示完成安装。');
+      setNotice('安装包已校验，应用即将退出、自动安装并启动新版。');
     } catch (reason) { setError(errorMessage(reason)); }
     finally { setBusy(false); }
   }

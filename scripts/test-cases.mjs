@@ -39,7 +39,7 @@ const cases = [
   ['TC-033', 'unit', 'tests/next-server.test.ts', 'TC-033 更新清单与包哈希一致且拒绝路径穿越', '清单与包'],
   ['TC-034', 'unit', 'tests/next-update.test.ts', 'TC-034 只提示较新且架构匹配的版本并校验包摘要', '版本与摘要'],
   ['TC-035', 'unit', 'tests/next-update.test.ts', 'TC-035 停服和下载失败可重试且不留临时包', '服务与下载故障'],
-  ['TC-036', 'unit', 'tests/next-update.test.ts', 'TC-036 校验后只打开安装包而不替换现有应用', '未签名安装包交接'],
+  ['TC-036', 'unit', 'tests/next-update.test.ts', 'TC-036 校验后只交给自动安装器且启动失败时旧版不退出', '自动安装控制与回滚'],
   ['TC-037', 'unit', 'tests/next-sync.test.ts', 'TC-037 启动及十分钟定时扫描并串行执行', '三种扫描触发'],
   ['TC-038', 'unit', 'tests/next-sync.test.ts', 'TC-038 聚合上报只含授权用量字段不含正文路径密钥', '聚合隐私'],
   ['TC-039', 'unit', 'tests/next-sync.test.ts', 'TC-039 重复上报幂等且修订快照替换旧值', '幂等和修订'],
@@ -78,9 +78,11 @@ const cases = [
   ['TC-072', 'manual', '目标 Mac 文件权限授予与撤销', '使用独立测试账户及专用数据库，先拒绝 Token 读取会话目录并截图采集诊断未知状态；在系统设置手动授予完全磁盘访问权限，重启并重新扫描，截图恢复状态；再次撤销并确认回到未知。记录 macOS 版本、授权范围、命令和脱敏证据。'],
   ['TC-073', 'unit', 'tests/collector-fallback.test.ts', 'TC-073 Codex fallback 跨扫描替换与旧库修复保持幂等', 'Codex fallback 跨扫描归并'],
   ['TC-074', 'unit', 'tests/server-ownership.test.ts', 'TC-074 聚合上报拒绝跨设备跨用户覆盖并保留原快照', '聚合上报设备与用户归属授权回归'],
-  ['TC-075', 'unit', 'tests/signed-release.test.ts', 'TC-075 签名发布预检与命令构造', '签名发布脚本预检与命令构造']
+  ['TC-075', 'unit', 'tests/signed-release.test.ts', 'TC-075 签名发布预检与命令构造', '签名发布脚本预检与命令构造'],
+  ['TC-076', 'integration', 'scripts/verify-auto-upgrade.mjs', 'TC-076 自动更新打包应用', '自动退出、替换和重启新版']
 ];
 const extraRuns = {
+  'TC-036': [{ kind: 'unit', file: 'tests/update-install.test.ts', testName: 'TC-036 自动安装目标选择、退出后替换和失败回滚' }],
   'TC-030': [{ kind: 'e2e', file: 'tests/e2e/trust.spec.ts', testName: 'TC-030 应用重启自动登录并在退出后撤销' }],
   'TC-032': [{ kind: 'unit', file: 'tests/next-server.test.ts', testName: 'TC-032 临时 CA 严格验证非回环服务与证书失败路径' }],
   'TC-038': [{ kind: 'e2e', file: 'tests/e2e/upload.spec.ts', testName: 'TC-038 应用扫描后自动上报到独立本机服务' }],

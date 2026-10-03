@@ -23,8 +23,12 @@ if (args[0] === '--check') {
       if (!item.runs?.length) throw new Error(`${item.id} 缺少自动测试`);
       for (const run of item.runs) {
         const source = readFileSync(path.join(root, run.file), 'utf8');
-        if (!source.includes(`test('${run.testName}'`)) throw new Error(`${item.id} 找不到对应测试: ${run.file}`);
-        linkedTests.add(`${run.file}\0${run.testName}`);
+        if (run.kind === 'integration') {
+          if (!source.includes(item.id)) throw new Error(`${item.id} 找不到集成脚本: ${run.file}`);
+        } else {
+          if (!source.includes(`test('${run.testName}'`)) throw new Error(`${item.id} 找不到对应测试: ${run.file}`);
+          linkedTests.add(`${run.file}\0${run.testName}`);
+        }
       }
     }
   }
@@ -74,6 +78,7 @@ const run = (command, commandArgs) => {
 };
 if (chosen.runs.some(item => item.kind === 'e2e') && !process.env.TOKEN_E2E_EXECUTABLE) run('npm', ['run', 'build']);
 for (const item of chosen.runs) {
+  if (item.kind === 'integration') { run(process.execPath, [path.join(root, item.file)]); continue; }
   run(path.join(root, 'node_modules', '.bin', item.kind === 'e2e' ? 'playwright' : 'vitest'),
     item.kind === 'e2e'
       ? ['test', item.file, '--grep', item.testName]

@@ -183,7 +183,8 @@ export interface UsageDetailsPage {
 
 export interface TokenApi {
   getState(): Promise<AppState>;
-  getAppInfo(): Promise<{ version: string; platform: string }>;
+  getAppInfo(): Promise<{ version: string; platform: string;
+    installResult: { status: 'success' | 'rollback'; version: string; message: string } | null }>;
   setupAdmin(username: string, password: string, trustDevice?: boolean): Promise<PublicUser>;
   login(username: string, password: string, trustDevice?: boolean): Promise<PublicUser>;
   logout(): Promise<void>;

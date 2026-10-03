@@ -30,13 +30,13 @@ test('TC-059 新版坏包提示错误且重试后可重新检查', async () => {
     await page.getByRole('button', { name: /系统设置/ }).click();
     await page.getByRole('button', { name: '检查更新' }).click();
     await expect(page.getByText('发现新版本 9.0.0')).toBeVisible();
-    await page.getByRole('button', { name: /下载并打开/ }).click();
+    await page.getByRole('button', { name: /下载并更新/ }).click();
     await expect(page.getByRole('alert')).toContainText('完整性校验失败');
     manifest.sha256 = createHash('sha256').update(bytes).digest('hex');
     manifest.version = '0.1.0';
     writeFileSync(path.join(releases, 'latest.json'), JSON.stringify(manifest));
     await page.getByRole('button', { name: '检查更新' }).click();
     await expect(page.getByText('当前已是最新版本，或服务器尚未发布安装包。')).toBeVisible();
-    await expect(page.getByRole('button', { name: /下载并打开/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /下载并更新/ })).toHaveCount(0);
   } finally { await context.close(); }
 });
