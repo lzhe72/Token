@@ -68,7 +68,7 @@ test('管理员创建、用户管理与普通用户权限', async () => {
     expect(csv).toContain('claude-test');
     expect(csv).toContain(',12,1');
     expect(csv).toContain(',14,1');
-    await page.locator('.model-panel').getByRole('button', { name: 'claude-test' }).click();
+    await page.locator('.model-panel').getByRole('button', { name: 'claude-test', exact: true }).click();
     await expect(page.locator('.detail-panel tbody tr')).toHaveCount(1);
     await expect(page.locator('.detail-panel tbody tr').first()).toContainText('14');
     await page.getByRole('button', { name: /管理中心/ }).click();

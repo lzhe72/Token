@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, safeStorage, shell } from 'electron';
 import { AppDatabase } from './database';
 import { AuthService } from './auth';
 import { UsageScanner } from '../collectors/scanner';
@@ -88,6 +88,11 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
     checkSender(event);
     return { version: app.getVersion(), platform: process.platform,
       installResult: readInstallStatus(app.getPath('userData')) };
+  });
+  ipcMain.handle('app:copy-token', (event, value: unknown) => {
+    currentUser(event, auth);
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new Error('Token 原值无效');
+    clipboard.writeText(String(value));
   });
   ipcMain.handle('auth:setup', async (event, username: unknown, password: unknown, trustDevice: unknown) => {
     checkSender(event);
@@ -328,7 +333,7 @@ function createWindow(): void {
   const window = new BrowserWindow({
     width: 1180,
     height: 760,
-    minWidth: 860,
+    minWidth: 700,
     minHeight: 600,
     backgroundColor: '#f5f6fa',
     title: 'Token',

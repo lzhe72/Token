@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import type { BindingScopeSummary, SourceBindingPreview } from '../shared/types';
 
 function Scope({ label, value }: { label: string; value: BindingScopeSummary }) {
@@ -19,8 +20,20 @@ export function SourceBindingDialog({ preview, busy, error, onCancel, onConfirm 
   const busyRef = React.useRef(busy);
   cancelRef.current = onCancel;
   busyRef.current = busy;
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     heading.current?.focus();
+    const background = document.getElementById('root');
+    const previousHidden = background?.getAttribute('aria-hidden') ?? null;
+    const previousInert = background?.inert ?? false;
+    if (background) { background.inert = true; background.setAttribute('aria-hidden', 'true'); }
+    return () => {
+      if (!background) return;
+      background.inert = previousInert;
+      if (previousHidden === null) background.removeAttribute('aria-hidden');
+      else background.setAttribute('aria-hidden', previousHidden);
+    };
+  }, [preview.id]);
+  React.useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !busyRef.current) { event.preventDefault(); cancelRef.current(); }
       if (event.key !== 'Tab') return;
@@ -40,7 +53,7 @@ export function SourceBindingDialog({ preview, busy, error, onCancel, onConfirm 
     window.addEventListener('keydown', keydown);
     return () => window.removeEventListener('keydown', keydown);
   }, [preview.id]);
-  return <div className="binding-backdrop"><section className="binding-dialog panel" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="binding-title">
+  return createPortal(<div className="binding-backdrop"><section className="binding-dialog panel" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="binding-title">
     <h2 id="binding-title" ref={heading} tabIndex={-1}>确认来源归属变更</h2>
     <p className="hint"><strong>{preview.sourceLabel}</strong> · {preview.oldOwnerLabel} → {preview.newOwnerLabel} · 当前已观测 {preview.affectedFactCount} 条事实及今后该来源新增记录都会归属目标用户。</p>
     <p className="hint">预览筛选：{preview.filter.from} 至 {preview.filter.to} · {preview.filter.timeZone} · {preview.filter.provider === 'all' ? '全部工具' : preview.filter.provider} · 模型 {preview.filter.model || '全部'} · 项目 {preview.filter.projectKey || '全部'}</p>
@@ -50,5 +63,5 @@ export function SourceBindingDialog({ preview, busy, error, onCancel, onConfirm 
     <p className="config-warning">本地可见范围在确认后立即改变；服务同步可能待传。预览过期或来源事实变化时须重新预览。</p>
     {error && <p className="error" role="alert">{error}</p>}
     <div className="source-actions"><button type="button" className="export-button" onClick={onCancel} disabled={busy}>取消</button><button type="button" className="primary" onClick={onConfirm} disabled={busy}>{busy ? '确认中…' : '确认变更'}</button></div>
-  </section></div>;
+  </section></div>, document.body);
 }

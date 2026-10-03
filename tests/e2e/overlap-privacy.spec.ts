@@ -50,7 +50,7 @@ test('TC-093 普通用户来源状态诊断和反馈附件不含其他账户数�
       fileCount: null, factCount: 1, lastSuccess: null, lastScan: null, malformedCount: null });
     expect(await page.evaluate(() => window.tokenApi.scanSources().then(() => 'allowed', () => 'denied')))
       .toBe('denied');
-    await page.getByRole('button', { name: '概览' }).click();
+    await page.locator('.sidebar').getByRole('button', { name: /概览/ }).click();
     const sourceCard = page.locator('.source-card').filter({ hasText: 'Codex' });
     await expect(sourceCard).toContainText('1 条本范围已观测记录');
     await expect(sourceCard).not.toContainText('2 条本范围已观测记录');

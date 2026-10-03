@@ -4,6 +4,7 @@ import type { TokenApi } from '../shared/types';
 const api: TokenApi = {
   getState: () => ipcRenderer.invoke('auth:state'),
   getAppInfo: () => ipcRenderer.invoke('app:info'),
+  copyToken: value => ipcRenderer.invoke('app:copy-token', value),
   setupAdmin: (username, password, trustDevice) => ipcRenderer.invoke('auth:setup', username, password, trustDevice),
   login: (username, password, trustDevice) => ipcRenderer.invoke('auth:login', username, password, trustDevice),
   logout: () => ipcRenderer.invoke('auth:logout'),

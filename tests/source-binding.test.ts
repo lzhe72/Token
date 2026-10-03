@@ -171,3 +171,24 @@ test('TC-087 停用旧归属仍可迁出事务故障回滚离线新快照覆盖�
     expect(scopes.at(-1)).toEqual([f.b.id]);
   } finally { vi.restoreAllMocks(); if (started) await server.stop(); f.db.close(); f.workspace.cleanup(); }
 });
+
+test('TC-091 重绑确认后待传为零但连接身份已变化不得提示服务同步', async () => {
+  const f = await fixture('tc091-binding-status');
+  try {
+    let identity = 'server-a';
+    const connection = { getConnectionIdentity: () => identity,
+      uploadUsage: async () => new Response('', { status: 200 }) } as unknown as ServerConnection;
+    const sync = new UsageSync(f.db, f.scanner, connection);
+    const originalFlush = sync.flush.bind(sync);
+    vi.spyOn(sync, 'flush').mockImplementation(async () => {
+      await originalFlush();
+      identity = 'server-b';
+    });
+    const service = new SourceBindingService(f.db, f.scanner, f.reports, sync);
+    const preview = service.preview(f.sourceKey, f.b.id, f.filter, f.admin);
+    const result = await service.confirm(preview.id, f.admin);
+    expect(sync.status()).toMatchObject({ pending: 0, currentConfirmed: false });
+    expect(result).toMatchObject({ localCommitted: true, service: 'pending' });
+    expect(f.db.one('SELECT owner_user_id FROM source_identities')?.owner_user_id).toBe(f.b.id);
+  } finally { vi.restoreAllMocks(); f.db.close(); f.workspace.cleanup(); }
+});

@@ -36,3 +36,24 @@ test('TC-091 遥测说明与疑似重叠报表及 CSV v2 状态一致', async ()
     await expect(page.getByRole('button', { name: '导出含待核对用量 CSV v2' })).toBeVisible();
   } finally { await context.close(); }
 });
+
+test('TC-091 重绑后待传为零但当前修订版未确认时不提示已同步', async () => {
+  const context = await launchM6('tc091-binding-notice', { usage: true, usageDate: new Date().toISOString() });
+  try {
+    const { page, app } = context;
+    await page.evaluate(() => window.tokenApi.configureServer('http://127.0.0.1:1', '', ''));
+    await page.getByRole('button', { name: /数据来源/ }).click();
+    await page.getByRole('button', { name: '立即扫描' }).click();
+    await bindSource(page, /Codex · 本机账户/, 'admin');
+    const notice = page.locator('.notice.banner');
+    await expect(notice).toContainText('服务待同步');
+    const prior = await page.evaluate(() => window.tokenApi.getUploadStatus());
+    await app.evaluate(({ ipcMain }, status) => {
+      ipcMain.removeHandler('sync:status');
+      ipcMain.handle('sync:status', () => ({ ...status, pending: 0, currentConfirmed: false }));
+    }, prior);
+    await page.waitForTimeout(5500);
+    await expect(notice).toContainText('服务待同步');
+    await expect(notice).not.toContainText('服务端确认');
+  } finally { await context.close(); }
+});

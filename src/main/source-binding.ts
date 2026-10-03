@@ -136,8 +136,8 @@ export class SourceBindingService {
     const upload = this.sync.waitIdle().then(() => this.sync.flush()).catch(() => {});
     await Promise.race([upload, new Promise(resolve => setTimeout(resolve, 1500))]);
     const status = this.sync.status();
-    return { localCommitted: true, service: status.pending ? 'pending' : 'synced',
-      syncError: status.pending ? status.lastError : null };
+    return { localCommitted: true, service: status.currentConfirmed ? 'synced' : 'pending',
+      syncError: status.currentConfirmed ? null : status.lastError };
   }
 
   cancel(id: unknown, actor: PublicUser): void {

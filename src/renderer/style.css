@@ -68,3 +68,17 @@
 @media(max-width:1180px){.settings-page .server-form{grid-template-columns:repeat(2,minmax(0,1fr))}.settings-page .server-form button{justify-self:start}}
 @media(max-width:900px){.settings-grid,.diagnostic-grid{grid-template-columns:1fr}.main-content{padding:28px 24px}}
 @media(max-width:700px){.sidebar{width:65px;min-width:65px}.nav:not(.active){display:flex}.nav{font-size:0;justify-content:center}.nav span{font-size:22px}.sidebar-bottom .logout{display:block;margin-left:0}.sidebar-bottom{justify-content:center}.sidebar-bottom .avatar{display:none}.main-content{padding:22px 14px}.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.settings-page .server-form{grid-template-columns:1fr}.dimension-row{grid-template-columns:minmax(80px,1fr) 60px 70px}.dimension-meter{display:none}}
+.binding-dialog h2:focus{outline:2px solid #405bd0;outline-offset:4px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.token-copy-wrap{display:inline-flex;align-items:center;flex-shrink:0}
+.token-copy{font-size:12px;line-height:1.2;padding:4px 6px;border:1px solid #dce4f4;border-radius:6px;background:#fff;color:#3d57ce;white-space:nowrap}
+.token-copy:hover{background:#edf1ff}.token-copy:focus-visible{outline:2px solid #405bd0;outline-offset:2px}
+.token-copy-pair{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}
+.token-cell{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}.token-cell strong{display:inline}
+.metric-card .token-copy-wrap,.overview-primary .token-copy-wrap{display:flex;width:max-content;margin:0 0 8px}.metric-card small{display:block}
+.overview-bar-item{display:flex;flex-direction:column;align-items:center;flex:1 0 68px;min-width:68px;height:100%}
+.overview-bar-item .overview-bar-wrap{width:100%;min-width:0;flex:1}.overview-bar-item .token-copy{font-size:12px;padding:3px 4px}
+.overview-bars{overflow-x:auto}.ranking-item,.dimension-item{display:flex;align-items:center;gap:6px;min-width:0}
+.ranking-item .ranking-row,.dimension-item .dimension-row{flex:1;min-width:0}.ranking-item>.token-copy-wrap,.dimension-item>.token-copy-wrap{padding-right:4px}
+.bar-chart{height:266px}.bar-item{display:flex;flex-direction:column;align-items:center;flex:1 0 76px;width:76px;min-width:76px;height:100%}
+.bar-item .bar-column{height:238px;width:100%;min-width:0;flex:1}.bar-item>.token-copy-wrap{height:28px}

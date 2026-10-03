@@ -65,7 +65,7 @@ test('TC-049 周横轴显示周一日期月横轴显示年月且下钻一致', a
     await page.getByLabel('结束日期').fill('2021-01-03');
     await page.getByRole('group', { name: '统计维度' }).getByRole('button', { name: '周' }).click();
     await expect(page.locator('.bar-label')).toHaveText(['2020-12-28']);
-    await expect(page.locator('.bar-column').first()).toHaveAttribute('title', /2020-12-28/);
+    await expect(page.locator('.bar-column').first()).toHaveAttribute('aria-label', /2020-12-28/);
     await page.locator('.bar-column').first().click();
     await expect(page.locator('.detail-panel tbody tr')).toHaveCount(2);
     await page.getByRole('group', { name: '统计维度' }).getByRole('button', { name: '月' }).click();

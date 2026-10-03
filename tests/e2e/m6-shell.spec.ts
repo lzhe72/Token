@@ -19,7 +19,12 @@ test('TC-057 窄窗口路径可见且下钻可从面包屑返回', async () => {
   const context = await launchM6('tc057', { usage: true });
   try {
     const { page, app } = context;
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(760, 700));
+    const actualWidth = await app.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows()[0];
+      window.setSize(700, 700);
+      return window.getSize()[0];
+    });
+    expect(actualWidth).toBe(700);
     await page.getByRole('button', { name: /用量报表/ }).first().click();
     await page.getByLabel('开始日期').fill('2026-10-01');
     await page.getByLabel('结束日期').fill('2026-10-03');

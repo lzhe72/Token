@@ -151,7 +151,9 @@ function App() {
   }, [state?.user?.id]);
 
   React.useEffect(() => {
-    if (bindingError && !bindingPreview) bindingErrorRef.current?.focus();
+    if (!bindingError || bindingPreview) return;
+    const frame = requestAnimationFrame(() => bindingErrorRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
   }, [bindingError, bindingPreview]);
 
   function refreshOnboarding() {
@@ -184,8 +186,8 @@ function App() {
   React.useEffect(() => { contentRef.current?.scrollTo(0, 0); }, [tab]);
   React.useEffect(() => { setNotice(''); }, [tab]);
   React.useEffect(() => {
-    if (upload?.pending === 0 && notice.includes('服务待同步')) setNotice('来源归属已更新，服务端已同步。');
-  }, [upload?.pending, notice]);
+    if (upload?.currentConfirmed && notice.includes('服务待同步')) setNotice('来源归属已更新，当前版本已由服务端确认。');
+  }, [upload?.currentConfirmed, notice]);
 
   async function submitAuth(event: React.FormEvent) {
     event.preventDefault();
@@ -421,11 +423,11 @@ function App() {
     } finally { if (request === bindingRequest.current) setBindingBusy(false); }
   }
 
-  function closeBinding(keepDraft: boolean, clearError = true) {
+  function closeBinding(keepDraft: boolean, clearError = true, restoreFocus = true) {
     setBindingPreview(null);
     if (!keepDraft) setBindingDraft(null);
     if (clearError) setBindingError('');
-    queueMicrotask(() => (keepDraft ? bindingTrigger.current : bindingSelect.current)?.focus());
+    if (restoreFocus) requestAnimationFrame(() => (keepDraft ? bindingTrigger.current : bindingSelect.current)?.focus());
   }
 
   async function confirmBinding() {
@@ -435,13 +437,13 @@ function App() {
       const result = await window.tokenApi.confirmSourceBinding(bindingPreview.id);
       setSourceIdentities(await window.tokenApi.getSourceIdentities());
       setUpload(await window.tokenApi.getUploadStatus());
-      setNotice(result.service === 'synced' ? '来源归属已更新，本地与服务端已同步。' :
+      setNotice(result.service === 'synced' ? '来源归属已更新，当前版本已由服务端确认。' :
         `来源归属已在本机更新；服务待同步${result.syncError ? `：${result.syncError}` : '，稍后自动重试'}`);
       closeBinding(false);
       refreshOnboarding();
     } catch (e) {
       setBindingError(errorMessage(e));
-      closeBinding(false, false);
+      closeBinding(false, false, false);
       setSourceIdentities(await window.tokenApi.getSourceIdentities().catch(() => sourceIdentities));
     } finally { setBindingBusy(false); }
   }
