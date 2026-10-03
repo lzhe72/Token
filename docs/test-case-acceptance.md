@@ -464,6 +464,8 @@ shasum -a 256 "$SIGNED_DMG"
 
 **`1961de3` 打包 helper 隔离故障补证（2026-10-04）**：TC-076 新增 `scripts/verify-packaged-helper-faults.mjs` 和隔离进程预加载 `scripts/tc076-helper-fault.cjs`。脚本从真实 0.3.5 DMG 复制旧 App 到专用临时可写安装目录，经旧 UI 下载真实 0.3.6 DMG；故障注入只在该目录中的实际打包 `update-helper.cjs` 生效。mount、space、replace、launch、health 五种注入各核 helper 命中、旧版自动回退、受信登录/合成 1280 Token、挂载/备份/下载残留清理；随后旧 UI 重试成功到新版。文档会话在固定代码与两包已知 SHA-256 下独立运行完整 `npm run test:case -- TC-076`，三段集成脚本和最后重试均完成、退出码 0；`npm run test:case -- TC-036` 两项单元退出码 0。此结果提升隔离打包 helper/UI 故障子范围；故障是预加载模拟，未制造真实满盘、进程崩溃或系统目录安装，也未执行安装中取消、生产库或签名公证异机验收。REQ-023/DEV-025/TC-076 整项继续按剩余边界待验。
 
+**REQ-023/DEV-025/TC-076 安装中取消决议（2026-10-04；待实现）**：详见[安装中取消设计](install-cancellation-decision.md)。旧 App 在启动 Node 模式 helper 后退出，现行 `update:download` 没有退出后可见的取消通道；不点击确认不算安装中取消。最小方案需独立控制窗口、按请求 ID/一次性能力授权的取消协议、helper 耐久阶段 journal 与安全检查点。下载/校验可立即取消；挂载/暂存需等当前阻塞步骤结束；旧版移动后至成功持久提交前为“取消并恢复旧版”；成功提交后迟到取消必须拒绝。当前新版在健康标记前打开真实 userData，因此替换后取消须先加隔离健康探测或可证备份/恢复，不能直接宣称回滚无数据风险。TC-076 须从打包版 UI 真点取消、核旧版/受信登录/1280 Token/userData/清理、竞态与崩溃恢复；真实断电、系统目录及 TC-028 签名异机另验。`1961de3` 已通过的成功和五故障子范围保留，取消目标仍待开发/验收。
+
 ## M6 目标与实际覆盖（TC-050–TC-072）
 
 下表保留原定目标，实际覆盖以其后的绑定表为准。`scripts/test-cases.mjs` 已注册 TC-050–072，每条命令为 `npm run test:case -- TC-###`。自动用例通过 `tests/support/test-workspace.ts` 为每个编号创建独立的 `token-test-db-tc###-*` 临时目录及 `token.sqlite`；Electron 的 `--token-user-data` 指向该目录，服务端使用目录内文件和随机端口，结束清理。**每个编号有自己的数据库，即使测试文件共用，也不共享状态**。TC-072 用独立测试用户数据目录和真实目标 Mac 操作，尚未取得人工证据。所有反馈/诊断样本均为人工合成数据。
