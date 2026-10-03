@@ -639,6 +639,10 @@ TC-077 的缺失来源反例还应覆盖 `codex exec --ephemeral` 不落本地 s
 
 **REQ-048/DEV-057/TC-092 跨账户同键碰撞待修（2026-10-04 静态核对）**：`src/main/telemetry.ts` 的 Codex OTel `identity` 包含 `user.account_id` 的哈希，但事实 `source_key` 仅由 session、时间、模型、输入、输出、缓存构成；`usage_facts.source_key` 为主键，`INSERT OR IGNORE` 会使不同账户在这些字段完全相同时第二条被静默丢弃。DEV-057 应将可证账户身份的不可逆本机哈希纳入遥测事实幂等键，并以幂等迁移/新旧键别名保证历史同一 OTel 事件重送不双计、项目关联及授权归属不丢；旧键碰撞已静默丢失的跨账户事实无法重建，涉及历史覆盖保持未知，空数据不是真零。仍不得外露原始账户或会话 ID。TC-092 新增同会话 ID、同 UTC 时间、模型与 Token、不同账户 ID 的双事件：两条均入库，各自绑定 owner 后 viewer 仅见本人一条；重复发送同一账户事件仍幂等。另检匿名/缺账户身份不能误合并或越权，并核回归本地/遥测调和。当前仅发现并定义断言，未修代码、未运行该新正例；旧 TC-092 结果不能证明此场景。
 
+**同一账户事件身份边界（2026-10-04；REQ-048/DEV-057/TC-092 待修）**：Codex OTel 的 `time(log.timeUnixNano)` 将纳秒值截为毫秒 ISO，现有事实键再以 session、该毫秒、model 和 Token 分类哈希。即使把账户哈希加入键，同账户两条不同真实事件若落在同一毫秒且用量相同，仍可能被 `INSERT OR IGNORE` 静默合并。保留原始纳秒精度可减少碰撞，但相同纳秒/内容也不能证明重复。DEV-057 须优先使用可证稳定事件 ID；若上游不给可验证身份，则为两条相同 payload 的不同 `logRecord` 留下可追溯观测及“计量不确定”，不得静默丢弃或把单条当确定总量。TC-092 应同时造同账户、同会话、同毫秒/相同用量但不同纳秒及完全相同 payload 的两个 `logRecord`：前者核精度保留，后者只有稳定 ID 可区分时才确认两条，否则核显式不确定；同一稳定 ID 重送仍幂等。既有跨账户场景、旧键迁移和隐私边界继续保留；没有新代码或测试结果，整项待验。
+
+**本地来源键空间边界（2026-10-04；REQ-048/DEV-057/TC-092 待评估）**：`src/collectors/codex.ts` 的事实键为 `codex:${sessionId}:${responseId}`，`claude.ts` 为 `claude:${sessionId}:${requestId}`，均未包含 `sourceIdentityKey`；扫描器还先按 `sourceKey` 合并事实，库中 `usage_facts.source_key` 为全局主键并按冲突更新。因此不同来源/owner 若给出同值 ID，可能在扫描或入库时合并、覆盖身份和项目关联。不能仅凭 ID 通常是 UUID 推断跨来源绝无碰撞。DEV-057 须评估 provider+可证来源身份+事件身份的键空间、原事实与 `fact_projects` 关联及授权归属的幂等迁移；若认为文件级身份已保证不碰撞，应提供动态或协议证据。TC-092 应造 Codex 同 session/response ID 和 Claude 同 session/request ID、但来源与 owner 不同的两组无正文事实，核两条均保留、各自授权可见、重复扫描不增量，迁移/重放不双计且项目关联不串户。当前仅静态风险，未把该场景标通过。
+
 2026-10-03 文档会话只用内存 SQLite 按现有 `src/main/report.ts` 的 `selectFacts` 条件复现：同一 UTC 日 Codex 本地 owner A 12 Token、遥测 owner B 99 Token，查询只返回 A。它证明当前 provider+UTC 日排除规则会丢失不同用户的独立用量；尚无修复或新用例通过。旧 TC-016 的遥测去重通过仅对应旧规则。
 
 | 编号与关联 | 计划前置和操作 | 通过标准与边界 |
