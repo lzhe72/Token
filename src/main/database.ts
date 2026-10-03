@@ -8,6 +8,7 @@ export type Row = Record<string, SqlValue>;
 
 export class AppDatabase {
   private inTransaction = false;
+  private lastPersisted: Uint8Array | null = null;
   private constructor(private db: SqlDatabase, private readonly file: string,
     private readonly reopen: (bytes: Uint8Array) => SqlDatabase) {}
 
@@ -111,7 +112,9 @@ export class AppDatabase {
 
   transactionDurable(fn: () => void): void {
     if (this.inTransaction) throw new Error('不支持嵌套事务');
-    const previous = this.db.export();
+    // persist() keeps an immutable SQL.js export after each successful rename.
+    // Reuse it instead of exporting the entire growing database twice per file.
+    const previous = this.lastPersisted ?? this.db.export();
     try {
       this.transaction(fn);
     } catch (error) {
@@ -126,8 +129,10 @@ export class AppDatabase {
 
   private persist(): void {
     const temp = `${this.file}.tmp`;
-    fs.writeFileSync(temp, Buffer.from(this.db.export()), { mode: 0o600 });
+    const bytes = this.db.export();
+    fs.writeFileSync(temp, Buffer.from(bytes), { mode: 0o600 });
     fs.renameSync(temp, this.file);
+    this.lastPersisted = bytes;
   }
 
   close(): void {

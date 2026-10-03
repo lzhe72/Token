@@ -39,5 +39,26 @@ test('TC-085 慢速合成扫描在诊断页显示中间进展且完成后清除'
     await createViewer(page);
     await loginViewer(page);
     expect(await page.evaluate(() => window.tokenApi.getScanProgress().then(() => 'allowed', () => 'denied'))).toBe('denied');
+    expect(await page.evaluate(() => window.tokenApi.cancelScan().then(() => 'allowed', () => 'denied'))).toBe('denied');
+  } finally { await context.close(); }
+});
+
+test('TC-085 取消显示未知状态且重新扫描继续完成', async () => {
+  const context = await launchM6('tc085-cancel-ui', { scanDelayMs: 500 });
+  try {
+    const { page, workspace } = context;
+    for (let index = 0; index < 8; index++) {
+      writeUsage(workspace.codexDir, `cancel-${index}`, '/synthetic/project', 'gpt-test', 1, new Date().toISOString());
+    }
+    await page.getByRole('button', { name: /采集诊断/ }).click();
+    await page.getByRole('button', { name: '重新扫描并诊断' }).click();
+    await expect(page.locator('.diagnostic-card').first().locator('.scan-progress')).toContainText('已处理');
+    await page.getByRole('button', { name: '取消扫描' }).click();
+    await expect(page.getByRole('button', { name: '正在取消…' })).toBeDisabled();
+    await expect(page.locator('.diagnostic-card').first()).toContainText('已取消 · 覆盖未知', { timeout: 15_000 });
+    await expect(page.getByRole('button', { name: '重新扫描并诊断' })).toBeEnabled();
+    await page.getByRole('button', { name: '重新扫描并诊断' }).click();
+    await expect(page.locator('.diagnostic-card').first()).toContainText('采集正常', { timeout: 15_000 });
+    await expect(page.locator('.diagnostic-card').first()).toContainText('文件 8');
   } finally { await context.close(); }
 });

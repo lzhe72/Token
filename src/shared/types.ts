@@ -19,7 +19,7 @@ export type Provider = 'codex' | 'claude';
 
 export interface SourceStatus {
   provider: Provider;
-  status: 'scanning' | 'ready' | 'no_records' | 'not_found' | 'error' | 'idle';
+  status: 'scanning' | 'cancelled' | 'ready' | 'no_records' | 'not_found' | 'error' | 'idle';
   fileCount: number | null;
   factCount: number | null;
   telemetryFactCount: number | null;
@@ -193,7 +193,7 @@ export interface CollectionDiagnostic {
   reason: string;
   suggestion: string;
   progress?: {
-    phase: 'discovering' | 'reading' | 'finalizing';
+    phase: 'discovering' | 'reading' | 'finalizing' | 'cancelling';
     processedFiles: number;
     discoveredFiles: number | null;
     lastProgressAt: string;
@@ -255,6 +255,7 @@ export interface TokenApi {
   getCollectionDiagnostics(): Promise<CollectionDiagnostic[]>;
   getAccountCollectionStatuses(): Promise<AccountCollectionStatus[]>;
   scanSources(): Promise<SourceStatus[]>;
+  cancelScan(): Promise<boolean>;
   getScanProgress(): Promise<ScanProgress[]>;
   getSourceIdentities(): Promise<SourceIdentity[]>;
   previewSourceBinding(key: string, userId: string | null, filter: ReportQuery): Promise<SourceBindingPreview>;

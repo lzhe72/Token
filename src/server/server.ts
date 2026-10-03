@@ -33,7 +33,7 @@ interface UsageSnapshotBase {
   deviceId: string;
   revision: number;
   providers: Array<'codex' | 'claude'>;
-  coverage: Array<{ provider: 'codex' | 'claude'; status: 'ready' | 'no_records' | 'not_found' | 'error' | 'idle'; lastScan: string | null }>;
+  coverage: Array<{ provider: 'codex' | 'claude'; status: 'ready' | 'no_records' | 'not_found' | 'error' | 'idle' | 'cancelled'; lastScan: string | null }>;
 }
 
 export interface UsageSnapshotV1 extends UsageSnapshotBase {
@@ -144,7 +144,7 @@ export function validateSnapshot(value: unknown): UsageSnapshot {
       const row = item as Record<string, unknown>;
       return Object.keys(row).some(key => !['provider', 'status', 'lastScan'].includes(key)) ||
         !['codex', 'claude'].includes(String(row.provider)) ||
-        !['ready', 'no_records', 'not_found', 'error', 'idle'].includes(String(row.status)) ||
+        !['ready', 'no_records', 'not_found', 'error', 'idle', 'cancelled'].includes(String(row.status)) ||
         (row.lastScan !== null && (typeof row.lastScan !== 'string' || !Number.isFinite(Date.parse(row.lastScan))));
     }) || new Set(input.coverage.map((item: { provider: string }) => item.provider)).size !== 2) throw new Error('覆盖状态无效');
   if (!Array.isArray(input.rows) || input.rows.length > 50000) throw new Error('聚合记录过多');

@@ -27,6 +27,10 @@ export function reportEmptyState(report: UsageReport, query: ReportQuery, user: 
     message: '来源诊断显示文件权限不足；当前范围覆盖未知。授权后请重新扫描。',
     action: 'permissions', actionLabel: '打开系统权限设置'
   };
+  if (relevant.some(item => item.reason === 'scan_cancelled')) return {
+    message: '上次扫描已取消；已观测记录保留，当前范围覆盖未知。重新扫描可从已保存的进度继续。',
+    action: 'diagnostics', actionLabel: '查看采集诊断'
+  };
   if (relevant.some(item => ['invalid_record', 'oversized_record', 'unrecognized_usage'].includes(item.reason))) return {
     message: '来源诊断显示部分格式无法识别；当前范围覆盖未知。请查看异常记录并重试扫描。',
     action: 'diagnostics', actionLabel: '查看采集诊断'

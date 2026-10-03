@@ -27,12 +27,15 @@ function sourceDirectories(): Record<Provider, string> {
   };
 }
 
-async function walkJsonl(root: string, onDirectory?: () => void): Promise<string[]> {
+async function walkJsonl(root: string, onDirectory?: () => void, shouldStop?: () => boolean): Promise<string[]> {
   const result: string[] = [];
   async function visit(dir: string): Promise<void> {
+    if (shouldStop?.()) return;
     const entries = await fsp.readdir(dir, { withFileTypes: true });
+    if (shouldStop?.()) return;
     onDirectory?.();
     for (const entry of entries) {
+      if (shouldStop?.()) break;
       const child = path.join(dir, entry.name);
       if (entry.isDirectory()) await visit(child);
       else if (entry.isFile() && entry.name.endsWith('.jsonl')) result.push(child);
@@ -105,6 +108,7 @@ export class UsageScanner {
   private progress = new Map<Provider, NonNullable<CollectionDiagnostic['progress']>>();
   private timer: NodeJS.Timeout | null = null;
   private afterScan: (() => Promise<void>) | null = null;
+  private cancelRequested = false;
 
   constructor(private readonly db: AppDatabase) {
     db.run(`
@@ -260,13 +264,26 @@ export class UsageScanner {
 
   scan(): Promise<void> {
     if (this.current) return this.current;
-    this.current = this.scanAll().then(() => this.afterScan?.()).then(() => {}).finally(() => { this.current = null; });
+    this.cancelRequested = false;
+    this.current = this.scanAll().then(completed => completed ? this.afterScan?.() : undefined)
+      .then(() => {}).finally(() => { this.current = null; });
     return this.current;
   }
 
-  private async scanAll(): Promise<void> {
+  cancelScan(): boolean {
+    if (!this.current || this.scanning.size === 0) return false;
+    this.cancelRequested = true;
+    for (const provider of this.scanning) {
+      const previous = this.progress.get(provider);
+      if (previous) this.progress.set(provider, { ...previous, phase: 'cancelling', lastProgressAt: new Date().toISOString() });
+    }
+    return true;
+  }
+
+  private async scanAll(): Promise<boolean> {
     const directories = sourceDirectories();
     for (const provider of ['codex', 'claude'] as const) {
+      if (this.cancelRequested) break;
       this.scanning.add(provider);
       try {
         await this.scanProvider(provider, directories[provider]);
@@ -280,11 +297,13 @@ export class UsageScanner {
         this.progress.delete(provider);
       }
     }
+    return !this.cancelRequested;
   }
 
   private async scanProvider(provider: Provider, root: string): Promise<void> {
     const updateProgress = (phase: 'discovering' | 'reading' | 'finalizing', processedFiles: number, discoveredFiles: number | null) => {
-      this.progress.set(provider, { phase, processedFiles, discoveredFiles, lastProgressAt: new Date().toISOString() });
+      this.progress.set(provider, { phase: this.cancelRequested ? 'cancelling' : phase,
+        processedFiles, discoveredFiles, lastProgressAt: new Date().toISOString() });
     };
     updateProgress('discovering', 0, null);
     try { await fsp.stat(root); }
@@ -295,18 +314,23 @@ export class UsageScanner {
       }
       throw error;
     }
-    const files = await walkJsonl(root, () => updateProgress('discovering', 0, null));
+    const files = await walkJsonl(root, () => updateProgress('discovering', 0, null), () => this.cancelRequested);
     updateProgress('reading', 0, files.length);
     let malformed = 0;
     let oversized = 0;
     let unreadable = 0;
+    let processedFiles = 0;
     for (const [index, file] of files.entries()) {
+      if (this.cancelRequested) break;
+      let attempted = false;
       try {
         const syntheticDelay = Number(process.env.TOKEN_E2E_SCAN_DELAY_MS || 0);
         if (root.startsWith(path.join(os.tmpdir(), 'token-test-db-')) &&
           Number.isInteger(syntheticDelay) && syntheticDelay > 0 && syntheticDelay <= 1000) {
           await new Promise(resolve => setTimeout(resolve, syntheticDelay));
         }
+        if (this.cancelRequested) break;
+        attempted = true;
         const result = await this.scanFile(provider, file, () => updateProgress('reading', index, files.length));
         malformed += result.malformed;
         oversized += result.oversized;
@@ -314,8 +338,14 @@ export class UsageScanner {
         unreadable++;
         // A single unreadable or rotated file does not stop other sessions.
       } finally {
-        updateProgress('reading', index + 1, files.length);
+        if (attempted) processedFiles = index + 1;
+        updateProgress('reading', processedFiles, files.length);
       }
+    }
+    if (this.cancelRequested) {
+      this.saveStatus(provider, 'cancelled', processedFiles,
+        '扫描已取消；已处理文件保留为已观测，完整覆盖未知，可重新扫描续扫。', { reason: 'scan_cancelled' });
+      return;
     }
     updateProgress('finalizing', files.length, files.length);
     const detail = unreadable || malformed || oversized
@@ -380,7 +410,7 @@ export class UsageScanner {
     const codexSessions = provider === 'codex'
       ? new Set([...facts.values()].map(fact => fact.sessionId))
       : new Set<string>();
-    this.db.transaction(() => {
+    this.db.transactionDurable(() => {
       for (const fact of facts.values()) this.upsertFact(fact);
       for (const sessionId of codexSessions) {
         if (this.db.one(`SELECT 1 FROM usage_facts WHERE provider = 'codex' AND session_id = ?
@@ -440,7 +470,8 @@ export class UsageScanner {
       empty_directory: '目录存在但没有会话文件，请先使用对应工具。',
       unrecognized_usage: '发现会话文件但没有可识别的用量；检查工具版本或启用可选遥测。',
       ok: '采集正常；如仍有缺口，请核对来源归属和报表时间范围。',
-      scan_error: '检查来源目录及磁盘状态后重新扫描。'
+      scan_error: '检查来源目录及磁盘状态后重新扫描。',
+      scan_cancelled: '扫描已取消，已处理文件仅算已观测；重新扫描会从已保存的文件游标续扫。'
     };
     return this.statuses().map(status => {
       const row = this.db.one('SELECT diagnostic_json, last_success FROM source_status WHERE provider = ?', [status.provider]);

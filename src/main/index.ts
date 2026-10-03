@@ -160,6 +160,10 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
     await sources.scan();
     return sources.statuses();
   });
+  ipcMain.handle('sources:cancel-scan', event => {
+    requireAdmin(event, auth);
+    return sources.cancelScan();
+  });
   ipcMain.handle('sources:identities', event => {
     requireAdmin(event, auth);
     return sources.identities();
