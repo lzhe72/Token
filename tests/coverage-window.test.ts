@@ -33,6 +33,7 @@ test('TC-077 管理员筛选覆盖不借用其他 owner 或全局 ready', async 
       expect(result.coverage[0]).toMatchObject({ factCount: 0, telemetryFactCount: 0, lastScan: null,
         windowCoverage: { state: 'unknown', asOf: null, lastObserved: null } });
       expect(result.coverage[0].detail).not.toContain('global ready');
+      expect(result.coverage[0].detail).toContain('没有已观测记录');
     }
     expect(report.query(query, viewer).coverage).toMatchObject(scopedA.coverage);
     expect(report.query({ ...query, provider: 'claude' }, admin).coverage).toHaveLength(1);

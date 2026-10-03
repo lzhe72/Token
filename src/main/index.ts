@@ -13,6 +13,7 @@ import { UpdateClient } from './update-client';
 import { launchAutomaticUpdate } from './update-launch';
 import { bundleFromExecutable, markUpdatedAppReady, readInstallStatus } from './update-install';
 import { FeedbackService } from './feedback';
+import { onboardingStatus } from './onboarding';
 import type { FeedbackItem, PublicUser } from '../shared/types';
 
 let mainWindow: BrowserWindow | null = null;
@@ -129,6 +130,7 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
     const actor = currentUser(event, auth);
     return reports.coverage(actor);
   });
+  ipcMain.handle('onboarding:status', event => onboardingStatus(db, sources, currentUser(event, auth)));
   ipcMain.handle('sources:diagnostics', event => {
     const actor = currentUser(event, auth);
     return reports.diagnostics(actor);

@@ -150,7 +150,7 @@ export class ReportService {
       const state = 'unknown';
       const reason = facts.length
         ? '此范围有已观测记录，但尚无可证的连续采集子区间或历史留存起点，完整覆盖未知'
-        : '此范围没有已归属记录；无法证明来源历史留存与连续采集，不能认定为零用量';
+        : '此范围没有已观测记录；无法证明来源历史留存与连续采集，不能认定为零用量';
       return { provider, status: 'idle', fileCount: null,
         factCount: local.length, telemetryFactCount: telemetry.length,
         lastTelemetry: latest(telemetry), lastScan: null, detail: reason,

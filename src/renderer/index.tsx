@@ -1,11 +1,12 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import type { AccountCollectionStatus, AppState, CollectionDiagnostic, FeedbackItem, Provider, PublicUser, Role, ServerStatus, SourceIdentity, SourceStatus, TelemetryConfiguration, UpdateStatus, UploadStatus } from '../shared/types';
+import type { AccountCollectionStatus, AppState, CollectionDiagnostic, FeedbackItem, OnboardingStatus, Provider, PublicUser, Role, ServerStatus, SourceIdentity, SourceStatus, TelemetryConfiguration, UpdateStatus, UploadStatus } from '../shared/types';
 import { ReportPanel } from './report';
 import { OverviewPanel } from './overview';
 import { SettingsPanel } from './settings';
 import { DiagnosticsPanel } from './diagnostics';
 import { FeedbackPanel } from './feedback';
+import { OnboardingPanel } from './onboarding';
 import type { ReportDestination } from './report-navigation';
 import './style.css';
 
@@ -33,7 +34,10 @@ function App() {
   const [error, setError] = React.useState('');
   const [notice, setNotice] = React.useState('');
   const [busy, setBusy] = React.useState(false);
-  const [tab, setTab] = React.useState<'overview' | 'report' | 'sources' | 'users' | 'settings' | 'diagnostics' | 'feedback'>('overview');
+  const [tab, setTab] = React.useState<'overview' | 'report' | 'sources' | 'users' | 'settings' | 'diagnostics' | 'feedback' | 'onboarding'>('overview');
+  const [onboarding, setOnboarding] = React.useState<{ userId: string; status: OnboardingStatus } | null>(null);
+  const [onboardingPreference, setOnboardingPreference] = React.useState<{ userId: string; skipped: boolean } | null>(null);
+  const onboardingRequest = React.useRef(0);
   const [users, setUsers] = React.useState<PublicUser[]>([]);
   const [accountStatuses, setAccountStatuses] = React.useState<AccountCollectionStatus[]>([]);
   const [diagnostics, setDiagnostics] = React.useState<CollectionDiagnostic[]>([]);
@@ -85,6 +89,25 @@ function App() {
   }, [state?.user?.id]);
 
   React.useEffect(() => {
+    const userId = state?.user?.id;
+    if (!userId) return;
+    setOnboardingPreference({ userId, skipped: localStorage.getItem(`token:onboarding:skipped:${userId}`) === '1' });
+  }, [state?.user?.id]);
+
+  function refreshOnboarding() {
+    const userId = state?.user?.id;
+    if (!userId) return;
+    const request = ++onboardingRequest.current;
+    void window.tokenApi.getOnboardingStatus().then(status => {
+      if (request === onboardingRequest.current) setOnboarding({ userId, status });
+    }).catch(reason => { if (request === onboardingRequest.current) setError(errorMessage(reason)); });
+  }
+
+  React.useEffect(() => {
+    if (state?.user && (tab === 'overview' || tab === 'onboarding')) refreshOnboarding();
+  }, [state?.user?.id, tab]);
+
+  React.useEffect(() => {
     setOverviewUserId('all');
     if (!state?.user || state.user.role === 'viewer') { setUsers([]); return; }
     let active = true;
@@ -119,10 +142,25 @@ function App() {
   }
 
   async function logout() {
+    onboardingRequest.current++;
     await window.tokenApi.logout();
     setState({ needsSetup: false, user: null });
     setUsers([]);
     setTab('overview');
+  }
+
+  function setOnboardingSkipped(skipped: boolean) {
+    const userId = state?.user?.id;
+    if (!userId) return;
+    const key = `token:onboarding:skipped:${userId}`;
+    if (skipped) localStorage.setItem(key, '1');
+    else localStorage.removeItem(key);
+    setOnboardingPreference({ userId, skipped });
+  }
+
+  function showOnboarding() {
+    setOnboardingSkipped(false);
+    setTab('onboarding');
   }
 
   async function showUsers() {
@@ -223,6 +261,7 @@ function App() {
       setSourceStatuses(await window.tokenApi.scanSources());
       setSourceIdentities(await window.tokenApi.getSourceIdentities());
       setDiagnostics(await window.tokenApi.getCollectionDiagnostics());
+      refreshOnboarding();
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -258,6 +297,7 @@ function App() {
     try {
       await window.tokenApi.bindSourceIdentity(key, userId);
       setSourceIdentities(await window.tokenApi.getSourceIdentities());
+      refreshOnboarding();
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -343,6 +383,11 @@ function App() {
 
   const codexStatus = sourceStatuses.find(source => source.provider === 'codex');
   const claudeStatus = sourceStatuses.find(source => source.provider === 'claude');
+  const currentOnboarding = onboarding?.userId === state.user.id ? onboarding.status : null;
+  const viewerOnboardingDone = state.user.role === 'viewer' && currentOnboarding?.steps
+    .filter(step => step.key === 'bind' || step.key === 'usage').every(step => step.state === 'complete');
+  const showOnboardingHint = onboardingPreference?.userId === state.user.id && !onboardingPreference.skipped &&
+    currentOnboarding && !viewerOnboardingDone && currentOnboarding.steps.some(step => step.state !== 'complete');
 
   return (
     <div className="app-shell">
@@ -350,6 +395,7 @@ function App() {
         <div className="app-logo"><span>T</span><strong>Token</strong></div>
         <div className="nav-group"><div className="nav-label">工作台</div>
           <button className={tab === 'overview' ? 'nav active' : 'nav'} onClick={returnToOverview}><span>◫</span> 概览</button>
+          <button className={tab === 'onboarding' ? 'nav active' : 'nav'} onClick={showOnboarding}><span>◉</span> 首次引导</button>
           <button className={tab === 'report' ? 'nav active' : 'nav'} onClick={() => void showReport()}><span>▤</span> 用量报表</button>
           {state.user.role !== 'viewer' && <button className={tab === 'sources' ? 'nav active' : 'nav'} onClick={showSources}><span>◇</span> 数据来源</button>}
           <button className={tab === 'diagnostics' ? 'nav active' : 'nav'} onClick={showDiagnostics}><span>◎</span> 采集诊断</button>
@@ -361,14 +407,18 @@ function App() {
       </aside>
       <main className="main-content" ref={contentRef}>
         <div className="content-wrap">
-        <header><div><nav className="breadcrumb" aria-label="当前位置"><button onClick={returnToOverview}>工作台</button><span> / </span>{tab === 'report' && reportDrilldown ? <><button onClick={() => { setReportBackTick(value => value + 1); setReportDrilldown(false); }}>用量报表</button><span> / 明细</span></> : <span>{tab === 'users' ? '管理中心' : tab === 'sources' ? '数据来源' : tab === 'report' ? '用量报表' : tab === 'settings' ? '系统设置' : tab === 'diagnostics' ? '采集诊断' : tab === 'feedback' ? '问题反馈' : '概览'}</span>}</nav><h1>{tab === 'users' ? '管理中心' : tab === 'sources' ? '数据来源' : tab === 'report' ? '用量报表' : tab === 'settings' ? '系统设置' : tab === 'diagnostics' ? '采集诊断' : tab === 'feedback' ? '问题反馈' : '用量概览'}</h1></div><div className="date-chip">{server?.online ? '服务已连接' : '本机运行'}</div></header>
+        <header><div><nav className="breadcrumb" aria-label="当前位置"><button onClick={returnToOverview}>工作台</button><span> / </span>{tab === 'report' && reportDrilldown ? <><button onClick={() => { setReportBackTick(value => value + 1); setReportDrilldown(false); }}>用量报表</button><span> / 明细</span></> : <span>{tab === 'users' ? '管理中心' : tab === 'sources' ? '数据来源' : tab === 'report' ? '用量报表' : tab === 'settings' ? '系统设置' : tab === 'diagnostics' ? '采集诊断' : tab === 'feedback' ? '问题反馈' : tab === 'onboarding' ? '首次引导' : '概览'}</span>}</nav><h1>{tab === 'users' ? '管理中心' : tab === 'sources' ? '数据来源' : tab === 'report' ? '用量报表' : tab === 'settings' ? '系统设置' : tab === 'diagnostics' ? '采集诊断' : tab === 'feedback' ? '问题反馈' : tab === 'onboarding' ? '首次引导' : '用量概览'}</h1></div><div className="date-chip">{server?.online ? '服务已连接' : '本机运行'}</div></header>
         {error && <div className="error banner" role="alert">{error}</div>}
         {notice && <div className="notice banner" role="status">{notice}</div>}
-        {tab === 'overview' ? <OverviewPanel sources={sourceStatuses} server={server} upload={upload} update={update} user={state.user} users={users}
+        {tab === 'overview' ? <>{showOnboardingHint && <div className="panel onboarding-hint" role="status"><div><strong>继续首次使用引导</strong><p>已完成 {currentOnboarding.steps.filter(step => step.state === 'complete').length} / 4 步。进入页面或点击重新核对时更新当前账户状态。</p></div><div><button type="button" onClick={showOnboarding}>查看引导</button><button type="button" className="text-button" onClick={() => setOnboardingSkipped(true)}>跳过引导</button></div></div>}<OverviewPanel sources={sourceStatuses} server={server} upload={upload} update={update} user={state.user} users={users}
           days={overviewDays} provider={overviewProvider} userId={overviewUserId} timeZone={overviewTimeZone}
           focusId={returnFocusId} onFocusRestored={() => setReturnFocusId('')}
           setDays={setOverviewDays} setProvider={setOverviewProvider} setUserId={setOverviewUserId} setTimeZone={setOverviewTimeZone}
-          onCheckUpdate={checkUpdate} onDownloadUpdate={downloadUpdate} onReport={destination => void showReport(destination)} />
+          onCheckUpdate={checkUpdate} onDownloadUpdate={downloadUpdate} onReport={destination => void showReport(destination)} /></>
+        : tab === 'onboarding' ? <OnboardingPanel status={currentOnboarding} user={state.user}
+          onNavigate={target => { if (target === 'sources') void showSources(); else if (target === 'diagnostics') void showDiagnostics(); else void showReport(); }}
+          onSkip={() => { setOnboardingSkipped(true); setTab('overview'); }}
+          onRefresh={refreshOnboarding} />
         : tab === 'report' ? <ReportPanel user={state.user} users={users} destination={reportDestination} backTick={reportBackTick} onDrilldownChange={setReportDrilldown} />
         : tab === 'settings' ? <SettingsPanel user={state.user} server={server} upload={upload} telemetry={telemetry} update={update} diagnostics={diagnostics}
           serverUrl={serverUrl} serverToken={serverToken} adminToken={serverAdminToken} busy={busy} checking={checkingUpdate}

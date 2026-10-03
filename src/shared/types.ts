@@ -42,6 +42,11 @@ export interface SourceIdentity {
   factCount: number;
 }
 
+export interface OnboardingStatus {
+  steps: Array<{ key: 'detect' | 'scan' | 'bind' | 'usage';
+    state: 'complete' | 'pending' | 'unknown'; detail: string }>;
+}
+
 export interface TelemetryConfiguration {
   running: boolean;
   error: string | null;
@@ -206,6 +211,7 @@ export interface TokenApi {
   changePassword(userId: string, password: string): Promise<void>;
   resolveAdminNameConflict(newUsername: string): Promise<void>;
   getSourceStatuses(): Promise<SourceStatus[]>;
+  getOnboardingStatus(): Promise<OnboardingStatus>;
   getCollectionDiagnostics(): Promise<CollectionDiagnostic[]>;
   getAccountCollectionStatuses(): Promise<AccountCollectionStatus[]>;
   scanSources(): Promise<SourceStatus[]>;

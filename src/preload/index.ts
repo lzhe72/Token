@@ -13,6 +13,7 @@ const api: TokenApi = {
   changePassword: (userId, password) => ipcRenderer.invoke('users:change-password', userId, password),
   resolveAdminNameConflict: newUsername => ipcRenderer.invoke('users:resolve-admin-name-conflict', newUsername),
   getSourceStatuses: () => ipcRenderer.invoke('sources:statuses'),
+  getOnboardingStatus: () => ipcRenderer.invoke('onboarding:status'),
   getCollectionDiagnostics: () => ipcRenderer.invoke('sources:diagnostics'),
   getAccountCollectionStatuses: () => ipcRenderer.invoke('admin:account-statuses'),
   scanSources: () => ipcRenderer.invoke('sources:scan'),

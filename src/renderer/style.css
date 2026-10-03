@@ -51,6 +51,15 @@
 .feedback-form .primary{justify-self:start}
 .feedback-message{white-space:pre-wrap;max-width:640px;line-height:1.6;color:#52617a}
 .feedback-page pre,.settings-page pre,.main-content pre{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%;font-size:11px}
+.onboarding-hint{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:20px}
+.onboarding-hint p{margin:6px 0 0;color:#718098;font-size:13px}
+.onboarding-hint>div:last-child,.onboarding-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.onboarding-hint button,.onboarding-actions button{border:1px solid #dce3f4;border-radius:9px;background:#fff;color:#3652b9;padding:9px 14px}
+.onboarding-steps{display:grid;gap:12px;margin:22px 0}
+.onboarding-step{display:grid;grid-template-columns:38px minmax(0,1fr) auto;align-items:center;gap:14px;border:1px solid #e5eaf4;border-radius:11px;padding:16px}
+.onboarding-step h3{font-size:15px;margin:0 0 5px}.onboarding-step p{color:#718098;font-size:13px;line-height:1.6;margin:0 0 5px}.onboarding-step small{color:#3652b9;font-weight:700}
+.step-number{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:#edf1ff;color:#3d57ce;font-weight:800}
+@media(max-width:800px){.onboarding-hint{align-items:flex-start;flex-direction:column}.onboarding-step{grid-template-columns:34px minmax(0,1fr)}.onboarding-step button{grid-column:2;justify-self:start}}
 @media(max-width:1180px){.settings-page .server-form{grid-template-columns:repeat(2,minmax(0,1fr))}.settings-page .server-form button{justify-self:start}}
 @media(max-width:900px){.settings-grid,.diagnostic-grid{grid-template-columns:1fr}.main-content{padding:28px 24px}}
 @media(max-width:700px){.sidebar{width:65px;min-width:65px}.nav:not(.active){display:flex}.nav{font-size:0;justify-content:center}.nav span{font-size:22px}.sidebar-bottom .logout{display:block;margin-left:0}.sidebar-bottom{justify-content:center}.sidebar-bottom .avatar{display:none}.main-content{padding:22px 14px}.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.settings-page .server-form{grid-template-columns:1fr}.dimension-row{grid-template-columns:minmax(80px,1fr) 60px 70px}.dimension-meter{display:none}}
