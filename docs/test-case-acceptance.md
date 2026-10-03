@@ -587,6 +587,10 @@ shasum -a 256 "$SIGNED_DMG"
 
 TC-077 的缺失来源反例还应覆盖 `codex exec --ephemeral` 不落本地 session rollout 文件的场景（[Codex 官方文档](https://learn.chatgpt.com/docs/developer-commands#codex-exec)），以及 Claude Code 未启用遥测或将指标/日志 exporter 设为 `none` 时没有 OTel 事件的场景（[Claude Code 官方文档](https://code.claude.com/docs/en/monitoring-usage)）。测试可以用合成缺失输入模拟这两类边界；不能把合成样本当成真实工具端到端证据。TC-078 在上述缺口存在时保持“不可比较”。两条外部资料只支持“没有观察到不等于真零/完整”，不支持推断所有会话均缺失或任何窗口已完整。
 
+**TC-077/078 当前绑定与保守子范围结果（代码 `ef7a3de`、最终语义修正 `c10bbf3`；2026-10-03）**：`scripts/test-cases.mjs` 分别绑定 `tests/coverage-window.test.ts` 的 TC-077/078 单元函数及 `tests/e2e/coverage-window.spec.ts` 的同编号 Electron 函数。文档会话在 macOS x86_64、Node 24.15.0 的专用临时 SQLite/用户目录、无正文合成事实中逐编号执行 `npm run test:case -- TC-077` 和 `TC-078`，每个编号单元 1/1、Electron 1/1，退出码均 0。TC-077 验证全局 `ready` 下 A/B/未归属、viewer、模型/项目筛选的授权 API，并在 UI 切换 B/未归属时核概览和报表未知而非假零；TC-078 验 Asia/Shanghai 与 UTC 日期边界、同会话 local/OTel 待核对事实，以及 UI 的已确认小计 0、完整总量不可确认和不可比较。当前代码有事实仍标“覆盖未知”并保留本范围计数/最近观测时间，**未证明连续子区间完整**；无事实原因文案在管理员选“未归属”时仍有“已归属”措辞歧义。它不提供 Codex ephemeral/Claude OTel 真实工具端到端缺失验证，亦未造完整空窗真零和同 as-of 双完整窗口同比正例；TC-077/078 整项继续待验证。上方“仍待注册”为实施前历史记录。
+
+受影响旧编号 `TC-045`、`TC-046` 各单元 1/1，`TC-080` Electron 1/1，`TC-093` 单元 1/1 与 Electron 1/1，单编号命令均退出码 0；`npm run test:gate` 独立通过类型检查、84 个已注册入口、59/59 单元和 24/24 Electron，退出码 0。该回归只证各既有断言，不能把来源历史完整性或生产环境标为通过；详细环境和退出条件见[验收记录](validation.md)。
+
 第三批保留三个独立环境门槛：TC-076 已注册并在合成旧版的成功链路通过，真实历史旧版、只读 DMG 和打包版故障回滚仍待验；TC-072 已注册人工清单，目标 Mac 必须拒绝→授予→撤销文件权限并每步重扫，保存系统版本、独立账户和脱敏截图/日志后才可登记；TC-028 已注册人工清单，真实 Developer ID 签名、公证、Gatekeeper 和另一台目标 Mac 安装/启动/登录/采集缺一不可。没有证书或目标设备时后两项继续待验证。
 
 **TC-079 当前绑定与结果（`78b3a3b`）**：`scripts/test-cases.mjs` 以 `tests/report-snapshot.test.ts` 的独立单元函数及 `tests/e2e/report-snapshot.spec.ts` 的 Electron 函数绑定同一编号。文档会话在该提交独立执行 `npm run test:case -- TC-079`，单元 1/1、Electron 1/1、退出码 0。单元在专用临时库中验证授权查询与事实的 SHA-256 `snapshotId`、新增事实后的旧 ID 拒绝、刷新后 12→111 Token、不同筛选/角色旧 ID 拒绝；Electron 用例延迟 A 响应并快速切到 B，断言加载中禁用导出、最终只显示 B、导出 IPC 携带 B 筛选及 B ID、过期错误提示刷新。`npm run test:case -- TC-029` 与 TC-023 各 1/1 通过，分别保留 CSV 10 列结构与公式转义。`npm run test:gate` 独立复跑 77 个入口检查、53 个单元、19 个 Electron 用例，均退出码 0。该快照基于所选授权事实集合而非全库 revision；测试只覆盖隔离样本与当前 UI/IPC，不证明打包安装或 REQ-040/042–048 已实现。
