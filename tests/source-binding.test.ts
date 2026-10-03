@@ -40,7 +40,7 @@ async function fixture(label: string) {
 function localConnection(directory: string, getBase: () => string, scopes: string[][]): ServerConnection {
   const secret = fs.readFileSync(path.join(directory, 'server.secret'), 'utf8').trim();
   const adminSecret = fs.readFileSync(path.join(directory, 'server-admin.secret'), 'utf8').trim();
-  return { uploadUsage: async (payload: string, deviceId: string, ownerUserIds: string[]) => {
+  return { getConnectionIdentity: () => getBase(), uploadUsage: async (payload: string, deviceId: string, ownerUserIds: string[]) => {
     scopes.push(ownerUserIds);
     const enrolled = await fetch(`${getBase()}/v1/admin/devices/enroll`, { method: 'POST', headers: {
       authorization: `Bearer ${secret}`, 'x-token-admin': adminSecret, 'content-type': 'application/json'

@@ -40,7 +40,7 @@ test('TC-094 服务 v2 清除旧聚合并保留冲突状态旧队列重算和权
     const adminSecret = fs.readFileSync(path.join(directory, 'server-admin.secret'), 'utf8').trim();
     let token = '';
     const uploaded: string[] = [];
-    const connection = { uploadUsage: async (payload: string, deviceId: string, ownerUserIds: string[]) => {
+    const connection = { getConnectionIdentity: () => base, uploadUsage: async (payload: string, deviceId: string, ownerUserIds: string[]) => {
       uploaded.push(payload);
       const registration = await fetch(`${base}/v1/admin/devices/enroll`, { method: 'POST', headers: {
         authorization: `Bearer ${globalSecret}`, 'x-token-admin': adminSecret, 'content-type': 'application/json'
@@ -127,7 +127,7 @@ test('TC-094 服务 v2 清除旧聚合并保留冲突状态旧队列重算和权
     expect((await post({ ...legacy, revision: revision + 1 })).status).toBe(409);
     expect(savedState()).toEqual(beforeReject);
     const sent: string[] = [];
-    const incompatible = { uploadUsage: async (payload: string) => {
+    const incompatible = { getConnectionIdentity: () => 'old-service', uploadUsage: async (payload: string) => {
       sent.push(payload);
       return new Response(JSON.stringify({ error: 'old service' }), { status: 400 });
     } } as unknown as ServerConnection;

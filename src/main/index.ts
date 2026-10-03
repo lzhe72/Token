@@ -184,12 +184,28 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
   });
   ipcMain.handle('server:configure', async (event, url: unknown, token: unknown, adminToken: unknown) => {
     requireAdmin(event, auth);
+    server.validateConfiguration(url, token, adminToken);
+    db.transactionDurable(() => sync.queueSnapshot(['codex', 'claude']));
     server.setConfiguration(url, token, adminToken);
     await sync.retryNow();
     return server.status();
   });
+  ipcMain.handle('server:use-built-in', async event => {
+    requireAdmin(event, auth);
+    db.transactionDurable(() => sync.queueSnapshot(['codex', 'claude']));
+    await server.useBuiltIn();
+    await sync.retryNow();
+    return server.status();
+  });
   ipcMain.handle('sync:status', event => {
-    currentUser(event, auth);
+    const actor = currentUser(event, auth);
+    if (actor.role === 'viewer') return { pending: null, uncertainRows: null, localRevision: null,
+      confirmedRevision: null, currentConfirmed: null, lastSuccess: null, lastError: null, lastAttempt: null };
+    return sync.status();
+  });
+  ipcMain.handle('sync:retry', async event => {
+    requireAdmin(event, auth);
+    await sync.retryNow();
     return sync.status();
   });
   ipcMain.handle('update:check', event => {

@@ -1,6 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import type { AccountCollectionStatus, AppState, CollectionDiagnostic, FeedbackItem, OnboardingStatus, Provider, PublicUser, ReportQuery, Role, ServerStatus, SourceBindingPreview, SourceIdentity, SourceStatus, TelemetryConfiguration, UpdateStatus, UploadStatus } from '../shared/types';
+import { localLabels, serviceLabels, syncLabels } from './service-state';
 import { ReportPanel } from './report';
 import { OverviewPanel } from './overview';
 import { SettingsPanel } from './settings';
@@ -284,7 +285,35 @@ function App() {
       setServer(result);
       setServerToken('');
       setServerAdminToken('');
+      setUpload(await window.tokenApi.getUploadStatus());
       setNotice(result.online ? '服务器连接已更新。' : '服务器地址已保存，当前无法连接。');
+    } catch (reason) { setError(errorMessage(reason)); }
+    finally { setBusy(false); }
+  }
+
+  async function useBuiltInServer() {
+    setBusy(true);
+    setError('');
+    try {
+      const result = await window.tokenApi.useBuiltInServer();
+      setServer(result);
+      setServerUrl(result.url);
+      setServerToken('');
+      setServerAdminToken('');
+      setUpload(await window.tokenApi.getUploadStatus());
+      setNotice(result.online ? '已切换到内置本机服务。' : '已选择内置本机服务，请查看连接诊断。');
+    } catch (reason) { setError(errorMessage(reason)); }
+    finally { setBusy(false); }
+  }
+
+  async function retryUpload() {
+    setBusy(true);
+    setError('');
+    try {
+      const result = await window.tokenApi.retryUpload();
+      setUpload(result);
+      setNotice(result.currentConfirmed ? '当前修订版已由当前服务确认。' :
+        `仍有 ${result.pending} 批待传${result.lastError ? `：${result.lastError}` : '，稍后可再试'}`);
     } catch (reason) { setError(errorMessage(reason)); }
     finally { setBusy(false); }
   }
@@ -521,7 +550,7 @@ function App() {
       </aside>
       <main className="main-content" ref={contentRef}>
         <div className="content-wrap">
-        <header><div><nav className="breadcrumb" aria-label="当前位置"><button onClick={returnToOverview}>工作台</button><span> / </span>{tab === 'report' && reportDrilldown ? <><button onClick={() => { setReportBackTick(value => value + 1); setReportDrilldown(false); }}>用量报表</button><span> / 明细</span></> : <span>{tab === 'users' ? '管理中心' : tab === 'sources' ? '数据来源' : tab === 'report' ? '用量报表' : tab === 'settings' ? '系统设置' : tab === 'diagnostics' ? '采集诊断' : tab === 'feedback' ? '问题反馈' : tab === 'onboarding' ? '首次引导' : '概览'}</span>}</nav><h1>{tab === 'users' ? '管理中心' : tab === 'sources' ? '数据来源' : tab === 'report' ? '用量报表' : tab === 'settings' ? '系统设置' : tab === 'diagnostics' ? '采集诊断' : tab === 'feedback' ? '问题反馈' : tab === 'onboarding' ? '首次引导' : '用量概览'}</h1></div><div className="date-chip">{server?.online ? '服务已连接' : '本机运行'}</div></header>
+        <header><div><nav className="breadcrumb" aria-label="当前位置"><button onClick={returnToOverview}>工作台</button><span> / </span>{tab === 'report' && reportDrilldown ? <><button onClick={() => { setReportBackTick(value => value + 1); setReportDrilldown(false); }}>用量报表</button><span> / 明细</span></> : <span>{tab === 'users' ? '管理中心' : tab === 'sources' ? '数据来源' : tab === 'report' ? '用量报表' : tab === 'settings' ? '系统设置' : tab === 'diagnostics' ? '采集诊断' : tab === 'feedback' ? '问题反馈' : tab === 'onboarding' ? '首次引导' : '概览'}</span>}</nav><h1>{tab === 'users' ? '管理中心' : tab === 'sources' ? '数据来源' : tab === 'report' ? '用量报表' : tab === 'settings' ? '系统设置' : tab === 'diagnostics' ? '采集诊断' : tab === 'feedback' ? '问题反馈' : tab === 'onboarding' ? '首次引导' : '用量概览'}</h1></div><div className="header-status" role="group" aria-label="服务与采集状态"><span>{serviceLabels(server).type} · {serviceLabels(server).connection}</span><span>{serviceLabels(server).authorization} · {serviceLabels(server).protocol}</span><span>{syncLabels(upload).delivery} · {syncLabels(upload).review}</span><span>{localLabels(sourceStatuses)}</span></div></header>
         {error && <div className="error banner" role="alert">{error}</div>}
         {notice && <div className="notice banner" role="status">{notice}</div>}
         {tab === 'overview' ? <>{showOnboardingHint && <div className="panel onboarding-hint" role="status"><div><strong>继续首次使用引导</strong><p>已完成 {currentOnboarding.steps.filter(step => step.state === 'complete').length} / 4 步。进入页面或点击重新核对时更新当前账户状态。</p></div><div><button type="button" onClick={showOnboarding}>查看引导</button><button type="button" className="text-button" onClick={() => setOnboardingSkipped(true)}>跳过引导</button></div></div>}<OverviewPanel sources={sourceStatuses} server={server} upload={upload} update={update} user={state.user} users={users}
@@ -537,6 +566,7 @@ function App() {
         : tab === 'settings' ? <SettingsPanel user={state.user} server={server} upload={upload} telemetry={telemetry} update={update} diagnostics={diagnostics}
           serverUrl={serverUrl} serverToken={serverToken} adminToken={serverAdminToken} busy={busy} checking={checkingUpdate}
           setServerUrl={setServerUrl} setServerToken={setServerToken} setAdminToken={setServerAdminToken} saveServer={saveServer}
+          useBuiltInServer={useBuiltInServer} retryUpload={retryUpload}
           checkUpdate={checkUpdate} downloadUpdate={downloadUpdate} backupDatabase={backupDatabase} restoreDatabase={restoreDatabase} openFilePermissions={openFilePermissions} />
         : tab === 'diagnostics' ? <DiagnosticsPanel items={diagnostics} busy={busy} scanning={scanActive} cancelling={scanCancelling} canScan={state.user.role !== 'viewer'} onScan={scanSources} onCancel={cancelScan} onPermissions={openFilePermissions} onFeedback={() => setTab('feedback')} />
         : tab === 'feedback' ? <FeedbackPanel username={state.user.username} />

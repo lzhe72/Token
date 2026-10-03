@@ -1,5 +1,6 @@
 import React from 'react';
 import type { CollectionDiagnostic, PublicUser, ServerStatus, TelemetryConfiguration, UpdateStatus, UploadStatus } from '../shared/types';
+import { localLabels, serviceLabels, syncLabels } from './service-state';
 
 interface Props {
   user: PublicUser;
@@ -17,6 +18,8 @@ interface Props {
   setServerToken(value: string): void;
   setAdminToken(value: string): void;
   saveServer(event: React.FormEvent): void;
+  useBuiltInServer(): void;
+  retryUpload(): void;
   checkUpdate(): void;
   downloadUpdate(): void;
   backupDatabase(): void;
@@ -27,6 +30,9 @@ interface Props {
 export function SettingsPanel(props: Props) {
   const admin = props.user.role !== 'viewer';
   const permissionIssue = props.diagnostics.some(item => item.reason === 'permission_denied');
+  const service = serviceLabels(props.server);
+  const sync = syncLabels(props.upload);
+  const local = localLabels(props.diagnostics);
   return <div className="settings-page">
     <p className="page-lead">应用更新、服务连接、数据管理和系统权限集中在这里。</p>
     <div className="settings-grid">
@@ -43,22 +49,24 @@ export function SettingsPanel(props: Props) {
       </section>
     </div>
     {admin && <>
-      <section className="panel"><div className="panel-head"><h2>服务器与自动上报</h2><span>{props.server?.online ? '已连接' : '未连接'}</span></div>
-        <p className="hint">默认连接 127.0.0.1，可改为其他服务器。每次扫描后上报已归属的聚合用量，定时扫描间隔为 10 分钟；上报内容不含会话正文、文件路径或配置密钥。连接远端服务时，首次登记或调整设备授权范围需填写服务管理密钥。</p>
+      <section className="panel"><div className="panel-head"><h2>服务器与自动上报</h2><span>{service.type}</span></div>
+        <p className="hint">内置服务默认运行在本机；也可显式连接指定服务器，地址允许 127.0.0.1。每次扫描后上报已归属的聚合用量，定时扫描间隔为 10 分钟；上报内容不含会话正文、文件路径或配置密钥。首次登记或调整设备授权范围需服务管理密钥。</p>
+        <div className="service-state-grid" role="group" aria-label="服务连接与同步状态"><span><strong>服务连接</strong>{service.connection} · {props.server?.url || '地址核对中'}</span><span><strong>访问授权</strong>{service.authorization}</span><span><strong>计量协议</strong>{service.protocol}</span><span><strong>用量同步</strong>{sync.delivery}</span><span><strong>待核对</strong>{sync.review}</span><span><strong>本机采集与覆盖</strong>{local}</span></div>
+        <div className="source-actions"><button type="button" className="export-button" disabled={props.busy} onClick={props.useBuiltInServer}>使用内置本机服务</button>{Boolean(props.upload?.pending) && <button type="button" className="export-button" disabled={props.busy} onClick={props.retryUpload}>立即重试上报</button>}<span>保存下方地址会切换为显式配置；即使地址相同，配置来源仍会区分。</span></div>
         <form className="server-form" onSubmit={props.saveServer}>
           <label>服务器地址<input aria-label="服务器地址" value={props.serverUrl} onChange={e => props.setServerUrl(e.target.value)} placeholder="http://127.0.0.1:47839" /></label>
           <label>访问密钥<input aria-label="服务器访问密钥" type="password" value={props.serverToken} onChange={e => props.setServerToken(e.target.value)} placeholder="更换时填写" /></label>
           <label>管理密钥<input aria-label="服务器管理密钥" type="password" value={props.adminToken} onChange={e => props.setAdminToken(e.target.value)} placeholder="远端管理时填写" /></label>
           <button className="primary" disabled={props.busy}>保存连接</button>
         </form>
-        <p className="hint">{props.server?.online ? `已连接 ${props.server.url}` : props.server?.error || '检查中'} · {props.upload?.pending ? `${props.upload.pending} 批待补传` : '无待补传'} · {props.upload?.uncertainRows ? `${props.upload.uncertainRows} 个范围待核对${props.upload.pending ? '，尚未同步' : '，状态已同步'}` : '无待核对范围'} · 最近上报 {props.upload?.lastSuccess ? new Date(props.upload.lastSuccess).toLocaleString('zh-CN') : '尚无'}{props.upload?.lastError ? ` · ${props.upload.lastError}` : ''}</p>
+        <p className="hint">最近成功上报 {props.upload?.lastSuccess ? new Date(props.upload.lastSuccess).toLocaleString('zh-CN') : '尚无'}。{props.upload?.lastError ? `最近失败：${props.upload.lastError}` : ''}{props.server?.error ? `服务提示：${props.server.error}` : ''}</p>
       </section>
       <section className="panel telemetry-panel"><div className="panel-head"><h2>可选遥测接入</h2><span>{props.telemetry?.running ? '本机接收器已就绪' : '接收器未启动'}</span></div>
         <p className="hint">本地记录会自动扫描。需要持续接收官方遥测时，手动核对并合并以下配置；应用不会覆盖已有设置。</p>
         {props.telemetry?.error && <div className="error">接收器启动失败：{props.telemetry.error}</div>}
         <details><summary>Codex 配置（~/.codex/config.toml）</summary>{props.telemetry?.codexWarning && <p className="config-warning">{props.telemetry.codexWarning}</p>}<pre>{props.telemetry?.codex}</pre></details>
         <details><summary>Claude Code 配置（启动前的终端环境）</summary>{props.telemetry?.claudeWarning && <p className="config-warning">{props.telemetry.claudeWarning}</p>}<pre>{props.telemetry?.claude}</pre></details>
-        <p className="hint">遥测接收器仅监听 127.0.0.1；同一天有本地记录时，报表采用本地记录。</p>
+        <p className="hint">遥测接收器仅监听 127.0.0.1。报表按授权用户与会话保留可证独立事实；疑似重叠的记录标为待核对，完整总量不可确认。可在用量报表查看明细与来源后处理。</p>
       </section>
       <section className="panel data-panel"><div className="panel-head"><h2>数据备份与恢复</h2></div>
         <p className="hint">备份包含本机账户和用量统计数据。恢复前会保存当前数据库副本并重启应用。</p>

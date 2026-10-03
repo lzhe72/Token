@@ -90,11 +90,20 @@ export interface ServerStatus {
   online: boolean;
   error: string | null;
   hasToken: boolean;
+  serviceType: 'built_in' | 'configured';
+  configurationSource: 'default' | 'explicit' | 'legacy';
+  remoteConfigured: boolean;
+  reachable: boolean;
+  authorization: 'authorized' | 'missing' | 'rejected' | 'unknown';
+  protocol: 'compatible' | 'incompatible' | 'unknown';
 }
 
 export interface UploadStatus {
-  pending: number;
-  uncertainRows: number;
+  pending: number | null;
+  uncertainRows: number | null;
+  localRevision: number | null;
+  confirmedRevision: number | null;
+  currentConfirmed: boolean | null;
   lastSuccess: string | null;
   lastError: string | null;
   lastAttempt: string | null;
@@ -264,7 +273,9 @@ export interface TokenApi {
   getTelemetryConfiguration(): Promise<TelemetryConfiguration>;
   getServerStatus(): Promise<ServerStatus>;
   configureServer(url: string, token: string, adminToken?: string): Promise<ServerStatus>;
+  useBuiltInServer(): Promise<ServerStatus>;
   getUploadStatus(): Promise<UploadStatus>;
+  retryUpload(): Promise<UploadStatus>;
   checkUpdate(): Promise<UpdateStatus>;
   downloadUpdate(): Promise<string>;
   backupDatabase(): Promise<boolean>;

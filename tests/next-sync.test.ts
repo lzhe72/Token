@@ -26,7 +26,7 @@ async function setup(name: string) {
 function connection(base: string, directory: string): ServerConnection {
   const secret = fs.readFileSync(path.join(directory, 'server.secret'), 'utf8').trim();
   const adminSecret = fs.readFileSync(path.join(directory, 'server-admin.secret'), 'utf8').trim();
-  return { uploadUsage: async (payload: string, deviceId: string, ownerUserIds: string[]) => {
+  return { getConnectionIdentity: () => base, uploadUsage: async (payload: string, deviceId: string, ownerUserIds: string[]) => {
     const registration = await fetch(`${base}/v1/admin/devices/enroll`, { method: 'POST',
       headers: { authorization: `Bearer ${secret}`, 'x-token-admin': adminSecret, 'content-type': 'application/json' },
       body: JSON.stringify({ deviceId, ownerUserIds }) });

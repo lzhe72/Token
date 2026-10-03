@@ -27,7 +27,7 @@ test('TC-061 缺少目录时诊断引导权限设置和重新扫描', async () =
   try {
     const { page } = context;
     await page.getByRole('button', { name: /采集诊断/ }).click();
-    await expect(page.getByText('目录未找到')).toBeVisible();
+    await expect(page.locator('.diagnostic-card').getByText('目录未找到', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: '系统权限设置' })).toBeVisible();
     await expect(page.getByRole('button', { name: '重新扫描并诊断' })).toBeVisible();
     await page.getByRole('button', { name: /系统设置/ }).click();

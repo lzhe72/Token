@@ -8,6 +8,9 @@ import { reconcileFacts } from './reconcile';
 export interface SyncStatus {
   pending: number;
   uncertainRows: number;
+  localRevision: number | null;
+  confirmedRevision: number | null;
+  currentConfirmed: boolean;
   lastSuccess: string | null;
   lastError: string | null;
   lastAttempt: string | null;
@@ -43,9 +46,15 @@ export class UsageSync {
 
   status(): SyncStatus {
     const get = (key: string) => this.db.one('SELECT value FROM sync_meta WHERE key = ?', [key])?.value;
+    const pending = Number(this.db.one('SELECT COUNT(*) AS count FROM sync_outbox')?.count ?? 0);
+    const localRevision = get('revision') ? Number(get('revision')) : null;
+    const confirmedRevision = get('confirmed_revision') ? Number(get('confirmed_revision')) : null;
     return {
-      pending: Number(this.db.one('SELECT COUNT(*) AS count FROM sync_outbox')?.count ?? 0),
+      pending,
       uncertainRows: Number(get('uncertain_rows') ?? 0),
+      localRevision, confirmedRevision,
+      currentConfirmed: localRevision !== null && confirmedRevision === localRevision && pending === 0 &&
+        get('confirmed_connection_id') === this.connection.getConnectionIdentity(),
       lastSuccess: get('last_success') ? String(get('last_success')) : null,
       lastError: get('last_error') ? String(get('last_error')) : null,
       lastAttempt: get('last_attempt') ? String(get('last_attempt')) : null
@@ -198,6 +207,8 @@ export class UsageSync {
       this.db.transaction(() => {
         const current = this.db.one('SELECT payload FROM sync_outbox WHERE id = 1');
         if (current && (JSON.parse(String(current.payload)) as UsageSnapshot).revision === revision) this.db.run('DELETE FROM sync_outbox WHERE id = 1');
+        this.setMeta('confirmed_revision', String(revision));
+        this.setMeta('confirmed_connection_id', this.connection.getConnectionIdentity());
         this.setMeta('last_success', new Date().toISOString());
         this.setMeta('last_error', '');
       });

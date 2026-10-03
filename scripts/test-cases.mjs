@@ -91,6 +91,8 @@ const cases = [
   ['TC-085', 'unit', 'tests/m6-diagnostics.test.ts', 'TC-085 慢扫描真实处理数及解析失败修复重试', '真实扫描进展与重试'],
   ['TC-086', 'unit', 'tests/source-binding.test.ts', 'TC-086 预览双侧授权范围取消过期和在线确认清除旧归属', '来源重绑预览与授权清理'],
   ['TC-087', 'unit', 'tests/source-binding.test.ts', 'TC-087 停用旧归属仍可迁出事务故障回滚离线新快照覆盖旧队列', '重绑回滚与离线同步'],
+  ['TC-088', 'unit', 'tests/service-state.test.ts', 'TC-088 内置默认与同地址显式配置重启仍保留来源并可切回', '服务配置来源连接授权协议与同步状态'],
+  ['TC-091', 'e2e', 'tests/e2e/settings-copy.spec.ts', 'TC-091 遥测说明与疑似重叠报表及 CSV v2 状态一致', '遥测说明与调和口径一致'],
   ['TC-092', 'unit', 'tests/reconciliation.test.ts', 'TC-092 跨用户和不同会话遥测独立保留且同会话冲突不伪造总量', '本地与遥测归属和会话调和'],
   ['TC-093', 'unit', 'tests/reconciliation.test.ts', 'TC-093 报表明细和 CSV v2 同源逐组小计且时区边界不漏冲突', '报表明细与 CSV v2 调和'],
   ['TC-094', 'unit', 'tests/sync-reconciliation.test.ts', 'TC-094 服务 v2 清除旧聚合并保留冲突状态旧队列重算和权限边界', '服务上报协议 v2 与旧数据迁移']
@@ -114,6 +116,17 @@ const extraRuns = {
   ],
   'TC-086': [{ kind: 'e2e', file: 'tests/e2e/source-binding.spec.ts', testName: 'TC-086 草稿预览键盘取消与确认后权限转移' }],
   'TC-087': [{ kind: 'e2e', file: 'tests/e2e/source-binding.spec.ts', testName: 'TC-087 预览后重扫变化确认拒绝且界面恢复旧归属' }],
+  'TC-088': [
+    { kind: 'unit', file: 'tests/service-state.test.ts', testName: 'TC-088 离线拒权与旧协议独立于配置来源和本机覆盖' },
+    { kind: 'unit', file: 'tests/service-state.test.ts', testName: 'TC-088 切换服务后旧成功修订版失效且新快照待传再确认' },
+    { kind: 'unit', file: 'tests/service-state.test.ts', testName: 'TC-088 配置落盘失败保留旧身份且新配置不会拾取旧密钥' },
+    { kind: 'unit', file: 'tests/service-state.test.ts', testName: 'TC-088 内置服务身份不符时不发送访问密钥' },
+    { kind: 'unit', file: 'tests/service-state.test.ts', testName: 'TC-088 内置服务身份检查期间切换配置不覆盖新地址或发送旧密钥' },
+    { kind: 'e2e', file: 'tests/e2e/service-state.spec.ts', testName: 'TC-088 服务配置认证协议待传和本机覆盖在界面并列且可重试' },
+    { kind: 'e2e', file: 'tests/e2e/service-state.spec.ts', testName: 'TC-088 快照落盘失败时不切换服务配置' }
+  ],
+  'TC-091': [{ kind: 'unit', file: 'tests/reconciliation.test.ts',
+    testName: 'TC-093 报表明细和 CSV v2 同源逐组小计且时区边界不漏冲突' }],
   'TC-023': [{ kind: 'unit', file: 'tests/report-snapshot.test.ts', testName: 'TC-023 CSV v2 待核对行的模型和项目名称仍转义公式' }],
   'TC-079': [{ kind: 'e2e', file: 'tests/e2e/report-snapshot.spec.ts', testName: 'TC-079 快速切换筛选时旧响应不覆盖且导出等待当前快照' }],
   'TC-093': [{ kind: 'e2e', file: 'tests/e2e/overlap-privacy.spec.ts', testName: 'TC-093 普通用户来源状态诊断和反馈附件不含其他账户数据' }],
