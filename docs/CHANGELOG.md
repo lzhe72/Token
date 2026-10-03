@@ -4,6 +4,13 @@
 
 ## 2026-10-04
 
+### Claude 本地文件来源与账户归属边界（REQ-048、DEV-057、TC-092；文档分支 `codex/docs/20261004-claude-local-file-identity`）
+
+- **尝试**：只读核 Claude JSONL 解析、扫描器回退来源键和同键入库逻辑，复核 TC-092“同 session/request、不同来源/owner”的可证前提。
+- **卡点**：现行 Claude 本地来源均为 `claude:macos:<uid>`；同一 UID 下多个 Claude 账户或会话文件不能凭 JSONL 证明不同 owner。事实键只含 session/request，同值可合并或覆盖。把两个同 UID 文件直接绑定给不同 owner 会伪造授权证据。
+- **处理**：限定跨 owner 正例为来源身份和 owner 均可区分、可证的隔离上下文；同 UID 多账号留身份未知与覆盖限制。将每个 JSONL 的不透明哈希文件级来源及事实键空间、重命名/轮转和旧键迁移、无原始路径/正文、管理员逐来源确认成本与 TC-086 待归属队列（数量、项目/最近时间/状态筛选或分页、逐项证据预览、暂不归属）列为 DEV-057/TC-092 待验收设计；文件级分隔本身不等于账户归属。
+- **结果**：仅修非 SOP 需求/用例口径，未改代码或运行新用例。开发报告未提交工作树的 `test:gate` 为 94 入口、89 单元、40 Electron 退出码 0，尚无固定提交可独立复验，不提升状态。
+
 ### 发送中更新快照未立即续传（REQ-026/048、DEV-028/057、TC-040/094；文档分支 `codex/docs/20261004-sync-drain-race`）
 
 - **尝试**：核开发会话的真实 Electron 启动诊断与 `UsageSync.flush()`、扫描后 `queueSnapshot()`、`sync_outbox` 修订和服务确认路径，按原两个需求链追溯。
