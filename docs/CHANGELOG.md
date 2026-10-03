@@ -4,6 +4,13 @@
 
 ## 2026-10-04
 
+### 缺账户 ID 遥测归属边界（REQ-048、DEV-057、TC-092–094；文档分支 `codex/docs/20261004-otel-unknown-identity-boundary`）
+
+- **尝试**：只读核 Codex OTel 缺 `user.account_id` 的身份 fallback、来源绑定、viewer 查询与上报路径，对照工作簿 REQ-048/TC-092–094 的现行状态。
+- **卡点**：`hash(os.username)` 不是 provider 账户身份；旧来源若被管理员绑定，缺身份事实可能进入该 Token 用户的待核对明细。待核对不等于归属可证；真实 `account_id` 恰等于 macOS username 时与 fallback 同键，旧库仅凭键不能区分，需审计来源证据，无法拆分则保守未归属并记录影响。
+- **处理**：补缺身份事实未归属/未知、普通用户各读取与上报隔离、管理员诊断、绑定 IPC 拒绝、新 unknown 命名空间、旧 fallback/同键混合来源审计与保守撤销及服务旧 owner 聚合清理的 REQ/DEV/TC 断言；TC-093/094 列关联回归，并给管理员“身份无法验证/重新启用带 ID 遥测”行动、受影响 viewer 通用提示和最小脱敏迁移审计；保留旧自动证据。
+- **结果**：仅完成非 SOP 静态风险与验收设计；开发动态复现及代码修复待确认，未新增用例通过结果或提升整项状态。
+
 ### 安装中取消的分阶段设计（REQ-023、DEV-025、TC-076；文档分支 `codex/docs/20261004-install-cancel-design`）
 
 - **尝试**：核旧 App 下载/校验、退出交接、Node helper 挂载/替换/健康、状态反馈及当前 userData 打开时序，设计可见取消交互与打包版断言。
