@@ -4,7 +4,7 @@ import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { AppDatabase } from '../main/database';
-import type { CollectionDiagnostic, SourceIdentity, SourceStatus } from '../shared/types';
+import type { CollectionDiagnostic, ScanProgress, SourceIdentity, SourceStatus } from '../shared/types';
 import { parseCodexLine } from './codex';
 import { parseClaudeLine } from './claude';
 import type { LineContext, ParserState, Provider, UsageFact } from './types';
@@ -27,10 +27,11 @@ function sourceDirectories(): Record<Provider, string> {
   };
 }
 
-async function walkJsonl(root: string): Promise<string[]> {
+async function walkJsonl(root: string, onDirectory?: () => void): Promise<string[]> {
   const result: string[] = [];
   async function visit(dir: string): Promise<void> {
     const entries = await fsp.readdir(dir, { withFileTypes: true });
+    onDirectory?.();
     for (const entry of entries) {
       const child = path.join(dir, entry.name);
       if (entry.isDirectory()) await visit(child);
@@ -45,7 +46,8 @@ async function readCompleteLines(
   file: string,
   start: number,
   initialSkipping: boolean,
-  onLine: (line: string, offset: number) => void
+  onLine: (line: string, offset: number) => void,
+  onChunk?: () => void
 ): Promise<{ offset: number; oversized: number; skippingOversized: boolean }> {
   const handle = await fsp.open(file, 'r');
   let readPosition = start;
@@ -58,6 +60,7 @@ async function readCompleteLines(
     while (true) {
       const { bytesRead } = await handle.read(chunk, 0, CHUNK_SIZE, readPosition);
       if (!bytesRead) break;
+      onChunk?.();
       readPosition += bytesRead;
       pending = Buffer.concat([pending, chunk.subarray(0, bytesRead)]);
       while (true) {
@@ -99,6 +102,7 @@ async function tailHash(file: string, offset: number): Promise<string> {
 export class UsageScanner {
   private current: Promise<void> | null = null;
   private scanning = new Set<Provider>();
+  private progress = new Map<Provider, NonNullable<CollectionDiagnostic['progress']>>();
   private timer: NodeJS.Timeout | null = null;
   private afterScan: (() => Promise<void>) | null = null;
 
@@ -230,11 +234,16 @@ export class UsageScanner {
           { reason: code === 'EACCES' || code === 'EPERM' ? 'permission_denied' : 'scan_error' });
       } finally {
         this.scanning.delete(provider);
+        this.progress.delete(provider);
       }
     }
   }
 
   private async scanProvider(provider: Provider, root: string): Promise<void> {
+    const updateProgress = (phase: 'discovering' | 'reading' | 'finalizing', processedFiles: number, discoveredFiles: number | null) => {
+      this.progress.set(provider, { phase, processedFiles, discoveredFiles, lastProgressAt: new Date().toISOString() });
+    };
+    updateProgress('discovering', 0, null);
     try { await fsp.stat(root); }
     catch (error) {
       if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
@@ -243,20 +252,29 @@ export class UsageScanner {
       }
       throw error;
     }
-    const files = await walkJsonl(root);
+    const files = await walkJsonl(root, () => updateProgress('discovering', 0, null));
+    updateProgress('reading', 0, files.length);
     let malformed = 0;
     let oversized = 0;
     let unreadable = 0;
-    for (const file of files) {
+    for (const [index, file] of files.entries()) {
       try {
-        const result = await this.scanFile(provider, file);
+        const syntheticDelay = Number(process.env.TOKEN_E2E_SCAN_DELAY_MS || 0);
+        if (root.startsWith(path.join(os.tmpdir(), 'token-test-db-')) &&
+          Number.isInteger(syntheticDelay) && syntheticDelay > 0 && syntheticDelay <= 1000) {
+          await new Promise(resolve => setTimeout(resolve, syntheticDelay));
+        }
+        const result = await this.scanFile(provider, file, () => updateProgress('reading', index, files.length));
         malformed += result.malformed;
         oversized += result.oversized;
       } catch (error) {
         unreadable++;
         // A single unreadable or rotated file does not stop other sessions.
+      } finally {
+        updateProgress('reading', index + 1, files.length);
       }
     }
+    updateProgress('finalizing', files.length, files.length);
     const detail = unreadable || malformed || oversized
       ? `${unreadable} 个文件读取失败，${malformed} 条记录无法解析，${oversized} 条记录超过大小限制`
       : files.length === 0 ? '会话目录中没有记录文件' : null;
@@ -268,7 +286,7 @@ export class UsageScanner {
         malformed, oversized, unreadable });
   }
 
-  private async scanFile(provider: Provider, file: string): Promise<{ malformed: number; oversized: number }> {
+  private async scanFile(provider: Provider, file: string, onChunk?: () => void): Promise<{ malformed: number; oversized: number }> {
     const stat = await fsp.stat(file);
     const fileId = `${stat.dev}:${stat.ino}`;
     const row = this.db.one('SELECT file_id, byte_offset, state_json, tail_hash FROM source_cursors WHERE file_path = ?', [file]);
@@ -308,7 +326,7 @@ export class UsageScanner {
       } catch {
         malformed++;
       }
-    });
+    }, onChunk);
     state.skippingOversized = result.skippingOversized;
     state.malformedRecords = (state.malformedRecords ?? 0) + malformed;
     state.oversizedRecords = (state.oversizedRecords ?? 0) + result.oversized;
@@ -405,9 +423,14 @@ export class UsageScanner {
         unreadableCount: diagnostic.unreadable ?? 0, lastScan: status.lastScan,
         lastSuccess: row?.last_success ? String(row.last_success) : null, reason,
         suggestion: pendingTailCount && reason === 'ok' ? '部分文件有尚未结束的记录行；待工具写完后再次扫描。' :
-          suggestions[reason] || '运行一次扫描并查看来源状态。'
+          suggestions[reason] || '运行一次扫描并查看来源状态。',
+        progress: this.progress.get(status.provider)
       };
     });
+  }
+
+  scanProgress(): ScanProgress[] {
+    return [...this.progress.entries()].map(([provider, progress]) => ({ provider, progress }));
   }
 
   statuses(): SourceStatus[] {

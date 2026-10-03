@@ -163,6 +163,17 @@ export interface CollectionDiagnostic {
   lastSuccess: string | null;
   reason: string;
   suggestion: string;
+  progress?: {
+    phase: 'discovering' | 'reading' | 'finalizing';
+    processedFiles: number;
+    discoveredFiles: number | null;
+    lastProgressAt: string;
+  };
+}
+
+export interface ScanProgress {
+  provider: Provider;
+  progress: NonNullable<CollectionDiagnostic['progress']>;
 }
 
 export interface AccountCollectionStatus {
@@ -215,6 +226,7 @@ export interface TokenApi {
   getCollectionDiagnostics(): Promise<CollectionDiagnostic[]>;
   getAccountCollectionStatuses(): Promise<AccountCollectionStatus[]>;
   scanSources(): Promise<SourceStatus[]>;
+  getScanProgress(): Promise<ScanProgress[]>;
   getSourceIdentities(): Promise<SourceIdentity[]>;
   bindSourceIdentity(key: string, userId: string | null): Promise<void>;
   getTelemetryConfiguration(): Promise<TelemetryConfiguration>;

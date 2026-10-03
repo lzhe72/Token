@@ -89,6 +89,23 @@ function App() {
   }, [state?.user?.id]);
 
   React.useEffect(() => {
+    if (tab !== 'diagnostics' || !state?.user || state.user.role === 'viewer') return;
+    let wasScanning = false;
+    const timer = window.setInterval(() => {
+      void window.tokenApi.getScanProgress().then(active => {
+        const scanning = active.length > 0;
+        setDiagnostics(current => current.map(item => {
+          const progress = active.find(value => value.provider === item.provider)?.progress;
+          return { ...item, status: progress ? 'scanning' : item.status, progress };
+        }));
+        if (wasScanning && !scanning) void window.tokenApi.getCollectionDiagnostics().then(setDiagnostics).catch(() => {});
+        wasScanning = scanning;
+      }).catch(() => {});
+    }, 700);
+    return () => window.clearInterval(timer);
+  }, [tab, state?.user?.id]);
+
+  React.useEffect(() => {
     const userId = state?.user?.id;
     if (!userId) return;
     setOnboardingPreference({ userId, skipped: localStorage.getItem(`token:onboarding:skipped:${userId}`) === '1' });
@@ -419,7 +436,7 @@ function App() {
           onNavigate={target => { if (target === 'sources') void showSources(); else if (target === 'diagnostics') void showDiagnostics(); else void showReport(); }}
           onSkip={() => { setOnboardingSkipped(true); setTab('overview'); }}
           onRefresh={refreshOnboarding} />
-        : tab === 'report' ? <ReportPanel user={state.user} users={users} destination={reportDestination} backTick={reportBackTick} onDrilldownChange={setReportDrilldown} />
+        : tab === 'report' ? <ReportPanel user={state.user} users={users} destination={reportDestination} backTick={reportBackTick} onDrilldownChange={setReportDrilldown} onDiagnostics={() => void showDiagnostics()} onPermissions={() => void openFilePermissions()} />
         : tab === 'settings' ? <SettingsPanel user={state.user} server={server} upload={upload} telemetry={telemetry} update={update} diagnostics={diagnostics}
           serverUrl={serverUrl} serverToken={serverToken} adminToken={serverAdminToken} busy={busy} checking={checkingUpdate}
           setServerUrl={setServerUrl} setServerToken={setServerToken} setAdminToken={setServerAdminToken} saveServer={saveServer}

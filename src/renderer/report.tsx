@@ -1,6 +1,7 @@
 import React from 'react';
-import type { Granularity, Provider, PublicUser, ReportQuery, SourceStatus, UsageDetailsPage, UsageReport } from '../shared/types';
+import type { CollectionDiagnostic, Granularity, Provider, PublicUser, ReportQuery, SourceStatus, UsageDetailsPage, UsageReport } from '../shared/types';
 import { formatPeriodLabel, formatTokens } from './format';
+import { reportEmptyState } from './empty-state';
 import type { ReportDestination } from './report-navigation';
 
 function localDate(date: Date): string {
@@ -48,8 +49,9 @@ function matchesQuery(report: UsageReport, query: ReportQuery, user: PublicUser)
   return (Object.keys(effective) as Array<keyof ReportQuery>).every(key => report.query[key] === effective[key]);
 }
 
-export function ReportPanel({ user, users, destination, backTick, onDrilldownChange }: { user: PublicUser; users: PublicUser[];
-  destination?: ReportDestination | null; backTick?: number; onDrilldownChange?: (active: boolean) => void }) {
+export function ReportPanel({ user, users, destination, backTick, onDrilldownChange, onDiagnostics, onPermissions }: { user: PublicUser; users: PublicUser[];
+  destination?: ReportDestination | null; backTick?: number; onDrilldownChange?: (active: boolean) => void;
+  onDiagnostics(): void; onPermissions(): void }) {
   const [query, setQuery] = React.useState<ReportQuery>(() => destination?.query || initialQuery());
   const [loadedReport, setLoadedReport] = React.useState<UsageReport | null>(null);
   const [details, setDetails] = React.useState<UsageDetailsPage | null>(null);
@@ -59,6 +61,7 @@ export function ReportPanel({ user, users, destination, backTick, onDrilldownCha
   const [exporting, setExporting] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [reload, setReload] = React.useState(0);
+  const [diagnostics, setDiagnostics] = React.useState<CollectionDiagnostic[]>([]);
   const report = loadedReport && matchesQuery(loadedReport, query, user) ? loadedReport : null;
   const detailRef = React.useRef<HTMLElement | null>(null);
   const lastBackTick = React.useRef(backTick);
@@ -97,6 +100,13 @@ export function ReportPanel({ user, users, destination, backTick, onDrilldownCha
     const timer = window.setInterval(() => void refresh(), 15_000);
     return () => { active = false; window.clearInterval(timer); };
   }, [query, reload]);
+
+  React.useEffect(() => {
+    let active = true;
+    void window.tokenApi.getCollectionDiagnostics()
+      .then(items => { if (active) setDiagnostics(items); }).catch(() => {});
+    return () => { active = false; };
+  }, [user.id, query.provider, reload]);
 
   React.useEffect(() => {
     let active = true;
@@ -144,6 +154,14 @@ export function ReportPanel({ user, users, destination, backTick, onDrilldownCha
   const hasCoverage = Boolean(report?.coverage.length) && report!.coverage.every(source => source.windowCoverage?.state === 'complete');
   const hasObserved = Boolean(report && (report.totals.requests > 0 || report.accounting?.conflictCount > 0));
   const metric = (value: number) => hasCoverage || hasObserved ? formatTokens(value) : '覆盖未知';
+  const empty = report ? reportEmptyState(report, query, user, diagnostics) : null;
+  const emptyAction = () => {
+    if (empty?.action === 'clear-filters') {
+      setQuery(current => ({ ...current, model: '', projectKey: '' }));
+      setDetailPeriod(''); setDetailPage(1);
+    } else if (empty?.action === 'permissions') onPermissions();
+    else if (empty?.action === 'diagnostics') onDiagnostics();
+  };
 
   return <div className="report-page">
     <div className="report-toolbar">
@@ -183,7 +201,7 @@ export function ReportPanel({ user, users, destination, backTick, onDrilldownCha
         {report.points.length ? <div className="chart-scroll"><div className="bar-chart" style={{ minWidth: `${report.points.length * 76}px` }}>{report.points.map(point => {
           const label = formatPeriodLabel(point.period, query.granularity);
           return <button type="button" className={detailPeriod === point.period ? 'bar-column selected' : 'bar-column'} key={point.period} title={`${label} · ${number(point.totalTokens)} Token`} aria-label={`查看 ${label} 用量明细`} onClick={() => { setDetailPeriod(point.period); setDetailPage(1); }}><div className="bar-value" title={`${number(point.totalTokens)} Token`}>{formatTokens(point.totalTokens)}</div><div className="bar-track"><div className="bar" style={{ height: `${Math.max(3, point.totalTokens / maxPoint * 100)}%` }} /></div><div className="bar-label">{label}</div></button>;
-        })}</div></div> : <div className="empty-row">{report.accounting?.status === 'uncertain' ? '此范围仅有待核对记录，完整趋势不可确认。' : hasCoverage ? '该时间范围已确认没有匹配的用量记录。' : '此范围没有已观测记录；覆盖未知，请检查数据来源或调整筛选。'}</div>}
+        })}</div></div> : <div className="empty-row" role="status">{empty?.message}{empty?.action && <div><button type="button" className="text-button" onClick={emptyAction}>{empty.actionLabel} →</button></div>}</div>}
       </section>
       <section className="panel project-panel"><div className="panel-head"><h2>项目统计{report.accounting?.status === 'uncertain' ? ' · 仅已确认部分' : ''}</h2><span>{hasObserved || hasCoverage ? `${report.projects.length} 个已确认项目` : '覆盖未知'}</span></div>
         <p className="hint">从本机会话工作目录识别项目；未提供工作目录的记录单列统计。项目路径不上传服务端。</p>

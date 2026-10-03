@@ -135,6 +135,10 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
     const actor = currentUser(event, auth);
     return reports.diagnostics(actor);
   });
+  ipcMain.handle('sources:progress', event => {
+    requireAdmin(event, auth);
+    return sources.scanProgress();
+  });
   ipcMain.handle('admin:account-statuses', event => {
     requireAdmin(event, auth);
     return auth.listUsers().map(user => {

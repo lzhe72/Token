@@ -69,3 +69,47 @@ test('TC-063 诊断摘要不包含原始路径正文与项目标识', async () =
     if (oldClaude === undefined) delete process.env.TOKEN_CLAUDE_PROJECTS_DIR; else process.env.TOKEN_CLAUDE_PROJECTS_DIR = oldClaude;
   }
 });
+
+test('TC-085 慢扫描真实处理数及解析失败修复重试', async () => {
+  const workspace = createTestWorkspace('tc085');
+  const oldCodex = process.env.TOKEN_CODEX_SESSIONS_DIR;
+  const oldClaude = process.env.TOKEN_CLAUDE_PROJECTS_DIR;
+  process.env.TOKEN_CODEX_SESSIONS_DIR = workspace.codexDir;
+  process.env.TOKEN_CLAUDE_PROJECTS_DIR = workspace.claudeDir;
+  const db = await AppDatabase.open(workspace.databasePath);
+  try {
+    const scanner = new UsageScanner(db);
+    writeFileSync(path.join(workspace.codexDir, 'a.jsonl'), '{bad}\n');
+    writeFileSync(path.join(workspace.codexDir, 'b.jsonl'), codex());
+    const target = scanner as unknown as { scanFile: (provider: string, file: string, onChunk?: () => void) => Promise<unknown> };
+    const original = target.scanFile.bind(scanner);
+    let release!: () => void;
+    let entered!: () => void;
+    const blocked = new Promise<void>(resolve => { release = resolve; });
+    const paused = new Promise<void>(resolve => { entered = resolve; });
+    target.scanFile = async (provider, file, onChunk) => {
+      if (file.endsWith('/b.jsonl')) { entered(); await blocked; }
+      return original(provider, file, onChunk);
+    };
+    const scan = scanner.scan();
+    await paused;
+    const during = scanner.diagnostics().find(item => item.provider === 'codex')!;
+    expect(during.status).toBe('scanning');
+    expect(during.progress).toMatchObject({ phase: 'reading', processedFiles: 1, discoveredFiles: 2 });
+    expect(Number.isNaN(Date.parse(during.progress!.lastProgressAt))).toBe(false);
+    expect(JSON.stringify(during)).not.toContain(workspace.root);
+    release();
+    await scan;
+    expect(scanner.diagnostics().find(item => item.provider === 'codex')?.reason).toBe('invalid_record');
+    writeFileSync(path.join(workspace.codexDir, 'a.jsonl'), codex());
+    await scanner.scan();
+    const repaired = scanner.diagnostics().find(item => item.provider === 'codex')!;
+    expect(repaired.progress).toBeUndefined();
+    expect(repaired.reason).toBe('ok');
+    expect(repaired.factCount).toBe(1);
+  } finally {
+    db.close(); workspace.cleanup();
+    if (oldCodex === undefined) delete process.env.TOKEN_CODEX_SESSIONS_DIR; else process.env.TOKEN_CODEX_SESSIONS_DIR = oldCodex;
+    if (oldClaude === undefined) delete process.env.TOKEN_CLAUDE_PROJECTS_DIR; else process.env.TOKEN_CLAUDE_PROJECTS_DIR = oldClaude;
+  }
+});

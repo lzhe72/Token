@@ -15,6 +15,7 @@ const api: TokenApi = {
   getSourceStatuses: () => ipcRenderer.invoke('sources:statuses'),
   getOnboardingStatus: () => ipcRenderer.invoke('onboarding:status'),
   getCollectionDiagnostics: () => ipcRenderer.invoke('sources:diagnostics'),
+  getScanProgress: () => ipcRenderer.invoke('sources:progress'),
   getAccountCollectionStatuses: () => ipcRenderer.invoke('admin:account-statuses'),
   scanSources: () => ipcRenderer.invoke('sources:scan'),
   getSourceIdentities: () => ipcRenderer.invoke('sources:identities'),

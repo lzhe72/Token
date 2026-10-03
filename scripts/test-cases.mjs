@@ -87,6 +87,8 @@ const cases = [
   ['TC-081', 'e2e', 'tests/e2e/overview-drilldown.spec.ts', 'TC-081 同名模型按提供方下钻且筛选选项不混合', '模型提供方身份下钻'],
   ['TC-082', 'unit', 'tests/onboarding.test.ts', 'TC-082 四步按检测扫描归属和已确认首笔事实推进', '管理员四步引导与跳过重开'],
   ['TC-083', 'unit', 'tests/onboarding.test.ts', 'TC-083 普通用户只看本人状态且待核对事实不算首笔确认用量', '普通用户引导权限与未知状态'],
+  ['TC-084', 'unit', 'tests/empty-state.test.ts', 'TC-084 未扫描权限格式筛选无匹配及已观测未知各给出独立行动且不造真零', '空状态保守分型与行动'],
+  ['TC-085', 'unit', 'tests/m6-diagnostics.test.ts', 'TC-085 慢扫描真实处理数及解析失败修复重试', '真实扫描进展与重试'],
   ['TC-092', 'unit', 'tests/reconciliation.test.ts', 'TC-092 跨用户和不同会话遥测独立保留且同会话冲突不伪造总量', '本地与遥测归属和会话调和'],
   ['TC-093', 'unit', 'tests/reconciliation.test.ts', 'TC-093 报表明细和 CSV v2 同源逐组小计且时区边界不漏冲突', '报表明细与 CSV v2 调和'],
   ['TC-094', 'unit', 'tests/sync-reconciliation.test.ts', 'TC-094 服务 v2 清除旧聚合并保留冲突状态旧队列重算和权限边界', '服务上报协议 v2 与旧数据迁移']
@@ -99,6 +101,8 @@ const extraRuns = {
     { kind: 'e2e', file: 'tests/e2e/onboarding.spec.ts', testName: 'TC-082 管理员可跳过重开且四步随真实采集归属更新' }
   ],
   'TC-083': [{ kind: 'e2e', file: 'tests/e2e/onboarding.spec.ts', testName: 'TC-083 普通用户引导不显示他人进度且无权扫描归属' }],
+  'TC-084': [{ kind: 'e2e', file: 'tests/e2e/empty-state.spec.ts', testName: 'TC-084 报表筛选无匹配保持覆盖未知并可清除筛选进入诊断' }],
+  'TC-085': [{ kind: 'e2e', file: 'tests/e2e/empty-state.spec.ts', testName: 'TC-085 慢速合成扫描在诊断页显示中间进展且完成后清除' }],
   'TC-023': [{ kind: 'unit', file: 'tests/report-snapshot.test.ts', testName: 'TC-023 CSV v2 待核对行的模型和项目名称仍转义公式' }],
   'TC-079': [{ kind: 'e2e', file: 'tests/e2e/report-snapshot.spec.ts', testName: 'TC-079 快速切换筛选时旧响应不覆盖且导出等待当前快照' }],
   'TC-093': [{ kind: 'e2e', file: 'tests/e2e/overlap-privacy.spec.ts', testName: 'TC-093 普通用户来源状态诊断和反馈附件不含其他账户数据' }],
