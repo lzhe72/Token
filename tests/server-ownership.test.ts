@@ -92,7 +92,7 @@ test('TC-074 聚合上报拒绝跨设备跨用户覆盖并保留原快照', asyn
     const legacyDevice = randomUUID();
     const legacyOwner = randomUUID();
     server.getDatabase().transaction(() => {
-      server.getDatabase().run('INSERT INTO device_revisions VALUES (?, ?)', [legacyDevice, 5]);
+      server.getDatabase().run('INSERT INTO device_revisions(device_id, revision) VALUES (?, ?)', [legacyDevice, 5]);
       server.getDatabase().run('INSERT INTO aggregates VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [legacyDevice, legacyOwner, '2026-10-02', 'codex', 'gpt-legacy', 7, 0, 0, 0, 7, 1]);
       server.getDatabase().run('INSERT INTO source_coverage VALUES (?, ?, ?, ?, ?)',

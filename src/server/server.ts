@@ -4,6 +4,7 @@ import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import https from 'node:https';
 import path from 'node:path';
 import { AppDatabase } from '../main/database';
+import type { TokenTotals } from '../shared/types';
 
 export interface UpdateManifest {
   version: string;
@@ -28,13 +29,36 @@ export interface UsageAggregate {
   requests: number;
 }
 
-export interface UsageSnapshot {
+interface UsageSnapshotBase {
   deviceId: string;
   revision: number;
   providers: Array<'codex' | 'claude'>;
   coverage: Array<{ provider: 'codex' | 'claude'; status: 'ready' | 'no_records' | 'not_found' | 'error' | 'idle'; lastScan: string | null }>;
+}
+
+export interface UsageSnapshotV1 extends UsageSnapshotBase {
+  accountingVersion?: undefined;
   rows: UsageAggregate[];
 }
+
+export interface UsageAggregateV2 {
+  ownerUserId: string;
+  day: string;
+  provider: 'codex' | 'claude';
+  model: string;
+  confirmedSubtotal: TokenTotals;
+  totalStatus: 'confirmed' | 'uncertain';
+  conflictCount: number;
+  conflictSources: Array<'local' | 'telemetry'>;
+  totalTokens?: number;
+}
+
+export interface UsageSnapshotV2 extends UsageSnapshotBase {
+  accountingVersion: 2;
+  rows: UsageAggregateV2[];
+}
+
+export type UsageSnapshot = UsageSnapshotV1 | UsageSnapshotV2;
 
 export interface FeedbackRecord {
   id: string;
@@ -109,7 +133,9 @@ async function readJson(req: IncomingMessage, limit: number): Promise<unknown> {
 export function validateSnapshot(value: unknown): UsageSnapshot {
   if (!value || typeof value !== 'object') throw new Error('快照格式无效');
   const input = value as Record<string, unknown>;
-  if (Object.keys(input).some(key => !['deviceId', 'revision', 'providers', 'coverage', 'rows'].includes(key))) throw new Error('包含未允许字段');
+  const v2 = input.accountingVersion === 2;
+  if (input.accountingVersion !== undefined && !v2) throw new Error('不支持的计量协议');
+  if (Object.keys(input).some(key => !['deviceId', 'revision', 'providers', 'coverage', 'rows', ...(v2 ? ['accountingVersion'] : [])].includes(key))) throw new Error('包含未允许字段');
   if (typeof input.deviceId !== 'string' || !/^[a-f0-9-]{36}$/.test(input.deviceId) || !safeInteger(input.revision)) throw new Error('设备或版本无效');
   if (!Array.isArray(input.providers) || input.providers.some(provider => provider !== 'codex' && provider !== 'claude') || new Set(input.providers).size !== input.providers.length) throw new Error('来源无效');
   if (!Array.isArray(input.coverage) || input.coverage.length !== 2 ||
@@ -123,13 +149,30 @@ export function validateSnapshot(value: unknown): UsageSnapshot {
     }) || new Set(input.coverage.map((item: { provider: string }) => item.provider)).size !== 2) throw new Error('覆盖状态无效');
   if (!Array.isArray(input.rows) || input.rows.length > 50000) throw new Error('聚合记录过多');
   for (const row of input.rows) {
-    if (!row || typeof row !== 'object' || Object.keys(row).some(key => !['ownerUserId', 'day', 'provider', 'model', 'inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheCreationTokens', 'totalTokens', 'requests'].includes(key))) throw new Error('包含未允许字段');
+    if (!row || typeof row !== 'object' || Object.keys(row).some(key => !['ownerUserId', 'day', 'provider', 'model', ...(v2
+      ? ['confirmedSubtotal', 'totalStatus', 'conflictCount', 'conflictSources', 'totalTokens']
+      : ['inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheCreationTokens', 'totalTokens', 'requests'])].includes(key))) throw new Error('包含未允许字段');
     const item = row as Record<string, unknown>;
     if (typeof item.ownerUserId !== 'string' || !/^[a-f0-9-]{36}$/.test(item.ownerUserId) ||
       typeof item.day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(item.day) ||
       (item.provider !== 'codex' && item.provider !== 'claude') || !input.providers.includes(item.provider) ||
-      typeof item.model !== 'string' || item.model.length > 160 ||
-      !['inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheCreationTokens', 'totalTokens', 'requests'].every(key => safeInteger(item[key]))) throw new Error('聚合字段无效');
+      typeof item.model !== 'string' || item.model.length > 160) throw new Error('聚合字段无效');
+    if (v2) {
+      const subtotal = item.confirmedSubtotal as Record<string, unknown> | null;
+      if (!subtotal || typeof subtotal !== 'object' || Array.isArray(subtotal) ||
+        Object.keys(subtotal).sort().join(',') !== 'cacheCreationTokens,cacheReadTokens,inputTokens,outputTokens,requests,totalTokens' ||
+        !Object.values(subtotal).every(safeInteger) ||
+        !['confirmed', 'uncertain'].includes(String(item.totalStatus)) || !safeInteger(item.conflictCount) ||
+        !Array.isArray(item.conflictSources) || item.conflictSources.length > 2 ||
+        item.conflictSources.some(source => source !== 'local' && source !== 'telemetry') ||
+        new Set(item.conflictSources).size !== item.conflictSources.length ||
+        (item.totalStatus === 'confirmed' && (item.conflictCount !== 0 || item.conflictSources.length !== 0 || item.totalTokens !== subtotal.totalTokens)) ||
+        (item.totalStatus === 'uncertain' && (item.conflictCount === 0 || item.conflictSources.length === 0 || item.totalTokens !== undefined))) {
+        throw new Error('聚合状态无效');
+      }
+    } else if (!['inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheCreationTokens', 'totalTokens', 'requests'].every(key => safeInteger(item[key]))) {
+      throw new Error('聚合字段无效');
+    }
   }
   return value as UsageSnapshot;
 }
@@ -182,6 +225,23 @@ export class LocalServer {
       device_id TEXT NOT NULL, provider TEXT NOT NULL, status TEXT NOT NULL, last_scan TEXT,
       revision INTEGER NOT NULL, PRIMARY KEY (device_id, provider)
     )`);
+    if (!this.db.all('PRAGMA table_info(device_revisions)').some(row => row.name === 'accounting_version')) {
+      this.db.run('ALTER TABLE device_revisions ADD COLUMN accounting_version INTEGER NOT NULL DEFAULT 1');
+    }
+    this.db.run(`CREATE TABLE IF NOT EXISTS aggregate_status (
+      device_id TEXT NOT NULL, owner_user_id TEXT NOT NULL, day TEXT NOT NULL,
+      provider TEXT NOT NULL, model TEXT NOT NULL, total_status TEXT NOT NULL,
+      confirmed_subtotal TEXT NOT NULL, conflict_count INTEGER NOT NULL,
+      conflict_sources TEXT NOT NULL,
+      PRIMARY KEY (device_id, owner_user_id, day, provider, model)
+    )`);
+    const legacySubtotal = JSON.stringify({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0,
+      cacheCreationTokens: 0, totalTokens: 0, requests: 0 });
+    this.db.run(`INSERT INTO aggregate_status
+      SELECT a.device_id, a.owner_user_id, a.day, a.provider, a.model,
+        'legacy_unknown', ?, 0, '[]' FROM aggregates a
+      WHERE NOT EXISTS (SELECT 1 FROM aggregate_status s WHERE s.device_id=a.device_id
+        AND s.owner_user_id=a.owner_user_id AND s.day=a.day AND s.provider=a.provider AND s.model=a.model)`, [legacySubtotal]);
     this.db.run(`CREATE TABLE IF NOT EXISTS feedback_items (
       id TEXT PRIMARY KEY, username TEXT NOT NULL, category TEXT NOT NULL,
       title TEXT NOT NULL, message TEXT NOT NULL, diagnostics TEXT,
@@ -249,7 +309,8 @@ export class LocalServer {
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (req.headers.origin) { send(res, 403, { error: '浏览器跨源请求不可用' }); return; }
     if (req.method === 'GET' && req.url === '/health') {
-      send(res, 200, { ok: true, serverId: createHash('sha256').update(this.secret).digest('hex').slice(0, 16) }); return;
+      send(res, 200, { ok: true, accountingVersion: 2,
+        serverId: createHash('sha256').update(this.secret).digest('hex').slice(0, 16) }); return;
     }
     if ((req.url === '/v1/auth/check' || req.url === '/v1/update/latest' || req.url === '/v1/update/package' ||
       req.url === '/v1/feedback' || req.url === '/v1/admin/feedback' ||
@@ -262,6 +323,17 @@ export class LocalServer {
       send(res, 403, { error: '需要服务管理密钥' }); return;
     }
     if (req.method === 'GET' && req.url === '/v1/auth/check') { send(res, 200, { authorized: true }); return; }
+    if (req.method === 'GET' && req.url === '/v1/usage') {
+      const device = this.uploadDevice(req);
+      if (!device) { send(res, 401, { error: '设备上报凭证无效' }); return; }
+      const rows = this.getDatabase().all('SELECT owner_user_id, day, provider, model, total_status, confirmed_subtotal, conflict_count, conflict_sources FROM aggregate_status WHERE device_id = ? ORDER BY owner_user_id, day, provider, model', [device.deviceId])
+        .filter(row => device.ownerUserIds.includes(String(row.owner_user_id)))
+        .map(row => ({ ownerUserId: row.owner_user_id, day: row.day, provider: row.provider, model: row.model,
+          totalStatus: row.total_status,
+          confirmedSubtotal: row.total_status === 'legacy_unknown' ? null : JSON.parse(String(row.confirmed_subtotal)),
+          conflictCount: row.conflict_count, conflictSources: JSON.parse(String(row.conflict_sources)) }));
+      send(res, 200, { accountingVersion: 2, rows }); return;
+    }
     if (req.method === 'POST' && req.url === '/v1/admin/devices/enroll') {
       try {
         const value = await readJson(req, 64 * 1024) as Record<string, unknown>;
@@ -385,7 +457,11 @@ export class LocalServer {
         send(res, 403, { error: '设备或用户归属超出授权范围' }); return;
       }
       const db = this.getDatabase();
-      const previous = Number(db.one('SELECT revision FROM device_revisions WHERE device_id = ?', [snapshot.deviceId])?.revision ?? -1);
+      const previousRow = db.one('SELECT revision, accounting_version FROM device_revisions WHERE device_id = ?', [snapshot.deviceId]);
+      const previous = Number(previousRow?.revision ?? -1);
+      if (Number(previousRow?.accounting_version ?? 1) === 2 && snapshot.accountingVersion !== 2) {
+        send(res, 409, { error: '不允许降级计量协议', currentRevision: previous }); return;
+      }
       if (snapshot.revision < previous) { send(res, 409, { error: '旧版快照', currentRevision: previous }); return; }
       if (snapshot.revision === previous) { send(res, 200, { accepted: true, duplicate: true }); return; }
       db.transaction(() => {
@@ -393,16 +469,38 @@ export class LocalServer {
           for (const ownerUserId of uploadDevice.ownerUserIds) {
             db.run('DELETE FROM aggregates WHERE device_id = ? AND provider = ? AND owner_user_id = ?',
               [snapshot.deviceId, provider, ownerUserId]);
+            db.run('DELETE FROM aggregate_status WHERE device_id = ? AND provider = ? AND owner_user_id = ?',
+              [snapshot.deviceId, provider, ownerUserId]);
           }
         }
         for (const coverage of snapshot.coverage) db.run(`INSERT INTO source_coverage VALUES (?, ?, ?, ?, ?)
           ON CONFLICT(device_id, provider) DO UPDATE SET status=excluded.status, last_scan=excluded.last_scan, revision=excluded.revision`,
           [snapshot.deviceId, coverage.provider, coverage.status, coverage.lastScan, snapshot.revision]);
-        for (const row of snapshot.rows) db.run('INSERT INTO aggregates VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
-          snapshot.deviceId, row.ownerUserId, row.day, row.provider, row.model,
-          row.inputTokens, row.outputTokens, row.cacheReadTokens, row.cacheCreationTokens, row.totalTokens, row.requests
-        ]);
-        db.run('INSERT INTO device_revisions VALUES (?, ?) ON CONFLICT(device_id) DO UPDATE SET revision=excluded.revision', [snapshot.deviceId, snapshot.revision]);
+        for (const row of snapshot.rows) {
+          const subtotal = 'confirmedSubtotal' in row ? row.confirmedSubtotal : {
+            inputTokens: row.inputTokens, outputTokens: row.outputTokens, cacheReadTokens: row.cacheReadTokens,
+            cacheCreationTokens: row.cacheCreationTokens, totalTokens: row.totalTokens, requests: row.requests
+          };
+          const status = 'totalStatus' in row ? row.totalStatus : 'legacy_unknown';
+          const conflictCount = 'conflictCount' in row ? row.conflictCount : 0;
+          const conflictSources = 'conflictSources' in row ? row.conflictSources : [];
+          const recordedSubtotal = status === 'legacy_unknown' ? { inputTokens: 0, outputTokens: 0,
+            cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 0, requests: 0 } : subtotal;
+          db.run('INSERT INTO aggregate_status VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [snapshot.deviceId,
+            row.ownerUserId, row.day, row.provider, row.model, status, JSON.stringify(recordedSubtotal), conflictCount,
+            JSON.stringify(conflictSources)]);
+          if (status === 'confirmed' || status === 'legacy_unknown') db.run('INSERT INTO aggregates VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
+            snapshot.deviceId, row.ownerUserId, row.day, row.provider, row.model,
+            'confirmedSubtotal' in row ? subtotal.inputTokens : row.inputTokens,
+            'confirmedSubtotal' in row ? subtotal.outputTokens : row.outputTokens,
+            'confirmedSubtotal' in row ? subtotal.cacheReadTokens : row.cacheReadTokens,
+            'confirmedSubtotal' in row ? subtotal.cacheCreationTokens : row.cacheCreationTokens,
+            'confirmedSubtotal' in row ? subtotal.totalTokens : row.totalTokens,
+            'confirmedSubtotal' in row ? subtotal.requests : row.requests
+          ]);
+        }
+        db.run('INSERT INTO device_revisions(device_id, revision, accounting_version) VALUES (?, ?, ?) ON CONFLICT(device_id) DO UPDATE SET revision=excluded.revision, accounting_version=excluded.accounting_version',
+          [snapshot.deviceId, snapshot.revision, snapshot.accountingVersion === 2 ? 2 : 1]);
       });
       send(res, 200, { accepted: true, duplicate: false });
       return;

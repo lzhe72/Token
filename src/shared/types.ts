@@ -20,9 +20,9 @@ export type Provider = 'codex' | 'claude';
 export interface SourceStatus {
   provider: Provider;
   status: 'scanning' | 'ready' | 'no_records' | 'not_found' | 'error' | 'idle';
-  fileCount: number;
-  factCount: number;
-  telemetryFactCount: number;
+  fileCount: number | null;
+  factCount: number | null;
+  telemetryFactCount: number | null;
   lastTelemetry: string | null;
   lastScan: string | null;
   detail: string | null;
@@ -54,6 +54,7 @@ export interface ServerStatus {
 
 export interface UploadStatus {
   pending: number;
+  uncertainRows: number;
   lastSuccess: string | null;
   lastError: string | null;
   lastAttempt: string | null;
@@ -105,6 +106,8 @@ export interface ProjectTotal extends TokenTotals {
 export interface UsageReport {
   query: ReportQuery;
   snapshotId: string;
+  accounting: { status: 'confirmed' | 'uncertain'; confirmedSubtotal: TokenTotals;
+    conflictCount: number; conflictSources: Array<'local' | 'telemetry'> };
   totals: TokenTotals;
   points: ReportPoint[];
   models: ModelTotal[];
@@ -124,6 +127,7 @@ export interface UsageDetail {
   projectLabel: string;
   occurredAt: string;
   source: 'local' | 'telemetry';
+  accountingStatus: 'confirmed' | 'pending';
   sourceLabel: string;
   inputTokens: number;
   outputTokens: number;
@@ -136,14 +140,14 @@ export interface CollectionDiagnostic {
   provider: Provider;
   status: SourceStatus['status'];
   location: string;
-  fileCount: number;
-  factCount: number;
-  unknownProjectCount: number;
-  unassignedFactCount: number;
-  pendingTailCount: number;
-  malformedCount: number;
-  oversizedCount: number;
-  unreadableCount: number;
+  fileCount: number | null;
+  factCount: number | null;
+  unknownProjectCount: number | null;
+  unassignedFactCount: number | null;
+  pendingTailCount: number | null;
+  malformedCount: number | null;
+  oversizedCount: number | null;
+  unreadableCount: number | null;
   lastScan: string | null;
   lastSuccess: string | null;
   reason: string;

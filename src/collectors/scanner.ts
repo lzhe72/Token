@@ -399,7 +399,7 @@ export class UsageScanner {
       }
       return {
         provider: status.provider, status: status.status, location: labels[status.provider],
-        fileCount: status.fileCount, factCount: status.factCount, unknownProjectCount,
+        fileCount: status.fileCount ?? 0, factCount: status.factCount ?? 0, unknownProjectCount,
         unassignedFactCount, pendingTailCount,
         malformedCount: diagnostic.malformed ?? 0, oversizedCount: diagnostic.oversized ?? 0,
         unreadableCount: diagnostic.unreadable ?? 0, lastScan: status.lastScan,

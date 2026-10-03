@@ -82,10 +82,14 @@ const cases = [
   ['TC-076', 'integration', 'scripts/verify-auto-upgrade.mjs', 'TC-076 自动更新打包应用', '自动退出、替换和重启新版'],
   ['TC-079', 'unit', 'tests/report-snapshot.test.ts', 'TC-079 查询后新增事实必须刷新快照才能导出相同事实集合', '报表快照与 CSV 一致'],
   ['TC-080', 'e2e', 'tests/e2e/overview-drilldown.spec.ts', 'TC-080 概览趋势继承时间工具并在面包屑返回后保留筛选与焦点', '概览趋势上下文下钻'],
-  ['TC-081', 'e2e', 'tests/e2e/overview-drilldown.spec.ts', 'TC-081 同名模型按提供方下钻且筛选选项不混合', '模型提供方身份下钻']
+  ['TC-081', 'e2e', 'tests/e2e/overview-drilldown.spec.ts', 'TC-081 同名模型按提供方下钻且筛选选项不混合', '模型提供方身份下钻'],
+  ['TC-092', 'unit', 'tests/reconciliation.test.ts', 'TC-092 跨用户和不同会话遥测独立保留且同会话冲突不伪造总量', '本地与遥测归属和会话调和'],
+  ['TC-093', 'unit', 'tests/reconciliation.test.ts', 'TC-093 报表明细和 CSV v2 同源逐组小计且时区边界不漏冲突', '报表明细与 CSV v2 调和'],
+  ['TC-094', 'unit', 'tests/sync-reconciliation.test.ts', 'TC-094 服务 v2 清除旧聚合并保留冲突状态旧队列重算和权限边界', '服务上报协议 v2 与旧数据迁移']
 ];
 const extraRuns = {
   'TC-079': [{ kind: 'e2e', file: 'tests/e2e/report-snapshot.spec.ts', testName: 'TC-079 快速切换筛选时旧响应不覆盖且导出等待当前快照' }],
+  'TC-093': [{ kind: 'e2e', file: 'tests/e2e/overlap-privacy.spec.ts', testName: 'TC-093 普通用户来源状态诊断和反馈附件不含其他账户数据' }],
   'TC-036': [{ kind: 'unit', file: 'tests/update-install.test.ts', testName: 'TC-036 自动安装目标选择、退出后替换和失败回滚' }],
   'TC-030': [{ kind: 'e2e', file: 'tests/e2e/trust.spec.ts', testName: 'TC-030 应用重启自动登录并在退出后撤销' }],
   'TC-032': [{ kind: 'unit', file: 'tests/next-server.test.ts', testName: 'TC-032 临时 CA 严格验证非回环服务与证书失败路径' }],

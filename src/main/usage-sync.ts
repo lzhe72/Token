@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import type { AppDatabase } from './database';
 import type { UsageScanner } from '../collectors/scanner';
-import type { UsageAggregate, UsageSnapshot } from '../server/server';
+import type { UsageAggregateV2, UsageSnapshot, UsageSnapshotV2 } from '../server/server';
 import type { ServerConnection } from './server-connection';
+import { reconcileFacts } from './reconcile';
 
 export interface SyncStatus {
   pending: number;
+  uncertainRows: number;
   lastSuccess: string | null;
   lastError: string | null;
   lastAttempt: string | null;
@@ -43,6 +45,7 @@ export class UsageSync {
     const get = (key: string) => this.db.one('SELECT value FROM sync_meta WHERE key = ?', [key])?.value;
     return {
       pending: Number(this.db.one('SELECT COUNT(*) AS count FROM sync_outbox')?.count ?? 0),
+      uncertainRows: Number(get('uncertain_rows') ?? 0),
       lastSuccess: get('last_success') ? String(get('last_success')) : null,
       lastError: get('last_error') ? String(get('last_error')) : null,
       lastAttempt: get('last_attempt') ? String(get('last_attempt')) : null
@@ -53,20 +56,20 @@ export class UsageSync {
     this.db.run('INSERT INTO sync_meta VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', [key, value]);
   }
 
-  private aggregate(providers: Array<'codex' | 'claude'>): UsageAggregate[] {
+  private aggregate(providers: Array<'codex' | 'claude'>): UsageAggregateV2[] {
     if (!providers.length) return [];
-    const facts = this.db.all(`SELECT f.provider, f.model, substr(f.occurred_at, 1, 10) AS day,
+    const facts = this.db.all(`SELECT f.source_key, f.session_id, f.occurred_at, f.provider, f.model, substr(f.occurred_at, 1, 10) AS day,
         s.owner_user_id, f.input_tokens, f.output_tokens, f.cache_read_tokens,
         f.cache_creation_tokens, f.total_tokens
       FROM usage_facts f JOIN source_identities s ON s.key = f.source_identity_key
       JOIN users u ON u.id = s.owner_user_id AND u.active = 1
-      WHERE
-        (f.source_key NOT LIKE 'otel:%' OR NOT EXISTS (
-          SELECT 1 FROM usage_facts local WHERE local.provider = f.provider
-          AND local.source_key NOT LIKE 'otel:%'
-          AND substr(local.occurred_at, 1, 10) = substr(f.occurred_at, 1, 10)
-        ))`);
-    const grouped = new Map<string, UsageAggregate>();
+      WHERE f.provider IN ('codex', 'claude')`) as Array<{
+        source_key: string; session_id: string; occurred_at: string; provider: 'codex' | 'claude';
+        model: string; day: string; owner_user_id: string; input_tokens: number; output_tokens: number;
+        cache_read_tokens: number; cache_creation_tokens: number; total_tokens: number;
+      }>;
+    const pendingKeys = reconcileFacts(facts.filter(fact => providers.includes(fact.provider))).pendingKeys;
+    const grouped = new Map<string, UsageAggregateV2>();
     for (const fact of facts) {
       const provider = String(fact.provider) as 'codex' | 'claude';
       if (!providers.includes(provider)) continue;
@@ -76,18 +79,29 @@ export class UsageSync {
       const key = JSON.stringify([ownerUserId, day, provider, model]);
       let row = grouped.get(key);
       if (!row) {
-        row = { ownerUserId, day, provider, model, inputTokens: 0, outputTokens: 0,
-          cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 0, requests: 0 };
+        row = { ownerUserId, day, provider, model, confirmedSubtotal: { inputTokens: 0, outputTokens: 0,
+          cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 0, requests: 0 },
+          totalStatus: 'confirmed', conflictCount: 0, conflictSources: [] };
         grouped.set(key, row);
       }
-      row.inputTokens = exact(row.inputTokens + exact(fact.input_tokens));
-      row.outputTokens = exact(row.outputTokens + exact(fact.output_tokens));
-      row.cacheReadTokens = exact(row.cacheReadTokens + exact(fact.cache_read_tokens));
-      row.cacheCreationTokens = exact(row.cacheCreationTokens + exact(fact.cache_creation_tokens));
-      row.totalTokens = exact(row.totalTokens + exact(fact.total_tokens));
-      row.requests = exact(row.requests + 1);
+      if (pendingKeys.has(fact.source_key)) {
+        row.totalStatus = 'uncertain';
+        row.conflictCount = exact(row.conflictCount + 1);
+        const source = fact.source_key.startsWith('otel:') ? 'telemetry' : 'local';
+        if (!row.conflictSources.includes(source)) row.conflictSources.push(source);
+      } else {
+        const subtotal = row.confirmedSubtotal;
+        subtotal.inputTokens = exact(subtotal.inputTokens + exact(fact.input_tokens));
+        subtotal.outputTokens = exact(subtotal.outputTokens + exact(fact.output_tokens));
+        subtotal.cacheReadTokens = exact(subtotal.cacheReadTokens + exact(fact.cache_read_tokens));
+        subtotal.cacheCreationTokens = exact(subtotal.cacheCreationTokens + exact(fact.cache_creation_tokens));
+        subtotal.totalTokens = exact(subtotal.totalTokens + exact(fact.total_tokens));
+        subtotal.requests = exact(subtotal.requests + 1);
+      }
     }
-    return [...grouped.values()].sort((a, b) => JSON.stringify([a.ownerUserId, a.day, a.provider, a.model]).localeCompare(JSON.stringify([b.ownerUserId, b.day, b.provider, b.model])));
+    return [...grouped.values()].map(row => row.totalStatus === 'confirmed'
+      ? { ...row, conflictSources: [], totalTokens: row.confirmedSubtotal.totalTokens } : row)
+      .sort((a, b) => JSON.stringify([a.ownerUserId, a.day, a.provider, a.model]).localeCompare(JSON.stringify([b.ownerUserId, b.day, b.provider, b.model])));
   }
 
   async afterScan(): Promise<void> {
@@ -98,19 +112,19 @@ export class UsageSync {
       const prior = this.db.one('SELECT payload FROM sync_outbox WHERE id = 1');
       const previous = prior ? JSON.parse(String(prior.payload)) as UsageSnapshot : null;
       const mergedProviders = [...new Set([...(previous?.providers ?? []), ...providers])];
-      const currentRows = this.aggregate(providers);
-      const activeOwners = new Set(this.db.all('SELECT id FROM users WHERE active = 1').map(user => String(user.id)));
-      const retainedRows = previous?.rows.filter(row => !providers.includes(row.provider) && activeOwners.has(row.ownerUserId)) ?? [];
+      const currentRows = this.aggregate(mergedProviders);
       const revision = exact(Math.max(Number(this.db.one("SELECT value FROM sync_meta WHERE key = 'revision'")?.value ?? 0) + 1, Date.now()));
       const coverage: UsageSnapshot['coverage'] = statuses.map(status => ({
         provider: status.provider, status: status.status === 'scanning' ? 'idle' : status.status,
         lastScan: status.lastScan
       }));
-      const payload: UsageSnapshot = { deviceId: this.deviceId, revision, providers: mergedProviders, coverage, rows: [...currentRows, ...retainedRows] };
+      const payload: UsageSnapshotV2 = { accountingVersion: 2, deviceId: this.deviceId, revision,
+        providers: mergedProviders, coverage, rows: currentRows };
       const serialized = JSON.stringify(payload);
       if (Buffer.byteLength(serialized, 'utf8') > 16 * 1024 * 1024) throw new Error('上报快照超过 16 MB，需缩小同步范围');
       this.db.transaction(() => {
         this.setMeta('revision', String(revision));
+        this.setMeta('uncertain_rows', String(currentRows.filter(row => row.totalStatus === 'uncertain').length));
         this.db.run('INSERT INTO sync_outbox VALUES (1, ?, 0) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload, attempts=0', [serialized]);
       });
       await this.flush();
@@ -138,8 +152,20 @@ export class UsageSync {
     const lastAttempt = this.db.one("SELECT value FROM sync_meta WHERE key = 'last_attempt'")?.value;
     const delay = Math.min(10 * 60_000, 30_000 * 2 ** Math.min(attempts, 5));
     if (attempts > 0 && lastAttempt && Date.now() - Date.parse(String(lastAttempt)) < delay) return;
-    const payload = String(row.payload);
-    const snapshot = JSON.parse(payload) as UsageSnapshot;
+    let payload = String(row.payload);
+    let snapshot = JSON.parse(payload) as UsageSnapshot;
+    if (snapshot.accountingVersion !== 2) {
+      const upgraded: UsageSnapshotV2 = { accountingVersion: 2, deviceId: this.deviceId,
+        revision: exact(Math.max(snapshot.revision + 1, Date.now())), providers: snapshot.providers,
+        coverage: snapshot.coverage, rows: this.aggregate(snapshot.providers) };
+      payload = JSON.stringify(upgraded);
+      snapshot = upgraded;
+      this.db.transaction(() => {
+        this.db.run('UPDATE sync_outbox SET payload = ?, attempts = 0 WHERE id = 1', [payload]);
+        this.setMeta('revision', String(upgraded.revision));
+        this.setMeta('uncertain_rows', String(upgraded.rows.filter(item => item.totalStatus === 'uncertain').length));
+      });
+    }
     const revision = snapshot.revision;
     const ownerUserIds = this.db.all('SELECT id FROM users WHERE active = 1').map(user => String(user.id));
     this.setMeta('last_attempt', new Date().toISOString());
@@ -156,6 +182,7 @@ export class UsageSync {
       }
       if (!response.ok) throw new Error(response.status === 401
         ? '设备上报凭证失效；请由管理员在系统设置中重新保存服务器连接'
+        : response.status === 400 ? '服务端计量协议不兼容；需更新服务端后重试，待传数据已保留'
         : `服务端拒绝上报 (${response.status})`);
       this.db.transaction(() => {
         const current = this.db.one('SELECT payload FROM sync_outbox WHERE id = 1');

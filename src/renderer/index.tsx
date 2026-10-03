@@ -374,7 +374,7 @@ function App() {
           serverUrl={serverUrl} serverToken={serverToken} adminToken={serverAdminToken} busy={busy} checking={checkingUpdate}
           setServerUrl={setServerUrl} setServerToken={setServerToken} setAdminToken={setServerAdminToken} saveServer={saveServer}
           checkUpdate={checkUpdate} downloadUpdate={downloadUpdate} backupDatabase={backupDatabase} restoreDatabase={restoreDatabase} openFilePermissions={openFilePermissions} />
-        : tab === 'diagnostics' ? <DiagnosticsPanel items={diagnostics} busy={busy} onScan={scanSources} onPermissions={openFilePermissions} onFeedback={() => setTab('feedback')} />
+        : tab === 'diagnostics' ? <DiagnosticsPanel items={diagnostics} busy={busy} canScan={state.user.role !== 'viewer'} onScan={scanSources} onPermissions={openFilePermissions} onFeedback={() => setTab('feedback')} />
         : tab === 'feedback' ? <FeedbackPanel username={state.user.username} />
         : tab === 'sources' ? <>
           <p className="page-lead">只读取当前 macOS 账户可访问的本机会话记录。采集器不会保存提示词、回复正文或源码。</p>

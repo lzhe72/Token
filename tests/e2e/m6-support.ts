@@ -33,7 +33,7 @@ export async function launchM6(label: string, options: { usage?: boolean; missin
   const packaged = process.env.TOKEN_E2E_EXECUTABLE;
   const app = await electron.launch({ executablePath: packaged || (require('electron') as string),
     args: [...(packaged ? [] : [path.resolve('.')]), `--token-user-data=${workspace.root}`],
-    env: { ...process.env,
+    env: { ...process.env, TOKEN_TEST_TELEMETRY_PORT: '0',
       TOKEN_CODEX_SESSIONS_DIR: options.missingCodex ? path.join(workspace.root, 'missing-codex') : workspace.codexDir,
       TOKEN_CLAUDE_PROJECTS_DIR: workspace.claudeDir } });
   const page = await app.firstWindow();

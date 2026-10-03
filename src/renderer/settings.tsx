@@ -51,7 +51,7 @@ export function SettingsPanel(props: Props) {
           <label>管理密钥<input aria-label="服务器管理密钥" type="password" value={props.adminToken} onChange={e => props.setAdminToken(e.target.value)} placeholder="远端管理时填写" /></label>
           <button className="primary" disabled={props.busy}>保存连接</button>
         </form>
-        <p className="hint">{props.server?.online ? `已连接 ${props.server.url}` : props.server?.error || '检查中'} · {props.upload?.pending ? `${props.upload.pending} 批待补传` : '无待补传'} · 最近上报 {props.upload?.lastSuccess ? new Date(props.upload.lastSuccess).toLocaleString('zh-CN') : '尚无'}{props.upload?.lastError ? ` · ${props.upload.lastError}` : ''}</p>
+        <p className="hint">{props.server?.online ? `已连接 ${props.server.url}` : props.server?.error || '检查中'} · {props.upload?.pending ? `${props.upload.pending} 批待补传` : '无待补传'} · {props.upload?.uncertainRows ? `${props.upload.uncertainRows} 个范围待核对${props.upload.pending ? '，尚未同步' : '，状态已同步'}` : '无待核对范围'} · 最近上报 {props.upload?.lastSuccess ? new Date(props.upload.lastSuccess).toLocaleString('zh-CN') : '尚无'}{props.upload?.lastError ? ` · ${props.upload.lastError}` : ''}</p>
       </section>
       <section className="panel telemetry-panel"><div className="panel-head"><h2>可选遥测接入</h2><span>{props.telemetry?.running ? '本机接收器已就绪' : '接收器未启动'}</span></div>
         <p className="hint">本地记录会自动扫描。需要持续接收官方遥测时，手动核对并合并以下配置；应用不会覆盖已有设置。</p>

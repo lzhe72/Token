@@ -126,15 +126,12 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
     auth.renameConflictingAdminViewer(newUsername, actor.id);
   });
   ipcMain.handle('sources:statuses', event => {
-    currentUser(event, auth);
-    return sources.statuses();
+    const actor = currentUser(event, auth);
+    return reports.coverage(actor);
   });
   ipcMain.handle('sources:diagnostics', event => {
     const actor = currentUser(event, auth);
-    const diagnostics = sources.diagnostics();
-    if (actor.role !== 'viewer') return diagnostics;
-    const owned = new Set(sources.identities().filter(item => item.ownerUserId === actor.id).map(item => item.provider));
-    return diagnostics.filter(item => owned.has(item.provider));
+    return reports.diagnostics(actor);
   });
   ipcMain.handle('admin:account-statuses', event => {
     requireAdmin(event, auth);
@@ -199,8 +196,7 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
     if (!['missing_usage', 'report', 'update', 'other'].includes(String(category)) ||
       typeof title !== 'string' || typeof message !== 'string' || typeof attachDiagnostics !== 'boolean' ||
       typeof id !== 'string' || !/^[a-f0-9-]{36}$/.test(id)) throw new Error('反馈内容无效');
-    const owned = new Set(sources.identities().filter(item => item.ownerUserId === actor.id).map(item => item.provider));
-    const visible = sources.diagnostics().filter(item => actor.role !== 'viewer' || owned.has(item.provider));
+    const visible = reports.diagnostics(actor);
     const diagnostics = attachDiagnostics ? JSON.stringify(visible.map(item => ({
       provider: item.provider, status: item.status, fileCount: item.fileCount, factCount: item.factCount,
       reason: item.reason, malformedCount: item.malformedCount, unreadableCount: item.unreadableCount
@@ -283,11 +279,13 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
   ipcMain.handle('reports:export-csv', async (event, query: unknown, snapshotId: unknown) => {
     const actor = currentUser(event, auth);
     if (typeof snapshotId !== 'string') throw new Error('请先加载当前筛选的报表');
+    const current = reports.query(query, actor);
+    if (current.snapshotId !== snapshotId) throw new Error('数据已变化，请刷新报表');
     const csv = reports.csv(query, actor, snapshotId);
     if (!mainWindow) throw new Error('窗口已关闭');
     const result = await dialog.showSaveDialog(mainWindow, {
       title: '导出 Token 用量报表',
-      defaultPath: 'Token-usage.csv',
+      defaultPath: current.accounting.status === 'uncertain' ? 'Token-usage-v2-含待核对用量.csv' : 'Token-usage.csv',
       filters: [{ name: 'CSV 表格', extensions: ['csv'] }]
     });
     if (result.canceled || !result.filePath) return false;
@@ -336,7 +334,8 @@ app.whenReady().then(async () => {
   }
   database = await AppDatabase.open(path.join(app.getPath('userData'), 'token.sqlite'));
   scanner = new UsageScanner(database);
-  telemetry = new TelemetryReceiver(database, app.getPath('userData'));
+  telemetry = new TelemetryReceiver(database, app.getPath('userData'),
+    process.env.TOKEN_TEST_TELEMETRY_PORT === '0' && process.argv.some(arg => arg.startsWith('--token-user-data=')) ? 0 : undefined);
   await telemetry.start();
   connection = new ServerConnection(app.getPath('userData'), safeStorage);
   await connection.startLocalService();
