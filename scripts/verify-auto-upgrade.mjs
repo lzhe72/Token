@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -17,6 +18,16 @@ if (versionParts.length !== 3 || versionParts.some(part => !Number.isInteger(par
   throw new Error('TC-076 需要可构造前一修订版的版本号');
 }
 const oldVersion = `${versionParts[0]}.${versionParts[1]}.${versionParts[2] - 1}`;
+const realOldDmg = process.env.TOKEN_TC076_OLD_DMG;
+const realOldSha256 = process.env.TOKEN_TC076_OLD_SHA256;
+const candidateDmg = process.env.TOKEN_TC076_NEW_DMG;
+const candidateSha256 = process.env.TOKEN_TC076_NEW_SHA256;
+if (realOldDmg && (!path.isAbsolute(realOldDmg) || !/^[a-f0-9]{64}$/.test(realOldSha256 || ''))) {
+  throw new Error('真实旧版须用绝对 DMG 路径和 TOKEN_TC076_OLD_SHA256 指定已知摘要');
+}
+if (candidateDmg && (!path.isAbsolute(candidateDmg) || !/^[a-f0-9]{64}$/.test(candidateSha256 || ''))) {
+  throw new Error('候选新版须用绝对 DMG 路径和 TOKEN_TC076_NEW_SHA256 指定已知摘要');
+}
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'token-test-db-tc076-'));
 const userData = path.join(workspace, 'user-data');
 const codexDir = path.join(workspace, 'codex');
@@ -24,7 +35,7 @@ const claudeDir = path.join(workspace, 'claude');
 const installed = path.join(workspace, 'installed', 'Token.app');
 const newFolder = path.join(workspace, 'new');
 const newBundle = path.join(newFolder, 'Token.app');
-const dmg = path.join(workspace, `Token-auto-${newVersion}.dmg`);
+const dmg = candidateDmg || path.join(workspace, `Token-auto-${newVersion}.dmg`);
 for (const directory of [userData, codexDir, claudeDir, path.dirname(installed), newFolder]) fs.mkdirSync(directory, { recursive: true });
 
 function command(program, args, options = {}) {
@@ -62,22 +73,54 @@ try {
   }
   const built = path.join(root, 'release', 'mac', 'Token.app');
   assert.equal(version(built), newVersion, '打包版本与源码版本不符');
-  command('/usr/bin/ditto', [built, installed]);
+  if (realOldDmg) {
+    assert.equal(fs.statSync(realOldDmg).isFile(), true, '真实旧版 DMG 不存在');
+    assert.equal(fs.lstatSync(realOldDmg).isSymbolicLink(), false, '真实旧版 DMG 不能是符号链接');
+    const digest = createHash('sha256').update(fs.readFileSync(realOldDmg)).digest('hex');
+    assert.equal(digest, realOldSha256, '真实旧版 DMG 摘要不符');
+    command('/usr/bin/hdiutil', ['verify', realOldDmg]);
+    const oldMount = fs.mkdtempSync(path.join(os.tmpdir(), 'token-old-dmg-'));
+    let attached = false;
+    try {
+      command('/usr/bin/hdiutil', ['attach', realOldDmg, '-readonly', '-nobrowse', '-mountpoint', oldMount]);
+      attached = true;
+      const oldBundle = path.join(oldMount, 'Token.app');
+      assert.equal(version(oldBundle), oldVersion, '真实旧版 DMG 版本与目标升级路径不符');
+      assert.equal(command('/usr/libexec/PlistBuddy', ['-c', 'Print CFBundleIdentifier',
+        path.join(oldBundle, 'Contents', 'Info.plist')]).trim(), 'dev.lzhe72.token');
+      command('/usr/bin/ditto', [oldBundle, installed]);
+    } finally {
+      if (attached) command('/usr/bin/hdiutil', ['detach', oldMount]);
+      fs.rmSync(oldMount, { recursive: true, force: true });
+    }
+    console.log(`TC-076 使用 SHA-256 ${digest} 的真实 ${oldVersion} DMG 二进制。`);
+  } else {
+    command('/usr/bin/ditto', [built, installed]);
+    const oldAsar = path.join(installed, 'Contents', 'Resources', 'app.asar');
+    const oldContents = path.join(workspace, 'old-app-contents');
+    asar.extractAll(oldAsar, oldContents);
+    const oldPackage = path.join(oldContents, 'package.json');
+    const metadata = JSON.parse(fs.readFileSync(oldPackage, 'utf8'));
+    metadata.version = oldVersion;
+    fs.writeFileSync(oldPackage, JSON.stringify(metadata));
+    await asar.createPackage(oldContents, `${oldAsar}.new`);
+    fs.renameSync(`${oldAsar}.new`, oldAsar);
+    fs.rmSync(oldContents, { recursive: true, force: true });
+    command('/usr/libexec/PlistBuddy', ['-c', `Set CFBundleShortVersionString ${oldVersion}`, path.join(installed, 'Contents', 'Info.plist')]);
+    console.log('TC-076 使用当前包修改版本元数据构造的旧版；此模式不证明真实历史二进制兼容。');
+  }
   command('/usr/bin/ditto', [built, newBundle]);
-  const oldAsar = path.join(installed, 'Contents', 'Resources', 'app.asar');
-  const oldContents = path.join(workspace, 'old-app-contents');
-  asar.extractAll(oldAsar, oldContents);
-  const oldPackage = path.join(oldContents, 'package.json');
-  const metadata = JSON.parse(fs.readFileSync(oldPackage, 'utf8'));
-  metadata.version = oldVersion;
-  fs.writeFileSync(oldPackage, JSON.stringify(metadata));
-  await asar.createPackage(oldContents, `${oldAsar}.new`);
-  fs.renameSync(`${oldAsar}.new`, oldAsar);
-  fs.rmSync(oldContents, { recursive: true, force: true });
-  command('/usr/libexec/PlistBuddy', ['-c', `Set CFBundleShortVersionString ${oldVersion}`, path.join(installed, 'Contents', 'Info.plist')]);
   assert.equal(version(installed), oldVersion);
-  command('/usr/bin/hdiutil', ['create', '-volname', 'Token-auto-test', '-srcfolder', newFolder,
-    '-ov', '-format', 'UDZO', dmg]);
+  if (candidateDmg) {
+    assert.equal(fs.statSync(candidateDmg).isFile(), true, '候选新版 DMG 不存在');
+    assert.equal(fs.lstatSync(candidateDmg).isSymbolicLink(), false, '候选新版 DMG 不能是符号链接');
+    const digest = createHash('sha256').update(fs.readFileSync(candidateDmg)).digest('hex');
+    assert.equal(digest, candidateSha256, '候选新版 DMG 摘要不符');
+    console.log(`TC-076 使用 SHA-256 ${digest} 的 ${newVersion} 候选 DMG。`);
+  } else {
+    command('/usr/bin/hdiutil', ['create', '-volname', 'Token-auto-test', '-srcfolder', newFolder,
+      '-ov', '-format', 'UDZO', dmg]);
+  }
   command('/usr/bin/hdiutil', ['verify', dmg]);
   const stamp = new Date().toISOString();
   const facts = [
