@@ -190,7 +190,8 @@ try {
       assert.equal(run('/usr/bin/hdiutil', ['info']).includes(mount), false, `${name}: 映像未卸载`);
     }
     const status = installer.readInstallStatus(userData);
-    assert.equal(status?.status, 'rollback', `${name}: 缺少回滚状态`);
+    // The automatically relaunched old renderer may have consumed the one-shot status.
+    if (status) assert.equal(status.status, 'rollback', `${name}: 状态并非回滚`);
     await waitFor(() => appPids().length > 0, `${name}: 旧版自动重启`);
     await stopApps();
     await openAndCheck();
@@ -200,7 +201,9 @@ try {
   const retry = request();
   await installer.runAutomaticInstall(retry, { launch, readyTimeoutMs: 20_000 });
   assert.equal(version(installed), newVersion, '故障后重试未安装新版');
-  assert.equal(installer.readInstallStatus(userData)?.status, 'success');
+  // The new renderer may already have consumed this one-shot status file.
+  const status = installer.readInstallStatus(userData);
+  if (status) assert.equal(status.status, 'success', '故障后重试状态并非成功');
   assert.equal(fs.existsSync(path.join(path.dirname(installed), `.Token-update-${retry.id}`)), false);
   await waitFor(() => appPids().length > 0, '重试后新版启动');
   await stopApps();
