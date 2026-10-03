@@ -4,6 +4,13 @@
 
 ## 2026-10-04
 
+### Claude 绑定证据纠错与预览复用（REQ-045、DEV-054、TC-086；文档分支 `codex/docs/20261004-claude-binding-validation`）
+
+- **尝试**：静态核证据字段提交失败后的主进程 pending 预览与 renderer 弹窗生命周期。
+- **卡点**：现行 `confirm()` 读取后即删除 pending，确认失败时 UI 关闭弹窗；未来字段填错若沿用此路径，管理员无法在同一有效预览内修正。
+- **处理**：REQ-045/DEV-054/TC-086 补字段级错误、焦点及保留输入，非法字段先于消费 preview 校验；错误不改归属/审计/上报，修正后同 ID 重试。过期、基线变化、取消/Escape 与成功仍失效。
+- **结果**：仅补非 SOP 待验收口径；没有实现提交或新增断言通过证据，状态不升。
+
 ### Claude 单文件多 session 旧库迁移（REQ-048、DEV-057、TC-092；文档分支 `codex/docs/20261004-claude-multisession-migration`）
 
 - **尝试**：核旧 UID 绑定 JSONL 中两个 session/request 均有事实、游标却只留末 session 的迁移反例，并保持文件代次与游标早退用例。
