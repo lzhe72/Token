@@ -14,8 +14,11 @@ if (args[0] === '--list') {
 if (args[0] === '--check') {
   const ids = new Set();
   const linkedTests = new Set();
-  for (const [index, item] of cases.entries()) {
-    if (item.id !== `TC-${String(index + 1).padStart(3, '0')}` || ids.has(item.id)) throw new Error(`测试编号缺失或重复: ${item.id}`);
+  let previousNumber = 0;
+  for (const item of cases) {
+    const number = Number(item.id.slice(3));
+    if (!/^TC-\d{3}$/.test(item.id) || number <= previousNumber || ids.has(item.id)) throw new Error(`测试编号无效、重复或未排序: ${item.id}`);
+    previousNumber = number;
     ids.add(item.id);
     if (item.kind === 'manual') {
       if (!item.steps) throw new Error(`${item.id} 缺少操作步骤`);
@@ -41,7 +44,10 @@ if (args[0] === '--check') {
       }
     }
   }
-  console.log(`已核对 ${cases.length} 个 TC 编号及其可执行入口。`);
+  const pending = Array.from({ length: previousNumber }, (_, index) => `TC-${String(index + 1).padStart(3, '0')}`)
+    .filter(id => !ids.has(id));
+  console.log(`已核对 ${cases.length} 个已注册 TC 编号及其可执行入口。`);
+  if (pending.length) console.log(`尚未注册的计划编号：${pending.join('、')}；验收状态以追溯工作簿为准。`);
   process.exit(0);
 }
 if (!chosen) {

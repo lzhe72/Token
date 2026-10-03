@@ -38,37 +38,59 @@ function displayError(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': Error: /, '');
 }
 
+function matchesQuery(report: UsageReport, query: ReportQuery, user: PublicUser): boolean {
+  const effective = { ...query, projectKey: query.projectKey || '',
+    userId: user.role === 'viewer' ? user.id : query.userId };
+  return (Object.keys(effective) as Array<keyof ReportQuery>).every(key => report.query[key] === effective[key]);
+}
+
 export function ReportPanel({ user, users, onDrilldownChange }: { user: PublicUser; users: PublicUser[]; onDrilldownChange?: (active: boolean) => void }) {
   const [query, setQuery] = React.useState<ReportQuery>(initialQuery);
-  const [report, setReport] = React.useState<UsageReport | null>(null);
+  const [loadedReport, setLoadedReport] = React.useState<UsageReport | null>(null);
   const [details, setDetails] = React.useState<UsageDetailsPage | null>(null);
   const [detailPage, setDetailPage] = React.useState(1);
   const [detailPeriod, setDetailPeriod] = React.useState('');
   const [error, setError] = React.useState('');
   const [exporting, setExporting] = React.useState(false);
+  const [loading, setLoading] = React.useState(true);
+  const [reload, setReload] = React.useState(0);
+  const report = loadedReport && matchesQuery(loadedReport, query, user) ? loadedReport : null;
 
   React.useEffect(() => { onDrilldownChange?.(Boolean(detailPeriod || query.model || query.projectKey)); },
     [detailPeriod, query.model, query.projectKey, onDrilldownChange]);
 
   React.useEffect(() => {
     let active = true;
-    const refresh = () => window.tokenApi.queryUsage(query).then(value => {
-      if (active) { setReport(value); setError(''); }
-    }).catch(e => { if (active) setError(displayError(e)); });
+    let generation = 0;
+    const refresh = () => {
+      const current = ++generation;
+      setLoading(true);
+      return window.tokenApi.queryUsage(query).then(value => {
+        if (active && current === generation) { setLoadedReport(value); setError(''); }
+      }).catch(e => { if (active && current === generation) { setLoadedReport(null); setError(displayError(e)); } })
+        .finally(() => { if (active && current === generation) setLoading(false); });
+    };
     void refresh();
     const timer = window.setInterval(() => void refresh(), 15_000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [query]);
+  }, [query, reload]);
 
   React.useEffect(() => {
     let active = true;
-    const refresh = () => window.tokenApi.queryUsageDetails(query, detailPage, detailPeriod)
+    if (!report) { setDetails(null); return () => { active = false; }; }
+    setDetails(null);
+    const snapshotId = report.snapshotId;
+    const refresh = () => window.tokenApi.queryUsageDetails(query, detailPage, detailPeriod, snapshotId)
       .then(value => { if (active) setDetails(value); })
-      .catch(e => { if (active) setError(displayError(e)); });
+      .catch(e => { if (active) {
+        const message = displayError(e);
+        setError(message);
+        if (message.includes('数据已变化')) setLoadedReport(null);
+      } });
     void refresh();
     const timer = window.setInterval(() => void refresh(), 15_000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [query, detailPage, detailPeriod]);
+  }, [query, detailPage, detailPeriod, report?.snapshotId]);
 
   function update<K extends keyof ReportQuery>(key: K, value: ReportQuery[K]) {
     setQuery(current => ({ ...current, [key]: value }));
@@ -77,10 +99,15 @@ export function ReportPanel({ user, users, onDrilldownChange }: { user: PublicUs
   }
 
   async function exportCsv() {
+    if (!report || loading) return;
     setExporting(true);
     setError('');
-    try { await window.tokenApi.exportCsv(query); }
-    catch (e) { setError(displayError(e)); }
+    try { await window.tokenApi.exportCsv(query, report.snapshotId); }
+    catch (e) {
+      const message = displayError(e);
+      setError(message);
+      if (message.includes('数据已变化')) setLoadedReport(null);
+    }
     finally { setExporting(false); }
   }
 
@@ -95,8 +122,9 @@ export function ReportPanel({ user, users, onDrilldownChange }: { user: PublicUs
         )}
       </div>
       <div className="report-dates"><label>开始 <input aria-label="开始日期" type="date" value={query.from} onChange={e => update('from', e.target.value)} /></label><span>—</span><label>结束 <input aria-label="结束日期" type="date" value={query.to} onChange={e => update('to', e.target.value)} /></label></div>
-      <button className="export-button" disabled={exporting || !report} onClick={exportCsv}>{exporting ? '导出中…' : '导出 CSV'}</button>
+      <button className="export-button" disabled={exporting || loading || !report} onClick={exportCsv}>{exporting ? '导出中…' : '导出 CSV'}</button>
     </div>
+    <p className="hint export-summary">导出范围：{query.from} 至 {query.to} · {query.timeZone} · {query.provider === 'all' ? '全部工具' : query.provider === 'codex' ? 'Codex' : 'Claude Code'} · 模型 {query.model || '全部'} · 项目 {query.projectKey || '全部'} · 用户 {user.role === 'viewer' ? '当前用户' : query.userId === 'all' ? '全部' : query.userId === 'unassigned' ? '未归属' : '指定用户'}</p>
     <div className="report-filters">
       <label>工具<select aria-label="工具筛选" value={query.provider} onChange={e => { setQuery(current => ({ ...current, provider: e.target.value as Provider | 'all', model: '' })); setDetailPage(1); setDetailPeriod(''); }}><option value="all">全部工具</option><option value="codex">Codex</option><option value="claude">Claude Code</option></select></label>
       <label>模型<select aria-label="模型筛选" value={query.model} onChange={e => update('model', e.target.value)}><option value="">全部模型</option>{report?.availableModels.map(model => <option key={model} value={model}>{model}</option>)}</select></label>
@@ -107,7 +135,8 @@ export function ReportPanel({ user, users, onDrilldownChange }: { user: PublicUs
       </select></label>
     </div>
     {error && <div className="error" role="alert">{error}</div>}
-    {!report ? <div className="panel empty-row">正在计算报表…</div> : <>
+    {loading && report && <p className="hint" role="status">正在刷新当前报表，导出暂不可用。</p>}
+    {!report ? <div className="panel empty-row" role="status">{loading ? '正在计算报表…' : '报表暂不可用，请重试。'} <button type="button" className="text-button" onClick={() => setReload(value => value + 1)}>刷新报表</button></div> : <>
       <div className="coverage-strip">{report.coverage.map(source => <div key={source.provider}><strong>{source.provider === 'codex' ? 'Codex' : 'Claude Code'}</strong><span>{coverageLabel(source)} · {number(source.factCount)} 条本地 · {number(source.telemetryFactCount)} 条遥测</span></div>)}</div>
       <div className="metric-grid">
         <div className="metric-card" title={`${number(report.totals.totalTokens)} Token`}><span>总 Token</span><strong>{formatTokens(report.totals.totalTokens)}</strong><small>{number(report.totals.requests)} 条用量记录</small></div>

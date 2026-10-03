@@ -79,9 +79,11 @@ const cases = [
   ['TC-073', 'unit', 'tests/collector-fallback.test.ts', 'TC-073 Codex fallback 跨扫描替换与旧库修复保持幂等', 'Codex fallback 跨扫描归并'],
   ['TC-074', 'unit', 'tests/server-ownership.test.ts', 'TC-074 聚合上报拒绝跨设备跨用户覆盖并保留原快照', '聚合上报设备与用户归属授权回归'],
   ['TC-075', 'unit', 'tests/signed-release.test.ts', 'TC-075 签名发布预检与命令构造', '签名发布脚本预检与命令构造'],
-  ['TC-076', 'integration', 'scripts/verify-auto-upgrade.mjs', 'TC-076 自动更新打包应用', '自动退出、替换和重启新版']
+  ['TC-076', 'integration', 'scripts/verify-auto-upgrade.mjs', 'TC-076 自动更新打包应用', '自动退出、替换和重启新版'],
+  ['TC-079', 'unit', 'tests/report-snapshot.test.ts', 'TC-079 查询后新增事实必须刷新快照才能导出相同事实集合', '报表快照与 CSV 一致']
 ];
 const extraRuns = {
+  'TC-079': [{ kind: 'e2e', file: 'tests/e2e/report-snapshot.spec.ts', testName: 'TC-079 快速切换筛选时旧响应不覆盖且导出等待当前快照' }],
   'TC-036': [{ kind: 'unit', file: 'tests/update-install.test.ts', testName: 'TC-036 自动安装目标选择、退出后替换和失败回滚' }],
   'TC-030': [{ kind: 'e2e', file: 'tests/e2e/trust.spec.ts', testName: 'TC-030 应用重启自动登录并在退出后撤销' }],
   'TC-032': [{ kind: 'unit', file: 'tests/next-server.test.ts', testName: 'TC-032 临时 CA 严格验证非回环服务与证书失败路径' }],

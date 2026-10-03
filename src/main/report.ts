@@ -100,6 +100,24 @@ function csvCell(value: string): string {
 export class ReportService {
   constructor(private readonly db: AppDatabase, private readonly scanner: UsageScanner) {}
 
+  private snapshot(query: ReportQuery): { rows: Array<{ fact: FactRow; period: string }>; id: string } {
+    const rows = [...this.filteredFacts(query, this.selectFacts(query))];
+    const digest = createHash('sha256').update(JSON.stringify(query));
+    const identities = rows.map(({ fact, period }) => [fact.source_key, fact.provider, fact.model,
+      fact.occurred_at, fact.owner_user_id, fact.project_key, fact.project_label, fact.source_label,
+      fact.input_tokens, fact.output_tokens, fact.cache_read_tokens, fact.cache_creation_tokens,
+      fact.total_tokens, period]);
+    identities.sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+    digest.update(JSON.stringify(identities));
+    return { rows, id: digest.digest('hex') };
+  }
+
+  private assertSnapshot(expected: unknown, actual: string): void {
+    if (expected === undefined) return; // Existing direct callers; renderer IPC requires an identity for export.
+    if (typeof expected !== 'string' || !/^[a-f0-9]{64}$/.test(expected)) throw new Error('报表快照无效');
+    if (expected !== actual) throw new Error('数据已变化，请刷新报表');
+  }
+
   private selectFacts(query: ReportQuery): FactRow[] {
     const lower = new Date(Date.parse(`${query.from}T00:00:00Z`) - 2 * 86_400_000).toISOString();
     const upper = new Date(Date.parse(`${query.to}T00:00:00Z`) + 2 * 86_400_000).toISOString();
@@ -133,7 +151,7 @@ export class ReportService {
 
   query(input: unknown, actor: PublicUser): UsageReport {
     const query = safeQuery(input, actor);
-    const facts = this.selectFacts(query);
+    const snapshot = this.snapshot(query);
     const totals = emptyTotals();
     const periods = new Map<string, ReportPoint>();
     const models = new Map<string, ModelTotal>();
@@ -141,7 +159,7 @@ export class ReportService {
     const providers = new Map<Provider, TokenTotals & { provider: Provider }>();
     const availableModels = new Set<string>();
     const availableProjects = new Map<string, string>();
-    for (const { fact, period } of this.filteredFacts(query, facts)) {
+    for (const { fact, period } of snapshot.rows) {
       availableModels.add(fact.model);
       const projectKey = fact.project_key || 'unknown';
       const projectLabel = fact.project_label || '未识别项目';
@@ -160,7 +178,7 @@ export class ReportService {
       addFact(providers.get(fact.provider)!, fact);
     }
     return {
-      query, totals,
+      query, snapshotId: snapshot.id, totals,
       points: [...periods.values()].sort((a, b) => a.period.localeCompare(b.period)),
       models: [...models.values()].sort((a, b) => b.totalTokens - a.totalTokens ||
         a.provider.localeCompare(b.provider) || a.model.localeCompare(b.model)),
@@ -172,13 +190,16 @@ export class ReportService {
     };
   }
 
-  details(input: unknown, pageInput: unknown, periodInput: unknown, actor: PublicUser): UsageDetailsPage {
+  details(input: unknown, pageInput: unknown, periodInput: unknown, actor: PublicUser,
+    expectedSnapshot?: unknown): UsageDetailsPage {
     const query = safeQuery(input, actor);
     if (typeof pageInput !== 'number' || !Number.isSafeInteger(pageInput) || pageInput < 1) throw new Error('页码无效');
     if (typeof periodInput !== 'string' || periodInput.length > 20 || (periodInput && !/^[0-9]{4}(?:-(?:[0-9]{2}(?:-[0-9]{2})?|W[0-9]{2}))?$/.test(periodInput))) {
       throw new Error('时间分组无效');
     }
-    const facts = [...this.filteredFacts(query, this.selectFacts(query))]
+    const snapshot = this.snapshot(query);
+    this.assertSnapshot(expectedSnapshot, snapshot.id);
+    const facts = snapshot.rows
       .filter(({ fact, period }) => (!query.model || fact.model === query.model) &&
         (!query.projectKey || (fact.project_key || 'unknown') === query.projectKey) && (!periodInput || period === periodInput))
       .sort((a, b) => b.fact.occurred_at.localeCompare(a.fact.occurred_at));
@@ -205,10 +226,12 @@ export class ReportService {
     };
   }
 
-  csv(input: unknown, actor: PublicUser): string {
+  csv(input: unknown, actor: PublicUser, expectedSnapshot?: unknown): string {
     const query = safeQuery(input, actor);
+    const snapshot = this.snapshot(query);
+    this.assertSnapshot(expectedSnapshot, snapshot.id);
     const groups = new Map<string, ModelTotal & { period: string; projectLabel: string }>();
-    for (const { fact, period } of this.filteredFacts(query, this.selectFacts(query))) {
+    for (const { fact, period } of snapshot.rows) {
       if (query.model && fact.model !== query.model) continue;
       if (query.projectKey && (fact.project_key || 'unknown') !== query.projectKey) continue;
       const key = `${period}\0${fact.provider}\0${fact.model}\0${fact.project_key || 'unknown'}`;

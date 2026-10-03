@@ -104,6 +104,7 @@ export interface ProjectTotal extends TokenTotals {
 
 export interface UsageReport {
   query: ReportQuery;
+  snapshotId: string;
   totals: TokenTotals;
   points: ReportPoint[];
   models: ModelTotal[];
@@ -214,6 +215,6 @@ export interface TokenApi {
   listFeedback(): Promise<FeedbackItem[]>;
   setFeedbackResolved(id: string, resolved: boolean): Promise<void>;
   queryUsage(query: ReportQuery): Promise<UsageReport>;
-  queryUsageDetails(query: ReportQuery, page: number, period: string): Promise<UsageDetailsPage>;
-  exportCsv(query: ReportQuery): Promise<boolean>;
+  queryUsageDetails(query: ReportQuery, page: number, period: string, snapshotId?: string): Promise<UsageDetailsPage>;
+  exportCsv(query: ReportQuery, snapshotId?: string): Promise<boolean>;
 }

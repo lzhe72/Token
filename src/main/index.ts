@@ -276,13 +276,14 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
     const actor = currentUser(event, auth);
     return reports.query(query, actor);
   });
-  ipcMain.handle('usage:details', (event, query: unknown, page: unknown, period: unknown) => {
+  ipcMain.handle('usage:details', (event, query: unknown, page: unknown, period: unknown, snapshotId: unknown) => {
     const actor = currentUser(event, auth);
-    return reports.details(query, page, period, actor);
+    return reports.details(query, page, period, actor, snapshotId);
   });
-  ipcMain.handle('reports:export-csv', async (event, query: unknown) => {
+  ipcMain.handle('reports:export-csv', async (event, query: unknown, snapshotId: unknown) => {
     const actor = currentUser(event, auth);
-    const csv = reports.csv(query, actor);
+    if (typeof snapshotId !== 'string') throw new Error('请先加载当前筛选的报表');
+    const csv = reports.csv(query, actor, snapshotId);
     if (!mainWindow) throw new Error('窗口已关闭');
     const result = await dialog.showSaveDialog(mainWindow, {
       title: '导出 Token 用量报表',

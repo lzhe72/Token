@@ -33,8 +33,8 @@ const api: TokenApi = {
   listFeedback: () => ipcRenderer.invoke('feedback:list'),
   setFeedbackResolved: (id, resolved) => ipcRenderer.invoke('feedback:set-resolved', id, resolved),
   queryUsage: query => ipcRenderer.invoke('usage:query', query),
-  queryUsageDetails: (query, page, period) => ipcRenderer.invoke('usage:details', query, page, period),
-  exportCsv: query => ipcRenderer.invoke('reports:export-csv', query)
+  queryUsageDetails: (query, page, period, snapshotId) => ipcRenderer.invoke('usage:details', query, page, period, snapshotId),
+  exportCsv: (query, snapshotId) => ipcRenderer.invoke('reports:export-csv', query, snapshotId)
 };
 
 contextBridge.exposeInMainWorld('tokenApi', api);
