@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createViewer, launchM6, loginViewer } from './m6-support';
+import { bindSource, createViewer, launchM6, loginViewer } from './m6-support';
 
 test('TC-093 普通用户来源状态诊断和反馈附件不含其他账户数据', async () => {
   const context = await launchM6('tc093-ipc-privacy', { sameModel: true, usageDate: new Date().toISOString() });
@@ -30,8 +30,8 @@ test('TC-093 普通用户来源状态诊断和反馈附件不含其他账户数�
       'content-type': 'application/json' }, body: JSON.stringify(otel) })).status).toBe(200);
     await page.getByRole('button', { name: /数据来源/ }).click();
     await page.getByRole('button', { name: '立即扫描' }).click();
-    await page.getByRole('row', { name: /Codex · 本机账户/ }).getByRole('combobox').selectOption({ label: 'viewer' });
-    await page.getByRole('row', { name: /Codex 遥测来源/ }).getByRole('combobox').selectOption({ label: 'viewerB' });
+    await bindSource(page, /Codex · 本机账户/, 'viewer');
+    await bindSource(page, /Codex 遥测来源/, 'viewerB');
     const global = await page.evaluate(() => window.tokenApi.getSourceStatuses());
     expect(global.find(item => item.provider === 'codex')).toMatchObject({ factCount: 1,
       telemetryFactCount: 1, lastTelemetry: otherOwnerTime });

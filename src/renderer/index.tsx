@@ -1,12 +1,13 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import type { AccountCollectionStatus, AppState, CollectionDiagnostic, FeedbackItem, OnboardingStatus, Provider, PublicUser, Role, ServerStatus, SourceIdentity, SourceStatus, TelemetryConfiguration, UpdateStatus, UploadStatus } from '../shared/types';
+import type { AccountCollectionStatus, AppState, CollectionDiagnostic, FeedbackItem, OnboardingStatus, Provider, PublicUser, ReportQuery, Role, ServerStatus, SourceBindingPreview, SourceIdentity, SourceStatus, TelemetryConfiguration, UpdateStatus, UploadStatus } from '../shared/types';
 import { ReportPanel } from './report';
 import { OverviewPanel } from './overview';
 import { SettingsPanel } from './settings';
 import { DiagnosticsPanel } from './diagnostics';
 import { FeedbackPanel } from './feedback';
 import { OnboardingPanel } from './onboarding';
+import { SourceBindingDialog } from './source-binding';
 import type { ReportDestination } from './report-navigation';
 import './style.css';
 
@@ -24,6 +25,17 @@ function sourceStatusLabel(status?: Pick<SourceStatus, 'status'>): string {
     case 'error': return '需要检查';
     default: return '等待扫描';
   }
+}
+
+function localDate(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function initialBindingRange() {
+  const end = new Date();
+  const start = new Date(end);
+  start.setDate(end.getDate() - 29);
+  return { from: localDate(start), to: localDate(end), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai' };
 }
 
 function App() {
@@ -45,6 +57,15 @@ function App() {
   const [feedbackError, setFeedbackError] = React.useState('');
   const [sourceStatuses, setSourceStatuses] = React.useState<SourceStatus[]>([]);
   const [sourceIdentities, setSourceIdentities] = React.useState<SourceIdentity[]>([]);
+  const [bindingDraft, setBindingDraft] = React.useState<{ key: string; userId: string | null } | null>(null);
+  const [bindingPreview, setBindingPreview] = React.useState<SourceBindingPreview | null>(null);
+  const [bindingBusy, setBindingBusy] = React.useState(false);
+  const [bindingError, setBindingError] = React.useState('');
+  const [bindingRange, setBindingRange] = React.useState(initialBindingRange);
+  const bindingTrigger = React.useRef<HTMLButtonElement | null>(null);
+  const bindingSelect = React.useRef<HTMLSelectElement | null>(null);
+  const bindingErrorRef = React.useRef<HTMLParagraphElement | null>(null);
+  const bindingRequest = React.useRef(0);
   const [telemetry, setTelemetry] = React.useState<TelemetryConfiguration | null>(null);
   const [server, setServer] = React.useState<ServerStatus | null>(null);
   const [upload, setUpload] = React.useState<UploadStatus | null>(null);
@@ -106,10 +127,18 @@ function App() {
   }, [tab, state?.user?.id]);
 
   React.useEffect(() => {
+    if (tab !== 'sources') { bindingRequest.current++; setBindingBusy(false); }
+  }, [tab]);
+
+  React.useEffect(() => {
     const userId = state?.user?.id;
     if (!userId) return;
     setOnboardingPreference({ userId, skipped: localStorage.getItem(`token:onboarding:skipped:${userId}`) === '1' });
   }, [state?.user?.id]);
+
+  React.useEffect(() => {
+    if (bindingError && !bindingPreview) bindingErrorRef.current?.focus();
+  }, [bindingError, bindingPreview]);
 
   function refreshOnboarding() {
     const userId = state?.user?.id;
@@ -139,6 +168,10 @@ function App() {
 
   const contentRef = React.useRef<HTMLElement | null>(null);
   React.useEffect(() => { contentRef.current?.scrollTo(0, 0); }, [tab]);
+  React.useEffect(() => { setNotice(''); }, [tab]);
+  React.useEffect(() => {
+    if (upload?.pending === 0 && notice.includes('服务待同步')) setNotice('来源归属已更新，服务端已同步。');
+  }, [upload?.pending, notice]);
 
   async function submitAuth(event: React.FormEvent) {
     event.preventDefault();
@@ -160,9 +193,14 @@ function App() {
 
   async function logout() {
     onboardingRequest.current++;
+    bindingRequest.current++;
     await window.tokenApi.logout();
     setState({ needsSetup: false, user: null });
     setUsers([]);
+    setAccountStatuses([]); setFeedbackItems([]); setSourceIdentities([]); setSourceStatuses([]);
+    setDiagnostics([]); setUpload(null); setReportDestination(null);
+    setBindingDraft(null); setBindingPreview(null); setBindingError(''); setBindingBusy(false);
+    setNotice(''); setError('');
     setTab('overview');
   }
 
@@ -196,6 +234,8 @@ function App() {
 
   async function showSources() {
     setError('');
+    bindingRequest.current++; setBindingBusy(false);
+    setBindingDraft(null); setBindingPreview(null); setBindingError('');
     try {
       const [identities, allUsers] = await Promise.all([
         window.tokenApi.getSourceIdentities(), window.tokenApi.listUsers()
@@ -309,15 +349,45 @@ function App() {
     } catch (reason) { setError(errorMessage(reason)); }
   }
 
-  async function bindSource(key: string, userId: string | null) {
-    setError('');
+  async function previewBinding() {
+    if (!bindingDraft) return;
+    const request = ++bindingRequest.current;
+    setBindingBusy(true); setBindingError('');
     try {
-      await window.tokenApi.bindSourceIdentity(key, userId);
+      const source = sourceIdentities.find(item => item.key === bindingDraft.key);
+      if (!source) throw new Error('来源已变化，请刷新列表');
+      const filter: ReportQuery = { ...bindingRange, granularity: 'day', provider: source.provider,
+        model: '', projectKey: '', userId: 'all' };
+      const result = await window.tokenApi.previewSourceBinding(bindingDraft.key, bindingDraft.userId, filter);
+      if (request === bindingRequest.current) setBindingPreview(result);
+    } catch (e) {
+      if (request === bindingRequest.current) { setBindingDraft(null); setBindingError(errorMessage(e)); }
+    } finally { if (request === bindingRequest.current) setBindingBusy(false); }
+  }
+
+  function closeBinding(keepDraft: boolean, clearError = true) {
+    setBindingPreview(null);
+    if (!keepDraft) setBindingDraft(null);
+    if (clearError) setBindingError('');
+    queueMicrotask(() => (keepDraft ? bindingTrigger.current : bindingSelect.current)?.focus());
+  }
+
+  async function confirmBinding() {
+    if (!bindingPreview) return;
+    setBindingBusy(true); setBindingError('');
+    try {
+      const result = await window.tokenApi.confirmSourceBinding(bindingPreview.id);
       setSourceIdentities(await window.tokenApi.getSourceIdentities());
+      setUpload(await window.tokenApi.getUploadStatus());
+      setNotice(result.service === 'synced' ? '来源归属已更新，本地与服务端已同步。' :
+        `来源归属已在本机更新；服务待同步${result.syncError ? `：${result.syncError}` : '，稍后自动重试'}`);
+      closeBinding(false);
       refreshOnboarding();
     } catch (e) {
-      setError(errorMessage(e));
-    }
+      setBindingError(errorMessage(e));
+      closeBinding(false, false);
+      setSourceIdentities(await window.tokenApi.getSourceIdentities().catch(() => sourceIdentities));
+    } finally { setBindingBusy(false); }
   }
 
   async function backupDatabase() {
@@ -447,7 +517,11 @@ function App() {
           <p className="page-lead">只读取当前 macOS 账户可访问的本机会话记录。采集器不会保存提示词、回复正文或源码。</p>
           <div className="source-grid"><div className="source-card"><div className="source-icon codex">◈</div><div><h3>Codex</h3><p>{codexStatus?.detail || `${codexStatus?.fileCount ?? 0} 个会话文件 · ${codexStatus?.factCount ?? 0} 条本地 · ${codexStatus?.telemetryFactCount ?? 0} 条遥测`}</p></div><span className="status-pill">{sourceStatusLabel(codexStatus)}</span></div><div className="source-card"><div className="source-icon claude">✳</div><div><h3>Claude Code</h3><p>{claudeStatus?.detail || `${claudeStatus?.fileCount ?? 0} 个会话文件 · ${claudeStatus?.factCount ?? 0} 条本地 · ${claudeStatus?.telemetryFactCount ?? 0} 条遥测`}</p></div><span className="status-pill">{sourceStatusLabel(claudeStatus)}</span></div></div>
           <div className="source-actions"><button className="primary" disabled={busy} onClick={scanSources}>{busy ? '扫描中…' : '立即扫描'}</button><span>首次导入大量历史记录可能需要几分钟。</span></div>
-          <section className="panel"><div className="panel-head"><h2>来源归属</h2><span>{sourceIdentities.length} 个来源</span></div><p className="hint">为来源指定应用用户后，普通用户才能在报表中看到对应记录。无法确认的来源可保留为未归属。</p><div className="table-wrap"><table><thead><tr><th>来源</th><th>工具</th><th>记录</th><th>归属用户</th></tr></thead><tbody>{sourceIdentities.map(identity => <tr key={identity.key}><td><strong>{identity.label}</strong></td><td>{identity.provider === 'codex' ? 'Codex' : 'Claude Code'}</td><td>{identity.factCount.toLocaleString()}</td><td><select className="owner-select" value={identity.ownerUserId ?? ''} onChange={e => bindSource(identity.key, e.target.value || null)}><option value="">未归属</option>{users.filter(user => user.active).map(user => <option key={user.id} value={user.id}>{user.username}</option>)}</select></td></tr>)}</tbody></table>{sourceIdentities.length === 0 && <div className="empty-row">扫描完成后会在这里显示可识别的来源。</div>}</div></section>
+          <section className="panel"><div className="panel-head"><h2>来源归属</h2><span>{sourceIdentities.length} 个来源</span></div><p className="hint">选择用户只生成草稿；预览后确认才会改变授权。无法确认的来源可保留为未归属。</p>
+            <div className="binding-range"><label>预览开始 <input type="date" disabled={bindingBusy} value={bindingRange.from} onChange={e => setBindingRange(current => ({ ...current, from: e.target.value }))} /></label><label>预览结束 <input type="date" disabled={bindingBusy} value={bindingRange.to} onChange={e => setBindingRange(current => ({ ...current, to: e.target.value }))} /></label><span>同一时区 {bindingRange.timeZone} · 当前来源工具 · 全部模型与项目</span></div>
+            {bindingError && <p className="error" role="alert" tabIndex={-1} ref={bindingErrorRef}>{bindingError} · 请检查来源后重新预览。 <button type="button" className="text-button" onClick={() => bindingSelect.current?.focus()}>重新选择归属</button></p>}
+            <div className="table-wrap"><table><thead><tr><th>来源</th><th>工具</th><th>记录</th><th>归属用户</th><th>操作</th></tr></thead><tbody>{sourceIdentities.map(identity => <tr key={identity.key}><td><strong>{identity.label}</strong></td><td>{identity.provider === 'codex' ? 'Codex' : 'Claude Code'}</td><td>{identity.factCount.toLocaleString()}</td><td><select className="owner-select" disabled={bindingBusy} aria-label={`${identity.label} 归属草稿`} value={bindingDraft?.key === identity.key ? bindingDraft.userId ?? '' : identity.ownerUserId ?? ''} onChange={e => { bindingRequest.current++; setBindingError(''); setBindingPreview(null); setBindingDraft({ key: identity.key, userId: e.target.value || null }); }}><option value="">未归属</option>{users.filter(user => user.active || user.id === identity.ownerUserId).map(user => <option key={user.id} value={user.id}>{user.username}{user.active ? '' : '（已停用）'}</option>)}</select></td><td>{bindingDraft?.key === identity.key && bindingDraft.userId !== identity.ownerUserId && <><span className="binding-draft-label">未保存草稿</span><button type="button" className="export-button" disabled={bindingBusy} onClick={event => { bindingTrigger.current = event.currentTarget; bindingSelect.current = event.currentTarget.closest('tr')?.querySelector('select') ?? null; void previewBinding(); }}>预览变更</button></>}</td></tr>)}</tbody></table>{sourceIdentities.length === 0 && <div className="empty-row">扫描完成后会在这里显示可识别的来源。</div>}</div></section>
+          {bindingPreview && <SourceBindingDialog preview={bindingPreview} busy={bindingBusy} error={bindingError} onCancel={() => { void window.tokenApi.cancelSourceBinding(bindingPreview.id).catch(() => {}); closeBinding(true); }} onConfirm={() => void confirmBinding()} />}
         </> : <>
           <p className="page-lead">查看账号状态、采集归属和反馈。普通用户只能查看已分配给自己的用量。</p>
           {state.superadminIssue && <section className="panel"><div className="panel-head"><h2>固定 admin 账号状态</h2><span>需要处理</span></div><p className="hint">{state.superadminIssue}</p>

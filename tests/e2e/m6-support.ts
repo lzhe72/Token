@@ -1,4 +1,4 @@
-import { _electron as electron, expect } from '@playwright/test';
+import { _electron as electron, expect, type Page } from '@playwright/test';
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { createTestWorkspace } from '../support/test-workspace';
@@ -58,4 +58,16 @@ export async function loginViewer(page: Awaited<ReturnType<typeof launchM6>>['pa
   await page.getByPlaceholder('输入密码').fill('viewer-password-123');
   await page.getByRole('button', { name: '登录', exact: true }).click();
   await expect(page.getByRole('heading', { name: '用量概览' })).toBeVisible();
+}
+
+export async function bindSource(page: Page, source: RegExp, userLabel: string): Promise<void> {
+  await expect(page.getByRole('button', { name: '立即扫描', exact: true })).toBeEnabled();
+  await expect.poll(async () => (await page.evaluate(() => window.tokenApi.getScanProgress())).length).toBe(0);
+  const row = page.getByRole('row', { name: source });
+  await row.getByRole('combobox').selectOption({ label: userLabel });
+  await row.getByRole('button', { name: '预览变更' }).click();
+  const dialog = page.getByRole('dialog', { name: '确认来源归属变更' });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: '确认变更' }).click();
+  await expect(dialog).toHaveCount(0);
 }

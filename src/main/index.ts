@@ -14,6 +14,7 @@ import { launchAutomaticUpdate } from './update-launch';
 import { bundleFromExecutable, markUpdatedAppReady, readInstallStatus } from './update-install';
 import { FeedbackService } from './feedback';
 import { onboardingStatus } from './onboarding';
+import { SourceBindingService } from './source-binding';
 import type { FeedbackItem, PublicUser } from '../shared/types';
 
 let mainWindow: BrowserWindow | null = null;
@@ -50,7 +51,8 @@ function requireAdmin(event: Electron.IpcMainInvokeEvent, auth: AuthService): Pu
 }
 
 function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportService, receiver: TelemetryReceiver, db: AppDatabase,
-  trusted: TrustedDeviceStore, server: ServerConnection, sync: UsageSync, updater: UpdateClient, feedback: FeedbackService): void {
+  trusted: TrustedDeviceStore, server: ServerConnection, sync: UsageSync, updater: UpdateClient, feedback: FeedbackService,
+  binding: SourceBindingService): void {
   function forgetDevice(): void {
     const token = trusted.read();
     if (token) auth.revokeTrustedDevice(token);
@@ -162,10 +164,12 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
     requireAdmin(event, auth);
     return sources.identities();
   });
-  ipcMain.handle('sources:bind', (event, key: unknown, userId: unknown) => {
-    const actor = requireAdmin(event, auth);
-    sources.bindIdentity(key, userId, actor.id);
-  });
+  ipcMain.handle('sources:preview-binding', (event, key: unknown, userId: unknown, filter: unknown) =>
+    binding.preview(key, userId, filter, requireAdmin(event, auth)));
+  ipcMain.handle('sources:confirm-binding', (event, previewId: unknown) =>
+    binding.confirm(previewId, requireAdmin(event, auth)));
+  ipcMain.handle('sources:cancel-binding', (event, previewId: unknown) =>
+    binding.cancel(previewId, requireAdmin(event, auth)));
   ipcMain.handle('telemetry:configuration', event => {
     requireAdmin(event, auth);
     return receiver.configuration();
@@ -356,8 +360,10 @@ app.whenReady().then(async () => {
       await launchAutomaticUpdate(file, manifest, process.execPath, app.getPath('userData'));
       setTimeout(() => app.quit(), 250);
     });
-  registerIpc(new AuthService(database), scanner, new ReportService(database, scanner), telemetry, database,
-    new TrustedDeviceStore(app.getPath('userData'), safeStorage), connection, usageSync, updater, feedbackService);
+  const reports = new ReportService(database, scanner);
+  const binding = new SourceBindingService(database, scanner, reports, usageSync);
+  registerIpc(new AuthService(database), scanner, reports, telemetry, database,
+    new TrustedDeviceStore(app.getPath('userData'), safeStorage), connection, usageSync, updater, feedbackService, binding);
   createWindow();
   scanner.start();
   app.on('activate', () => {

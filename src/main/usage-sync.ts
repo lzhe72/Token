@@ -105,13 +105,23 @@ export class UsageSync {
   }
 
   async afterScan(): Promise<void> {
+    try {
+      this.db.transaction(() => this.queueSnapshot());
+      await this.flush();
+    } catch (error) {
+      this.setMeta('last_error', error instanceof Error ? error.message : '上报准备失败');
+    }
+  }
+
+  // Called inside the source-binding transaction as well as after a scan.
+  // The new authorization snapshot must exist durably before the UI reports success.
+  queueSnapshot(extraProviders: Array<'codex' | 'claude'> = []): void {
     const statuses = this.scanner.statuses();
     const providers = statuses.filter(status => status.status === 'ready' || status.status === 'no_records')
       .map(status => status.provider);
-    try {
       const prior = this.db.one('SELECT payload FROM sync_outbox WHERE id = 1');
       const previous = prior ? JSON.parse(String(prior.payload)) as UsageSnapshot : null;
-      const mergedProviders = [...new Set([...(previous?.providers ?? []), ...providers])];
+      const mergedProviders = [...new Set([...(previous?.providers ?? []), ...providers, ...extraProviders])];
       const currentRows = this.aggregate(mergedProviders);
       const revision = exact(Math.max(Number(this.db.one("SELECT value FROM sync_meta WHERE key = 'revision'")?.value ?? 0) + 1, Date.now()));
       const coverage: UsageSnapshot['coverage'] = statuses.map(status => ({
@@ -122,15 +132,10 @@ export class UsageSync {
         providers: mergedProviders, coverage, rows: currentRows };
       const serialized = JSON.stringify(payload);
       if (Buffer.byteLength(serialized, 'utf8') > 16 * 1024 * 1024) throw new Error('上报快照超过 16 MB，需缩小同步范围');
-      this.db.transaction(() => {
-        this.setMeta('revision', String(revision));
-        this.setMeta('uncertain_rows', String(currentRows.filter(row => row.totalStatus === 'uncertain').length));
-        this.db.run('INSERT INTO sync_outbox VALUES (1, ?, 0) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload, attempts=0', [serialized]);
-      });
-      await this.flush();
-    } catch (error) {
-      this.setMeta('last_error', error instanceof Error ? error.message : '上报准备失败');
-    }
+      this.setMeta('revision', String(revision));
+      this.setMeta('uncertain_rows', String(currentRows.filter(row => row.totalStatus === 'uncertain').length));
+      this.setMeta('last_error', '');
+      this.db.run('INSERT INTO sync_outbox VALUES (1, ?, 0) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload, attempts=0', [serialized]);
   }
 
   flush(): Promise<void> {
@@ -167,7 +172,8 @@ export class UsageSync {
       });
     }
     const revision = snapshot.revision;
-    const ownerUserIds = this.db.all('SELECT id FROM users WHERE active = 1').map(user => String(user.id));
+    const ownerUserIds = this.db.all(`SELECT DISTINCT u.id FROM source_identities s
+      JOIN users u ON u.id=s.owner_user_id AND u.active=1 ORDER BY u.id`).map(user => String(user.id));
     this.setMeta('last_attempt', new Date().toISOString());
     try {
       const response = await this.connection.uploadUsage(payload, this.deviceId, ownerUserIds);
@@ -175,8 +181,13 @@ export class UsageSync {
         const body = await response.json() as { currentRevision?: number };
         if (Number.isSafeInteger(body.currentRevision) && Number(body.currentRevision) >= revision) {
           const bumped = { ...(JSON.parse(payload) as UsageSnapshot), revision: Number(body.currentRevision) + 1 };
-          this.db.run('UPDATE sync_outbox SET payload = ?, attempts = 0 WHERE id = 1', [JSON.stringify(bumped)]);
-          this.setMeta('revision', String(bumped.revision));
+          const current = this.db.one('SELECT payload FROM sync_outbox WHERE id = 1');
+          if (current && (JSON.parse(String(current.payload)) as UsageSnapshot).revision === revision) {
+            this.db.transaction(() => {
+              this.db.run('UPDATE sync_outbox SET payload = ?, attempts = 0 WHERE id = 1', [JSON.stringify(bumped)]);
+              this.setMeta('revision', String(bumped.revision));
+            });
+          }
           return;
         }
       }
@@ -191,8 +202,11 @@ export class UsageSync {
         this.setMeta('last_error', '');
       });
     } catch (error) {
-      this.db.run('UPDATE sync_outbox SET attempts = attempts + 1 WHERE id = 1');
-      this.setMeta('last_error', error instanceof Error ? error.message : '上报失败');
+      const current = this.db.one('SELECT payload FROM sync_outbox WHERE id = 1');
+      if (current && (JSON.parse(String(current.payload)) as UsageSnapshot).revision === revision) {
+        this.db.run('UPDATE sync_outbox SET attempts = attempts + 1 WHERE id = 1');
+        this.setMeta('last_error', error instanceof Error ? error.message : '上报失败');
+      }
     }
   }
 }

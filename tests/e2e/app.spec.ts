@@ -2,6 +2,7 @@ import { test, expect, _electron as electron } from '@playwright/test';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { createTestWorkspace } from '../support/test-workspace';
+import { bindSource } from './m6-support';
 
 test('管理员创建、用户管理与普通用户权限', async () => {
   const workspace = createTestWorkspace('app');
@@ -46,7 +47,7 @@ test('管理员创建、用户管理与普通用户权限', async () => {
     await expect(page.getByRole('cell', { name: 'Codex · 本机账户' })).toBeVisible();
     await expect(page.getByRole('cell', { name: 'Claude Code · 本机账户' })).toBeVisible();
     const viewerId = await page.evaluate(async () => (await window.tokenApi.listUsers()).find(user => user.username === 'viewer')?.id);
-    await page.getByRole('row', { name: /Codex · 本机账户/ }).getByRole('combobox').selectOption({ label: 'viewer' });
+    await bindSource(page, /Codex · 本机账户/, 'viewer');
     await expect(page.getByRole('row', { name: /Codex · 本机账户/ }).getByRole('combobox')).toHaveValue(viewerId || '');
     await page.getByRole('button', { name: /用量报表/ }).first().click();
     await page.getByLabel('开始日期').fill('2026-01-01');

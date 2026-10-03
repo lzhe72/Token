@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { createViewer, launchM6, loginViewer } from './m6-support';
+import { bindSource, createViewer, launchM6, loginViewer } from './m6-support';
 
 test('TC-080 概览趋势继承时间工具并在面包屑返回后保留筛选与焦点', async () => {
   const day = new Date().toISOString().slice(0, 10);
@@ -9,7 +9,7 @@ test('TC-080 概览趋势继承时间工具并在面包屑返回后保留筛选�
     await createViewer(page);
     await page.getByRole('button', { name: /数据来源/ }).click();
     await page.getByRole('button', { name: '立即扫描' }).click();
-    await page.getByRole('row', { name: /Codex · 本机账户/ }).getByRole('combobox').selectOption({ label: 'viewer' });
+    await bindSource(page, /Codex · 本机账户/, 'viewer');
     await page.getByRole('button', { name: /概览/ }).click();
     await expect(page.getByLabel('概览用户').getByRole('option', { name: 'viewer' })).toHaveCount(1);
     await page.getByLabel('概览用户').selectOption({ label: 'viewer' });

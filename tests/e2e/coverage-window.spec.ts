@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { createViewer, launchM6 } from './m6-support';
+import { bindSource, createViewer, launchM6 } from './m6-support';
 
 test('TC-077 管理员切换用户和未归属时概览报表不显示假零', async () => {
   const context = await launchM6('tc077-scope-ui', { usage: true, usageDate: new Date().toISOString() });
@@ -11,7 +11,7 @@ test('TC-077 管理员切换用户和未归属时概览报表不显示假零', a
     await page.getByRole('button', { name: '创建用户' }).click();
     await page.getByRole('button', { name: /数据来源/ }).click();
     await page.getByRole('button', { name: '立即扫描' }).click();
-    await page.getByRole('row', { name: /Codex · 本机账户/ }).getByRole('combobox').selectOption({ label: 'viewer' });
+    await bindSource(page, /Codex · 本机账户/, 'viewer');
     await page.getByRole('button', { name: /概览/ }).click();
     await page.getByLabel('概览工具').selectOption('codex');
     await page.getByLabel('概览用户').selectOption({ label: 'viewer' });
@@ -61,8 +61,8 @@ test('TC-078 只有待核对记录时保留已确认小计零而完整总量未�
       'content-type': 'application/json' }, body: JSON.stringify(payload) })).status).toBe(200);
     await page.getByRole('button', { name: /数据来源/ }).click();
     await page.getByRole('button', { name: '立即扫描' }).click();
-    await page.getByRole('row', { name: /Codex · 本机账户/ }).getByRole('combobox').selectOption({ label: 'viewer' });
-    await page.getByRole('row', { name: /Codex 遥测来源/ }).getByRole('combobox').selectOption({ label: 'viewer' });
+    await bindSource(page, /Codex · 本机账户/, 'viewer');
+    await bindSource(page, /Codex 遥测来源/, 'viewer');
     await page.getByRole('button', { name: /概览/ }).click();
     await page.getByLabel('概览工具').selectOption('codex');
     await page.getByLabel('概览用户').selectOption({ label: 'viewer' });

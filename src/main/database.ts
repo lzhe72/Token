@@ -8,13 +8,14 @@ export type Row = Record<string, SqlValue>;
 
 export class AppDatabase {
   private inTransaction = false;
-  private constructor(private readonly db: SqlDatabase, private readonly file: string) {}
+  private constructor(private db: SqlDatabase, private readonly file: string,
+    private readonly reopen: (bytes: Uint8Array) => SqlDatabase) {}
 
   static async open(file: string): Promise<AppDatabase> {
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
     const SQL = await initSqlJs();
     const bytes = fs.existsSync(file) ? fs.readFileSync(file) : undefined;
-    const instance = new AppDatabase(new SQL.Database(bytes), file);
+    const instance = new AppDatabase(new SQL.Database(bytes), file, saved => new SQL.Database(saved));
     instance.migrate();
     return instance;
   }
@@ -106,6 +107,21 @@ export class AppDatabase {
     this.db.run('COMMIT');
     this.inTransaction = false;
     this.persist();
+  }
+
+  transactionDurable(fn: () => void): void {
+    if (this.inTransaction) throw new Error('不支持嵌套事务');
+    const previous = this.db.export();
+    try {
+      this.transaction(fn);
+    } catch (error) {
+      // The SQL transaction may have committed before the file replacement failed.
+      // Restore the in-memory database to the last durable state in that case.
+      this.db.close();
+      this.db = this.reopen(previous);
+      try { fs.unlinkSync(`${this.file}.tmp`); } catch { /* no temporary file */ }
+      throw error;
+    }
   }
 
   private persist(): void {

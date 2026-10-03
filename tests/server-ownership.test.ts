@@ -107,6 +107,10 @@ test('TC-074 聚合上报拒绝跨设备跨用户覆盖并保留原快照', asyn
     expect(server.getDatabase().all('SELECT owner_user_id, total_tokens FROM aggregates WHERE device_id = ? ORDER BY owner_user_id', [legacyDevice]))
       .toMatchObject([{ owner_user_id: legacyOwner, total_tokens: 7 }, { owner_user_id: ownerA, total_tokens: 20 }]
         .sort((a, b) => a.owner_user_id.localeCompare(b.owner_user_id)));
+    const renewed = await enroll(legacyDevice, [ownerA, legacyOwner]);
+    expect(renewed.status).toBe(200);
+    expect(server.getDatabase().all('SELECT owner_user_id FROM aggregate_status WHERE device_id = ? AND owner_user_id = ?',
+      [legacyDevice, legacyOwner])).toHaveLength(0);
   } finally {
     try { if (started) await server.stop(); }
     finally { workspace.cleanup(); }

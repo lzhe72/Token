@@ -2,6 +2,7 @@ import { expect, test, _electron as electron } from '@playwright/test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { createTestWorkspace } from '../support/test-workspace';
+import { bindSource } from './m6-support';
 
 test('TC-038 应用扫描后自动上报到独立本机服务', async () => {
   const workspace = createTestWorkspace('upload-e2e');
@@ -30,7 +31,7 @@ test('TC-038 应用扫描后自动上报到独立本机服务', async () => {
     expect(status.url).toContain('127.0.0.1');
     await page.getByRole('button', { name: /数据来源/ }).click();
     await page.getByRole('button', { name: '立即扫描' }).click();
-    await page.getByRole('row', { name: /Codex · 本机账户/ }).getByRole('combobox').selectOption({ label: 'admin' });
+    await bindSource(page, /Codex · 本机账户/, 'admin');
     await page.getByRole('button', { name: '立即扫描' }).click();
     await expect.poll(() => readFileSync(path.join(workspace.root, 'server', 'server.sqlite')).includes(Buffer.from('gpt-upload'))).toBe(true);
     await expect.poll(async () => (await page.evaluate(() => window.tokenApi.getUploadStatus())).lastSuccess).not.toBeNull();

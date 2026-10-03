@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { createViewer, launchM6, loginViewer } from './m6-support';
+import { bindSource, createViewer, launchM6, loginViewer } from './m6-support';
 
 test('TC-082 管理员可跳过重开且四步随真实采集归属更新', async () => {
   const context = await launchM6('tc082-guide', { usage: true, usageDate: new Date().toISOString() });
@@ -19,7 +19,7 @@ test('TC-082 管理员可跳过重开且四步随真实采集归属更新', asyn
     await createViewer(page);
     await page.getByRole('button', { name: /数据来源/ }).click();
     await page.getByRole('button', { name: '立即扫描' }).click();
-    await page.getByRole('row', { name: /Codex · 本机账户/ }).getByRole('combobox').selectOption({ label: 'viewer' });
+    await bindSource(page, /Codex · 本机账户/, 'viewer');
     await page.getByRole('button', { name: /首次引导/ }).click();
     await expect(page.locator('.onboarding-step')).toHaveCount(4);
     await expect(page.locator('.onboarding-step').nth(0)).toContainText('已完成');
@@ -41,7 +41,7 @@ test('TC-083 普通用户引导不显示他人进度且无权扫描归属', asyn
     await page.getByRole('button', { name: /数据来源/ }).click();
     await page.getByRole('button', { name: '立即扫描' }).click();
     const identity = await page.evaluate(() => window.tokenApi.getSourceIdentities());
-    await page.getByRole('row', { name: /Codex · 本机账户/ }).getByRole('combobox').selectOption({ label: 'viewerB' });
+    await bindSource(page, /Codex · 本机账户/, 'viewerB');
     await loginViewer(page);
     await page.getByRole('button', { name: /首次引导/ }).click();
     const scoped = await page.evaluate(() => window.tokenApi.getOnboardingStatus());
@@ -51,7 +51,10 @@ test('TC-083 普通用户引导不显示他人进度且无权扫描归属', asyn
     await page.locator('.onboarding-step').nth(2).getByRole('button', { name: '查看本人采集状态' }).click();
     await expect(page.getByRole('heading', { name: '采集诊断' })).toBeVisible();
     const denied = await page.evaluate(async key => Promise.allSettled([
-      window.tokenApi.scanSources(), window.tokenApi.bindSourceIdentity(key, null)
+      window.tokenApi.scanSources(), window.tokenApi.previewSourceBinding(key, null, {
+        from: '2026-10-01', to: '2026-10-03', timeZone: 'UTC', granularity: 'day',
+        provider: 'codex', model: '', projectKey: '', userId: 'all'
+      })
     ]), identity[0].key);
     expect(denied.map(item => item.status)).toEqual(['rejected', 'rejected']);
     await page.getByRole('button', { name: /概览/ }).click();

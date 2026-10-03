@@ -253,6 +253,17 @@ export class LocalServer {
       owner_user_ids TEXT NOT NULL, active INTEGER NOT NULL,
       updated_at TEXT NOT NULL
     )`);
+    this.db.run(`CREATE TABLE IF NOT EXISTS upload_device_owner_history (
+      device_id TEXT NOT NULL, owner_user_id TEXT NOT NULL,
+      PRIMARY KEY (device_id, owner_user_id)
+    )`);
+    for (const device of this.db.all('SELECT device_id, owner_user_ids FROM upload_devices')) {
+      try {
+        for (const ownerId of JSON.parse(String(device.owner_user_ids)) as string[]) {
+          this.db.run('INSERT OR IGNORE INTO upload_device_owner_history VALUES (?, ?)', [String(device.device_id), ownerId]);
+        }
+      } catch { /* malformed legacy scope remains unavailable for uploads */ }
+    }
     this.db.run(`CREATE TABLE IF NOT EXISTS upload_device_audit (
       id TEXT PRIMARY KEY, device_id TEXT NOT NULL, action TEXT NOT NULL,
       owner_count INTEGER NOT NULL, occurred_at TEXT NOT NULL
@@ -346,18 +357,28 @@ export class LocalServer {
         }
         const deviceId = value.deviceId;
         const ownerUserIds = [...value.ownerUserIds].sort() as string[];
-        const existing = this.getDatabase().one('SELECT active FROM upload_devices WHERE device_id = ?', [deviceId]);
+        const existing = this.getDatabase().one('SELECT active, owner_user_ids FROM upload_devices WHERE device_id = ?', [deviceId]);
         if (existing && Number(existing.active) === 0 && value.reactivate !== true) {
           send(res, 409, { error: '设备已撤销；需要管理员显式重新授权' }); return;
         }
         const token = randomBytes(32).toString('hex');
         const hash = createHash('sha256').update(token).digest('hex');
         this.getDatabase().transaction(() => {
+          let priorOwners: string[] = [];
+          try { priorOwners = JSON.parse(String(existing?.owner_user_ids ?? '[]')) as string[]; } catch { /* no trusted prior scope */ }
+          for (const ownerId of ownerUserIds.filter(id => !priorOwners.includes(id))) {
+            // A newly authorized owner must not reveal stale rows that predate
+            // this authorization, even before the next replacement snapshot.
+            this.getDatabase().run('DELETE FROM aggregates WHERE device_id = ? AND owner_user_id = ?', [deviceId, ownerId]);
+            this.getDatabase().run('DELETE FROM aggregate_status WHERE device_id = ? AND owner_user_id = ?', [deviceId, ownerId]);
+          }
           this.getDatabase().run(`INSERT INTO upload_devices VALUES (?, ?, ?, 1, ?)
             ON CONFLICT(device_id) DO UPDATE SET token_hash=excluded.token_hash,
             owner_user_ids=excluded.owner_user_ids, active=1, updated_at=excluded.updated_at`,
             [deviceId, hash, JSON.stringify(ownerUserIds), new Date().toISOString()]);
           this.auditDevice(deviceId, existing && Number(existing.active) === 0 ? 'reactivate' : 'enroll', ownerUserIds.length);
+          for (const ownerId of ownerUserIds) this.getDatabase().run(
+            'INSERT OR IGNORE INTO upload_device_owner_history VALUES (?, ?)', [deviceId, ownerId]);
         });
         send(res, 200, { token, deviceId, ownerUserIds });
       } catch { send(res, 400, { error: '设备登记无效' }); }
@@ -466,12 +487,14 @@ export class LocalServer {
       if (snapshot.revision === previous) { send(res, 200, { accepted: true, duplicate: true }); return; }
       db.transaction(() => {
         for (const provider of snapshot.providers) {
-          for (const ownerUserId of uploadDevice.ownerUserIds) {
-            db.run('DELETE FROM aggregates WHERE device_id = ? AND provider = ? AND owner_user_id = ?',
-              [snapshot.deviceId, provider, ownerUserId]);
-            db.run('DELETE FROM aggregate_status WHERE device_id = ? AND provider = ? AND owner_user_id = ?',
-              [snapshot.deviceId, provider, ownerUserId]);
-          }
+          // Clear only owners that this device was explicitly authorized to upload.
+          // Legacy rows outside that history remain untouched.
+          db.run(`DELETE FROM aggregates WHERE device_id = ? AND provider = ? AND owner_user_id IN
+            (SELECT owner_user_id FROM upload_device_owner_history WHERE device_id = ?)`,
+          [snapshot.deviceId, provider, snapshot.deviceId]);
+          db.run(`DELETE FROM aggregate_status WHERE device_id = ? AND provider = ? AND owner_user_id IN
+            (SELECT owner_user_id FROM upload_device_owner_history WHERE device_id = ?)`,
+          [snapshot.deviceId, provider, snapshot.deviceId]);
         }
         for (const coverage of snapshot.coverage) db.run(`INSERT INTO source_coverage VALUES (?, ?, ?, ?, ?)
           ON CONFLICT(device_id, provider) DO UPDATE SET status=excluded.status, last_scan=excluded.last_scan, revision=excluded.revision`,

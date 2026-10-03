@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { createViewer, launchM6, loginViewer } from './m6-support';
+import { bindSource, createViewer, launchM6, loginViewer } from './m6-support';
 
 test('TC-066 管理员可看反馈列表而普通用户接口拒绝', async () => {
   const context = await launchM6('tc066');
@@ -34,7 +34,7 @@ test('TC-067 账号启停归属和采集状态随操作更新', async () => {
     await createViewer(page);
     await page.getByRole('button', { name: /数据来源/ }).click();
     await page.getByRole('button', { name: '立即扫描' }).click();
-    await page.getByRole('row', { name: /Codex · 本机账户/ }).getByRole('combobox').selectOption({ label: 'viewer' });
+    await bindSource(page, /Codex · 本机账户/, 'viewer');
     await page.getByRole('button', { name: /管理中心/ }).click();
     const row = page.getByRole('row').filter({ has: page.getByRole('cell', { name: 'viewer' }) });
     await expect(row).toContainText('1 / 2');

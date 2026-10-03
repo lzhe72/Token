@@ -42,6 +42,35 @@ export interface SourceIdentity {
   factCount: number;
 }
 
+export interface BindingScopeSummary {
+  observedFacts: number;
+  confirmedFacts: number;
+  confirmedTokens: number;
+  pendingFacts: number;
+  coverage: 'unknown' | 'partial' | 'complete';
+}
+
+export interface SourceBindingPreview {
+  id: string;
+  sourceKey: string;
+  sourceLabel: string;
+  oldOwnerId: string | null;
+  newOwnerId: string | null;
+  oldOwnerLabel: string;
+  newOwnerLabel: string;
+  affectedFactCount: number;
+  filter: Omit<ReportQuery, 'userId'>;
+  before: { oldOwner: BindingScopeSummary; newOwner: BindingScopeSummary };
+  after: { oldOwner: BindingScopeSummary; newOwner: BindingScopeSummary };
+  expiresAt: string;
+}
+
+export interface SourceBindingResult {
+  localCommitted: true;
+  service: 'synced' | 'pending';
+  syncError: string | null;
+}
+
 export interface OnboardingStatus {
   steps: Array<{ key: 'detect' | 'scan' | 'bind' | 'usage';
     state: 'complete' | 'pending' | 'unknown'; detail: string }>;
@@ -228,7 +257,9 @@ export interface TokenApi {
   scanSources(): Promise<SourceStatus[]>;
   getScanProgress(): Promise<ScanProgress[]>;
   getSourceIdentities(): Promise<SourceIdentity[]>;
-  bindSourceIdentity(key: string, userId: string | null): Promise<void>;
+  previewSourceBinding(key: string, userId: string | null, filter: ReportQuery): Promise<SourceBindingPreview>;
+  confirmSourceBinding(previewId: string): Promise<SourceBindingResult>;
+  cancelSourceBinding(previewId: string): Promise<void>;
   getTelemetryConfiguration(): Promise<TelemetryConfiguration>;
   getServerStatus(): Promise<ServerStatus>;
   configureServer(url: string, token: string, adminToken?: string): Promise<ServerStatus>;

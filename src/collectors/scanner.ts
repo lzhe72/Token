@@ -155,6 +155,20 @@ export class UsageScanner {
       );
       CREATE INDEX IF NOT EXISTS fact_projects_key ON fact_projects(project_key);
       CREATE TABLE IF NOT EXISTS scanner_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS source_audit_refs (
+        source_key TEXT PRIMARY KEY,
+        audit_ref TEXT NOT NULL UNIQUE
+      );
+      CREATE TABLE IF NOT EXISTS source_binding_audit (
+        id TEXT PRIMARY KEY,
+        actor_id TEXT NOT NULL,
+        source_ref TEXT NOT NULL,
+        old_owner_id TEXT,
+        new_owner_id TEXT,
+        affected_count INTEGER NOT NULL,
+        result_code TEXT NOT NULL,
+        occurred_at TEXT NOT NULL
+      );
     `);
     if (!db.all('PRAGMA table_info(source_cursors)').some(row => row.name === 'tail_hash')) {
       db.run("ALTER TABLE source_cursors ADD COLUMN tail_hash TEXT NOT NULL DEFAULT ''");
@@ -171,6 +185,35 @@ export class UsageScanner {
       db.run("INSERT INTO scanner_meta VALUES ('project_backfill', '1')");
     }
     this.repairSupersededCodexFallbacks();
+    this.redactLegacyBindingAudit();
+  }
+
+  private sourceAuditRef(key: string): string {
+    const existing = this.db.one('SELECT audit_ref FROM source_audit_refs WHERE source_key = ?', [key]);
+    if (existing) return String(existing.audit_ref);
+    const reference = randomUUID();
+    this.db.run('INSERT INTO source_audit_refs VALUES (?, ?)', [key, reference]);
+    return reference;
+  }
+
+  private redactLegacyBindingAudit(): void {
+    const legacy = this.db.all(`SELECT id, target_id FROM audit_events WHERE action = 'source.identity_bound'
+      AND target_id IS NOT NULL AND target_id NOT IN (SELECT audit_ref FROM source_audit_refs)`);
+    if (!legacy.length) return;
+    this.db.transaction(() => {
+      for (const row of legacy) {
+        const reference = this.sourceAuditRef(String(row.target_id));
+        this.db.run('UPDATE audit_events SET target_id = ? WHERE id = ?', [reference, String(row.id)]);
+      }
+    });
+  }
+
+  recordBindingAudit(key: string, actorId: string, oldOwnerId: string | null,
+    newOwnerId: string | null, affectedCount: number): void {
+    const reference = this.sourceAuditRef(key);
+    this.db.run('INSERT INTO source_binding_audit VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [
+      randomUUID(), actorId, reference, oldOwnerId, newOwnerId, affectedCount, 'success', new Date().toISOString()
+    ]);
   }
 
   private pruneCodexFallbacks(sessionId: string): void {
@@ -472,10 +515,11 @@ export class UsageScanner {
     if (userId !== null && !this.db.one('SELECT id FROM users WHERE id = ? AND active = 1', [userId])) {
       throw new Error('目标用户不存在或已停用');
     }
-    this.db.transaction(() => {
+    this.db.transactionDurable(() => {
+      const oldOwnerId = this.db.one('SELECT owner_user_id FROM source_identities WHERE key = ?', [key])?.owner_user_id;
+      const affectedCount = Number(this.db.one('SELECT COUNT(*) AS count FROM usage_facts WHERE source_identity_key = ?', [key])?.count ?? 0);
       this.db.run('UPDATE source_identities SET owner_user_id = ? WHERE key = ?', [userId, key]);
-      this.db.run('INSERT INTO audit_events VALUES (?, ?, ?, ?, ?)',
-        [randomUUID(), actorId, 'source.identity_bound', key, new Date().toISOString()]);
+      this.recordBindingAudit(key, actorId, oldOwnerId ? String(oldOwnerId) : null, userId, affectedCount);
     });
   }
 }
