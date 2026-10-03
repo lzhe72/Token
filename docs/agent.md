@@ -52,6 +52,7 @@
 - 当前待修：`src/renderer/index.tsx` 的重绑提示在 `upload.pending === 0` 时改称“服务端已同步”，未检查 `currentConfirmed`，可能把服务切换或确认失效后的空队列误报为同步；按 REQ-046/DEV-055/TC-088 修复并补瞬态 Electron 断言，不能以该提示作为当前 revision 已确认的证据。
 - 后续代码 `6a194ea` 已把上述重绑提示改为只在 `currentConfirmed` 时称当前版本获服务端确认，TC-091 新增空队列但确认失效的单元和 Electron 断言；前条“待修”是 `41838d8` 历史。TC-089 已有 1180/760/700px 键盘及弹窗 `inert`/`aria-hidden` 自动绑定，TC-090 已有两项原始整数剪贴板/待核对/未知自动绑定，TC-091 聚合既有状态断言；文档会话独立单编号和完整门禁结果见[验收记录](validation.md)。目标 Mac VoiceOver 人工导航/朗读、REQ-040 真零、真实生产库与打包 App 未验。后续改动复跑 TC-089/090/091 和 TC-087，不把自动 `aria-hidden` 当作人工辅助技术证据。
 
+- REQ-040/044 覆盖判定的工程门槛：仅在所选 owner+provider+时间窗及筛选有明确监测范围、可验留存起点、连续水位、无缺口/错误、可证归属及维度完整解析时标所选来源完整；真零还要窗口关闭且同事实集空，比较另需双窗等长、同范围/时区/as-of 且双方完整。当前本机状态/游标/事实只证已观察，范围外模式写未知；合成规则测试不提升真实来源状态。见[设计](design.md)与[逐项验收](test-case-acceptance.md)。
 - 覆盖来源依据：Codex [官方 `exec` 文档](https://learn.chatgpt.com/docs/developer-commands#codex-exec)允许 `--ephemeral` 不持久化 rollout 文件；Claude Code [官方监测文档](https://code.claude.com/docs/en/monitoring-usage)要求显式开启 OTel，exporter 可为 `none`。单凭本地文件或 OTel 缺记录，不能断定工具未使用、真零或历史完整；TC-077/078 保持待验。
 - 来源归属必须显式绑定；普通用户的查询范围由主进程登录态约束。每个 IPC 在主进程验证发送方、权限和参数；预加载脚本只暴露命名方法，不能暴露通用 IPC、文件系统或 SQL。
 - 只保存用量字段和必要的来源元数据。禁止提交真实会话 JSONL、提示词、回复、源码、数据库、凭证和遥测密钥；测试使用人工构造的无正文样本，临时数据目录在测试后清理。
