@@ -52,8 +52,8 @@ test('TC-093 普通用户来源状态诊断和反馈附件不含其他账户数�
       .toBe('denied');
     await page.getByRole('button', { name: '概览' }).click();
     const sourceCard = page.locator('.source-card').filter({ hasText: 'Codex' });
-    await expect(sourceCard).toContainText('1 条已归属记录');
-    await expect(sourceCard).not.toContainText('2 条已归属记录');
+    await expect(sourceCard).toContainText('1 条本范围已观测记录');
+    await expect(sourceCard).not.toContainText('2 条本范围已观测记录');
     await expect(sourceCard).not.toContainText(otherOwnerTime);
     await page.getByRole('button', { name: /采集诊断/ }).click();
     await expect(page.locator('.diagnostic-card').filter({ hasText: 'Claude Code' })).toContainText('覆盖未知');
@@ -61,7 +61,8 @@ test('TC-093 普通用户来源状态诊断和反馈附件不含其他账户数�
     await expect(page.locator('.diagnostics-page')).not.toContainText('scope_unknown');
     await page.getByRole('button', { name: /用量报表/ }).first().click();
     await expect(page.locator('.metric-card').first().locator('strong')).toHaveText('12');
-    await expect(page.locator('.coverage-strip')).toContainText('遥测条数未知');
+    await expect(page.locator('.coverage-strip')).toContainText('0 条本范围遥测已观测');
+    await expect(page.locator('.coverage-strip')).not.toContainText(otherOwnerTime);
     const viewerId = (await page.evaluate(() => window.tokenApi.getState())).user!.id;
     await context.app.evaluate(({ ipcMain }, id) => {
       ipcMain.removeHandler('usage:query');

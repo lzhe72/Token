@@ -78,9 +78,9 @@ test('TC-093 报表明细和 CSV v2 同源逐组小计且时区边界不漏冲�
     const service = new ReportService(db, scanner);
     const summary = service.query(query, viewer);
     expect(summary.coverage.find(item => item.provider === 'codex')).toMatchObject({ fileCount: null,
-      factCount: 5, telemetryFactCount: 3, lastScan: null, lastTelemetry: '2026-10-02T11:01:00Z' });
-    expect(summary.coverage.find(item => item.provider === 'claude')).toMatchObject({ fileCount: null,
-      factCount: null, telemetryFactCount: null, lastTelemetry: null, status: 'idle' });
+      factCount: 4, telemetryFactCount: 3, lastScan: null, lastTelemetry: '2026-10-02T11:01:00Z',
+      windowCoverage: { state: 'partial', asOf: null } });
+    expect(summary.coverage.find(item => item.provider === 'claude')).toBeUndefined();
     expect(summary.accounting).toMatchObject({ status: 'uncertain', conflictCount: 5,
       confirmedSubtotal: { totalTokens: 12 } });
     const details = service.details(query, 1, '', viewer, summary.snapshotId);

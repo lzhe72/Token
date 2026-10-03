@@ -26,6 +26,12 @@ export interface SourceStatus {
   lastTelemetry: string | null;
   lastScan: string | null;
   detail: string | null;
+  windowCoverage?: {
+    state: 'unknown' | 'partial' | 'complete';
+    reason: string;
+    asOf: string | null;
+    lastObserved: string | null;
+  };
 }
 
 export interface SourceIdentity {

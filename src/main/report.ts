@@ -136,6 +136,28 @@ export class ReportService {
       suggestion: '普通用户只能查看已归属用量；请联系管理员检查扫描、文件权限及来源归属。' }));
   }
 
+  private scopedCoverage(query: ReportQuery,
+    rows: Array<{ fact: FactRow; period: string; pending: boolean }>): SourceStatus[] {
+    const providers: Provider[] = query.provider === 'all' ? ['codex', 'claude'] : [query.provider];
+    return providers.map(provider => {
+      const facts = rows.map(row => row.fact).filter(fact => fact.provider === provider &&
+        (!query.model || fact.model === query.model) &&
+        (!query.projectKey || (fact.project_key || 'unknown') === query.projectKey));
+      const local = facts.filter(fact => !fact.source_key.startsWith('otel:'));
+      const telemetry = facts.filter(fact => fact.source_key.startsWith('otel:'));
+      const latest = (values: FactRow[]) => values.reduce<string | null>((value, fact) =>
+        !value || fact.occurred_at > value ? fact.occurred_at : value, null);
+      const state = facts.length ? 'partial' : 'unknown';
+      const reason = facts.length
+        ? '此范围有已归属记录，但来源历史留存起点及连续采集尚无可证边界，完整覆盖未知'
+        : '此范围没有已归属记录；无法证明来源历史留存与连续采集，不能认定为零用量';
+      return { provider, status: 'idle', fileCount: null,
+        factCount: local.length, telemetryFactCount: telemetry.length,
+        lastTelemetry: latest(telemetry), lastScan: null, detail: reason,
+        windowCoverage: { state, reason, asOf: null, lastObserved: latest(facts) } };
+    });
+  }
+
   private snapshot(query: ReportQuery): { rows: Array<{ fact: FactRow; period: string; pending: boolean }>; id: string } {
     const authorized = this.selectFacts(query).filter(fact => this.allowedFact(query, fact));
     const pendingKeys = reconcileFacts(authorized).pendingKeys;
@@ -232,7 +254,7 @@ export class ReportService {
       availableModels: [...availableModels].sort(),
       availableModelOptions: [...availableModelOptions.values()].sort((a, b) => a.provider.localeCompare(b.provider) || a.model.localeCompare(b.model)),
       availableProjects: [...availableProjects].map(([key, label]) => ({ key, label })).sort((a, b) => a.label.localeCompare(b.label) || a.key.localeCompare(b.key)),
-      coverage: this.coverage(actor)
+      coverage: this.scopedCoverage(query, snapshot.rows)
     };
   }
 
