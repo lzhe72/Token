@@ -4,6 +4,13 @@
 
 ## 2026-10-04
 
+### 发送中更新快照未立即续传（REQ-026/048、DEV-028/057、TC-040/094；文档分支 `codex/docs/20261004-sync-drain-race`）
+
+- **尝试**：核开发会话的真实 Electron 启动诊断与 `UsageSync.flush()`、扫描后 `queueSnapshot()`、`sync_outbox` 修订和服务确认路径，按原两个需求链追溯。
+- **卡点**：迁移后的首包已成功，但首包发送中扫描排入更高 revision；当前 `flush()` 只等待旧 `sending` promise，留下 `pending=1`、`localRevision>confirmedRevision`、`lastError=null`，直到 60 秒定时器再试。该真实启动链路当前失败，不能以首包成功或旧单元通过判 TC-094 通过。
+- **处理**：TC-040 补发送中排队的成功后立即顺序 drain、失败时有限退避与可观察状态；TC-094 补真实主进程启动、迁移首包与扫描新 revision 交错、在线服务最终确认最新 revision 和删除旧 owner 聚合。要求无超时等待或人工重试，保留原自动子范围历史结果。
+- **结果**：仅完成非 SOP 待修缺口与验收追溯；未改产品代码、未独立复跑该 Electron 场景，当前失败待修，不提升 TC-040/094 或关联整项状态。
+
 ### Claude 遥测账户归属与累计游标边界（REQ-048、DEV-057、TC-092–094；文档分支 `codex/docs/20261004-claude-otel-identity-boundary`）
 
 - **尝试**：只读核对 `telemetry.ts` 的 Claude OTel 来源键、`user.id` 解析、累计指标 `stream`/事实键及官方属性语义，对照旧库归属和上报验收。

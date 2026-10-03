@@ -48,6 +48,8 @@ REQ-040/DEV-049/TC-077–078 本轮仅排保守覆盖子范围：现有 `source_
 
 **REQ-048→DEV-057→TC-092–094 Claude OTel 身份边界（2026-10-04；待验）**：代码以 `hash(string(user.id, os.username))` 形成 `claude:otel:` 来源键；缺/无效时退回 username，空串则哈希空串。官方将普通 `user.id` 定义为安装级匿名 ID，并非 Claude 账户，网关 OIDC subject 是不同语义。故新缺失/空白/无效/超长或仅安装 ID 事实须 unknown 不可绑定，旧 username/空串/安装 ID 混合来源无法证实时保守撤销归属；认证账户属性或网关 subject 需实际来源证据。TC-092 增双账户同 stream/time 不同累计值、游标/事实键静默合并与重送反例，不能区分则保留观测、计量不确定；TC-093 验 viewer 页面/CSV/来源状态隔离，TC-094 验首次 `flush` 前 v2 快照重建、旧服务聚合清理或降级。TC-092 同时补 Codex 无 `user.account_id` 的跨账户同 session/rawTime/model/Token 两次 POST 与真正重送反例；拟议 v2 unknown 同键不可直接 `INSERT OR IGNORE`，无稳定事件 ID 时保留观测并标不确定，viewer/上报无确定总量。整项未验，旧自动结果不覆盖；身份可证旧子范围结论不变。
 
+**REQ-026→DEV-028→TC-040 / REQ-048→DEV-057→TC-094 发送竞态（2026-10-04；失败待修）**：真实 Electron 启动诊断中迁移首包成功、扫描在发送中写入更高 revision，`flush()` 只等待旧 promise，留下 `pending=1`、`localRevision>confirmedRevision`、`lastError=null` 至 60 秒定时器。TC-040 增成功后立即顺序 drain、失败守有限退避与可观察待传/错误；TC-094 增真实启动/在线服务交错，验最新 revision 自动确认且旧 owner 聚合清除，不靠超时或人工重试。旧自动子范围记录保留，本场景当前失败，不提升编号状态。
+
 2026-10-04 可实施方案追溯：REQ-040→DEV-049→TC-077/078 与 REQ-044→DEV-053→TC-084 沿用原编号。产品由用户主动启用“受管会话／受管来源”；DEV-049 分期交受管启动/结束及用量事件账本、连续服务/确认水位、按 owner/provider/模型/项目/IANA 时区/封闭窗口的 fail-closed 证明、范围与未知标签，固定文件快照只作重放。DEV-053 的限定真零仅消费同范围完整且空的证明。TC-077/078/084 各需受控规则与真实 CLI 正例，真实版本、账户、模型/项目字段和结束语义待环境验证。详见[设计决议](coverage-evidence-decision.md)。现有防假零子结果保留，状态未升为完成。
 
 2026-10-03 完整性口径决议：沿用 REQ-040→DEV-049→TC-077/078 与 REQ-044→DEV-053→TC-084，不新增编号。只有所选 owner+provider+时间窗及筛选对应的监测来源边界、可验留存起点、连续采集/重放水位、无缺口/丢弃/权限或格式错误、可证归属和维度解析均成立，才可称所选来源完整；关闭且同事实集空才可显示限定真零，两期还须等长、同范围/时区/as-of 且双方完整。受控合成正例可验规则，不提升真实来源完整性状态；三个 TC 的保守子断言结果保留，整项待验。具体证据与反例见[设计](design.md)和[逐项验收](test-case-acceptance.md)。
