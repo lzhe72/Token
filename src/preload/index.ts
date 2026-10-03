@@ -18,6 +18,7 @@ const api: TokenApi = {
   getScanProgress: () => ipcRenderer.invoke('sources:progress'),
   getAccountCollectionStatuses: () => ipcRenderer.invoke('admin:account-statuses'),
   scanSources: () => ipcRenderer.invoke('sources:scan'),
+  cancelScan: () => ipcRenderer.invoke('sources:cancel-scan'),
   getSourceIdentities: () => ipcRenderer.invoke('sources:identities'),
   previewSourceBinding: (key, userId, filter) => ipcRenderer.invoke('sources:preview-binding', key, userId, filter),
   confirmSourceBinding: previewId => ipcRenderer.invoke('sources:confirm-binding', previewId),

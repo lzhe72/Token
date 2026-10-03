@@ -104,7 +104,14 @@ const extraRuns = {
   ],
   'TC-083': [{ kind: 'e2e', file: 'tests/e2e/onboarding.spec.ts', testName: 'TC-083 普通用户引导不显示他人进度且无权扫描归属' }],
   'TC-084': [{ kind: 'e2e', file: 'tests/e2e/empty-state.spec.ts', testName: 'TC-084 报表筛选无匹配保持覆盖未知并可清除筛选进入诊断' }],
-  'TC-085': [{ kind: 'e2e', file: 'tests/e2e/empty-state.spec.ts', testName: 'TC-085 慢速合成扫描在诊断页显示中间进展且完成后清除' }],
+  'TC-085': [
+    { kind: 'unit', file: 'tests/m6-diagnostics.test.ts', testName: 'TC-085 取消等待当前文件提交且续扫不重复或上报残缺快照' },
+    { kind: 'unit', file: 'tests/m6-diagnostics.test.ts', testName: 'TC-085 第二个工具取消不把首个工具成功误作完整扫描' },
+    { kind: 'unit', file: 'tests/m6-diagnostics.test.ts', testName: 'TC-085 发现目录阶段取消后不读取任何记录文件' },
+    { kind: 'unit', file: 'tests/m6-diagnostics.test.ts', testName: 'TC-085 文件持久化失败后事实与游标一起回滚并可续扫' },
+    { kind: 'e2e', file: 'tests/e2e/empty-state.spec.ts', testName: 'TC-085 慢速合成扫描在诊断页显示中间进展且完成后清除' },
+    { kind: 'e2e', file: 'tests/e2e/empty-state.spec.ts', testName: 'TC-085 取消显示未知状态且重新扫描继续完成' }
+  ],
   'TC-086': [{ kind: 'e2e', file: 'tests/e2e/source-binding.spec.ts', testName: 'TC-086 草稿预览键盘取消与确认后权限转移' }],
   'TC-087': [{ kind: 'e2e', file: 'tests/e2e/source-binding.spec.ts', testName: 'TC-087 预览后重扫变化确认拒绝且界面恢复旧归属' }],
   'TC-023': [{ kind: 'unit', file: 'tests/report-snapshot.test.ts', testName: 'TC-023 CSV v2 待核对行的模型和项目名称仍转义公式' }],

@@ -15,6 +15,7 @@ function queryFor(days: number, provider: Provider | 'all', userId: string, time
 function toIsoDate(date: Date): string { return date.toISOString().slice(0, 10); }
 
 export function statusLabel(source: SourceStatus): string {
+  if (source.status === 'cancelled') return '扫描已取消 · 覆盖未知';
   if (source.windowCoverage?.state === 'partial') return '部分覆盖';
   if (source.windowCoverage?.state === 'unknown') return '覆盖未知';
   if (source.detail?.includes('覆盖仍待诊断')) return '已采到记录 · 覆盖未知';

@@ -20,6 +20,7 @@ function sourceStatusLabel(status?: Pick<SourceStatus, 'status'>): string {
   switch (status?.status) {
     case 'ready': return '已采集';
     case 'scanning': return '扫描中';
+    case 'cancelled': return '扫描已取消 · 覆盖未知';
     case 'no_records': return '暂无记录';
     case 'not_found': return '未找到';
     case 'error': return '需要检查';
@@ -46,6 +47,8 @@ function App() {
   const [error, setError] = React.useState('');
   const [notice, setNotice] = React.useState('');
   const [busy, setBusy] = React.useState(false);
+  const [scanCancelling, setScanCancelling] = React.useState(false);
+  const [scanActive, setScanActive] = React.useState(false);
   const [tab, setTab] = React.useState<'overview' | 'report' | 'sources' | 'users' | 'settings' | 'diagnostics' | 'feedback' | 'onboarding'>('overview');
   const [onboarding, setOnboarding] = React.useState<{ userId: string; status: OnboardingStatus } | null>(null);
   const [onboardingPreference, setOnboardingPreference] = React.useState<{ userId: string; skipped: boolean } | null>(null);
@@ -108,6 +111,16 @@ function App() {
     const timer = window.setInterval(refresh, 5000);
     return () => window.clearInterval(timer);
   }, [state?.user?.id]);
+
+  React.useEffect(() => {
+    if (!busy || !state?.user || state.user.role === 'viewer') return;
+    let active = true;
+    const poll = () => void window.tokenApi.getScanProgress().then(progress => {
+      if (active) setScanActive(progress.length > 0);
+    }).catch(() => {});
+    const timer = window.setInterval(poll, 300);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [busy, state?.user?.id]);
 
   React.useEffect(() => {
     if (tab !== 'diagnostics' || !state?.user || state.user.role === 'viewer') return;
@@ -313,6 +326,8 @@ function App() {
 
   async function scanSources() {
     setBusy(true);
+    setScanCancelling(false);
+    setScanActive(true);
     setError('');
     try {
       setSourceStatuses(await window.tokenApi.scanSources());
@@ -323,6 +338,18 @@ function App() {
       setError(errorMessage(e));
     } finally {
       setBusy(false);
+      setScanCancelling(false);
+      setScanActive(false);
+    }
+  }
+
+  async function cancelScan() {
+    setScanCancelling(true);
+    try {
+      if (!await window.tokenApi.cancelScan()) setScanCancelling(false);
+    } catch (reason) {
+      setScanCancelling(false);
+      setError(errorMessage(reason));
     }
   }
 
@@ -511,12 +538,12 @@ function App() {
           serverUrl={serverUrl} serverToken={serverToken} adminToken={serverAdminToken} busy={busy} checking={checkingUpdate}
           setServerUrl={setServerUrl} setServerToken={setServerToken} setAdminToken={setServerAdminToken} saveServer={saveServer}
           checkUpdate={checkUpdate} downloadUpdate={downloadUpdate} backupDatabase={backupDatabase} restoreDatabase={restoreDatabase} openFilePermissions={openFilePermissions} />
-        : tab === 'diagnostics' ? <DiagnosticsPanel items={diagnostics} busy={busy} canScan={state.user.role !== 'viewer'} onScan={scanSources} onPermissions={openFilePermissions} onFeedback={() => setTab('feedback')} />
+        : tab === 'diagnostics' ? <DiagnosticsPanel items={diagnostics} busy={busy} scanning={scanActive} cancelling={scanCancelling} canScan={state.user.role !== 'viewer'} onScan={scanSources} onCancel={cancelScan} onPermissions={openFilePermissions} onFeedback={() => setTab('feedback')} />
         : tab === 'feedback' ? <FeedbackPanel username={state.user.username} />
         : tab === 'sources' ? <>
           <p className="page-lead">只读取当前 macOS 账户可访问的本机会话记录。采集器不会保存提示词、回复正文或源码。</p>
           <div className="source-grid"><div className="source-card"><div className="source-icon codex">◈</div><div><h3>Codex</h3><p>{codexStatus?.detail || `${codexStatus?.fileCount ?? 0} 个会话文件 · ${codexStatus?.factCount ?? 0} 条本地 · ${codexStatus?.telemetryFactCount ?? 0} 条遥测`}</p></div><span className="status-pill">{sourceStatusLabel(codexStatus)}</span></div><div className="source-card"><div className="source-icon claude">✳</div><div><h3>Claude Code</h3><p>{claudeStatus?.detail || `${claudeStatus?.fileCount ?? 0} 个会话文件 · ${claudeStatus?.factCount ?? 0} 条本地 · ${claudeStatus?.telemetryFactCount ?? 0} 条遥测`}</p></div><span className="status-pill">{sourceStatusLabel(claudeStatus)}</span></div></div>
-          <div className="source-actions"><button className="primary" disabled={busy} onClick={scanSources}>{busy ? '扫描中…' : '立即扫描'}</button><span>首次导入大量历史记录可能需要几分钟。</span></div>
+          <div className="source-actions"><button className="primary" disabled={busy} onClick={scanSources}>{busy ? scanActive ? '扫描中…' : '正在同步…' : '立即扫描'}</button>{busy && scanActive && <button className="export-button" disabled={scanCancelling} onClick={cancelScan}>{scanCancelling ? '正在取消…' : '取消扫描'}</button>}<span>首次导入大量历史记录可能需要几分钟。</span></div>
           <section className="panel"><div className="panel-head"><h2>来源归属</h2><span>{sourceIdentities.length} 个来源</span></div><p className="hint">选择用户只生成草稿；预览后确认才会改变授权。无法确认的来源可保留为未归属。</p>
             <div className="binding-range"><label>预览开始 <input type="date" disabled={bindingBusy} value={bindingRange.from} onChange={e => setBindingRange(current => ({ ...current, from: e.target.value }))} /></label><label>预览结束 <input type="date" disabled={bindingBusy} value={bindingRange.to} onChange={e => setBindingRange(current => ({ ...current, to: e.target.value }))} /></label><span>同一时区 {bindingRange.timeZone} · 当前来源工具 · 全部模型与项目</span></div>
             {bindingError && <p className="error" role="alert" tabIndex={-1} ref={bindingErrorRef}>{bindingError} · 请检查来源后重新预览。 <button type="button" className="text-button" onClick={() => bindingSelect.current?.focus()}>重新选择归属</button></p>}
