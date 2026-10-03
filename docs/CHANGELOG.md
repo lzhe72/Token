@@ -4,6 +4,13 @@
 
 ## 2026-10-04
 
+### 旧本地来源迁移与重扫反馈（REQ-048、DEV-057、TC-092–094；文档分支 `codex/docs/20261004-local-legacy-rescan-ux`）
+
+- **尝试**：只读核对本地 Codex/Claude 回退来源、扫描状态和开发草稿的 `*:legacy-unverified:*` 迁移方案，检查旧归属被暂停后用户能否理解历史用量变化。
+- **卡点**：旧事实迁入未归属后，原 viewer 的历史用量可能暂时从本人报表消失；文件缺失、权限不足或记录不可解析时，重扫可能长期不能恢复。现行 `UsageSync.start()` 会立即尝试 `flush()`，若启动时旧 outbox 未先替换，旧 owner 快照或错误的 confirmed 小计可能继续外传。当前仓库尚无该迁移实现或动态用例。
+- **处理**：沿用 REQ-048→DEV-057→TC-092，补迁移中及重扫失败时的通用 viewer 提示、管理员可操作的重扫/权限诊断、可证身份恢复与不可恢复分支；成功重归属后清除无事实的临时来源行并保留最小脱敏审计。增加“任何影响授权或已确认小计/状态的迁移后、首次 `flush` 前持久替换旧 v1/v2 outbox 为重算的 v2 快照”的真实主进程启动与在线服务验收；包括旧 OTel 账户有 ID、owner 不变但旧键转 `legacy_otel_identity_unknown` 时 confirmed 降 uncertain，TC-093/094 回归报表/CSV/服务聚合。
+- **结果**：仅增加非 SOP 待验收口径，未改产品代码、未执行新增用例，也未把历史数据恢复或整项状态记为通过。
+
 ### 缺账户 ID 遥测归属边界（REQ-048、DEV-057、TC-092–094；文档分支 `codex/docs/20261004-otel-unknown-identity-boundary`）
 
 - **尝试**：只读核 Codex OTel 缺 `user.account_id` 的身份 fallback、来源绑定、viewer 查询与上报路径，对照工作簿 REQ-048/TC-092–094 的现行状态。
