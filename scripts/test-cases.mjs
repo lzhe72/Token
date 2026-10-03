@@ -155,7 +155,11 @@ const extraRuns = {
   ],
   'TC-023': [{ kind: 'unit', file: 'tests/report-snapshot.test.ts', testName: 'TC-023 CSV v2 待核对行的模型和项目名称仍转义公式' }],
   'TC-079': [{ kind: 'e2e', file: 'tests/e2e/report-snapshot.spec.ts', testName: 'TC-079 快速切换筛选时旧响应不覆盖且导出等待当前快照' }],
-  'TC-093': [{ kind: 'e2e', file: 'tests/e2e/overlap-privacy.spec.ts', testName: 'TC-093 普通用户来源状态诊断和反馈附件不含其他账户数据' }],
+  'TC-093': [
+    { kind: 'e2e', file: 'tests/e2e/overlap-privacy.spec.ts', testName: 'TC-093 普通用户来源状态诊断和反馈附件不含其他账户数据' },
+    { kind: 'e2e', file: 'tests/e2e/real-overlap.spec.ts',
+      testName: 'TC-093 真实本地和遥测事实经归属调和贯穿概览报表明细 CSV v2 且切换用户隔离' }
+  ],
   'TC-036': [{ kind: 'unit', file: 'tests/update-install.test.ts', testName: 'TC-036 自动安装目标选择、退出后替换和失败回滚' }],
   'TC-076': [{ kind: 'integration', file: 'scripts/verify-auto-upgrade-faults.mjs' }],
   'TC-030': [{ kind: 'e2e', file: 'tests/e2e/trust.spec.ts', testName: 'TC-030 应用重启自动登录并在退出后撤销' }],
