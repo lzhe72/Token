@@ -18,7 +18,7 @@
 | `src/main/report.ts` | 筛选、时区分桶、明细和 CSV 的统一计算口径 |
 | `src/main/reconcile.ts` | 授权事实内本地与遥测调和，区分已确认和待核对候选 |
 | `src/main/feedback.ts`、`src/renderer/feedback.tsx`、`diagnostics.tsx`、`settings.tsx` | 本机反馈待传、诊断与设置界面 |
-| `src/main/index.ts`、`src/preload/index.ts`、`src/shared/types.ts` | 主进程 IPC、最小化预加载 API、跨进程类型 |
+| `src/main/index.ts`、`src/main/onboarding.ts`、`src/preload/index.ts`、`src/shared/types.ts` | 主进程 IPC、授权首次引导状态、最小化预加载 API、跨进程类型 |
 | `src/renderer/` | React 界面、报表交互与样式 |
 | `tests/*.test.ts`、`tests/e2e/*.spec.ts` | 规则测试和 Electron 端到端流程 |
 | `docs/` | 设计、计划、证据及本指南 |
@@ -40,6 +40,7 @@
 - REQ-040 保守子范围：当前 `source_status`、`source_cursors` 与事实表没有历史留存起点及连续采集证明；最早事实、`ready` 和成功空扫描都不能产生 complete。下一笔 DEV-049 先按 owner+工具+时区+区间显示未知/可证部分，阻断空事实假零与假同比；仅 pending 事实可显示已确认小计 0，但完整总量未知。TC-077/078 先测这些反例；完整空窗真零和同 as-of 同口径同比正例待需求会话决定证据方案，整项继续待验。SOP 仍指导所有模型行为，此处只列工程边界。
 - DEV-049 在 `ef7a3de` 实现保守筛选覆盖，并由 `c10bbf3` 修正观察事实与覆盖窗口的语义：报表按授权 owner、工具、模型、项目、IANA 时区与区间筛选；有无事实均给“未知”，有事实保留本范围计数/最近观察时间，`asOf` 和来源级 `lastScan` 为空；概览/报表空事实不假称零，pending 事实只显示已确认小计 0/完整总量不可确认，同比不可比较。TC-077/078 各有单元+Electron 绑定，文档会话在 `c10bbf3` 独立复跑及完整门禁通过；单条事实不证明连续子区间完整，REQ-040/DEV-049/TC-077/078 整项仍待正例证据方案。前述“当前全局/待注册”为实施前静态发现。
 - DEV-053 本轮只排可验证的分型空状态和扫描反馈：未扫描、权限不足、格式不支持、筛选无匹配、覆盖未知/有已观测记录但完整性未知，以及长扫描真实阶段和修复重试。真零需要未来同一授权筛选范围 `coverage.complete` 且事实为空的证据；现有 REQ-040 不能造完整空窗，TC-084 真零正例待决，不能用注入的 complete 假装通过。TC-084/085 仍待注册和验证，详见[设计第 20.3 节](design.md#203-空状态重绑和服务状态req-044046)。
+- DEV-052 在 `3bbaf15` 新增主进程授权的 `onboarding:status` 与检测→扫描→归属→首笔已确认正 Token 引导；viewer 来源级扫描保持未知并指向管理员，零 Token/待核对记录不算首笔，成功扫描的重扫不倒退。提示跳过按应用用户 ID 存当前 Electron 用户数据 localStorage，固定侧栏可重开；viewer 已绑定且有正用量时概览不常驻催促。TC-082/083 单元+Electron 自动子范围由文档会话独立复跑及门禁通过；真实生产/打包环境仍待验。`3bbaf15` 同时修正 REQ-040 无事实原因的“已归属”措辞，TC-077 回归通过。
 - 覆盖来源依据：Codex [官方 `exec` 文档](https://learn.chatgpt.com/docs/developer-commands#codex-exec)允许 `--ephemeral` 不持久化 rollout 文件；Claude Code [官方监测文档](https://code.claude.com/docs/en/monitoring-usage)要求显式开启 OTel，exporter 可为 `none`。单凭本地文件或 OTel 缺记录，不能断定工具未使用、真零或历史完整；TC-077/078 保持待验。
 - 来源归属必须显式绑定；普通用户的查询范围由主进程登录态约束。每个 IPC 在主进程验证发送方、权限和参数；预加载脚本只暴露命名方法，不能暴露通用 IPC、文件系统或 SQL。
 - 只保存用量字段和必要的来源元数据。禁止提交真实会话 JSONL、提示词、回复、源码、数据库、凭证和遥测密钥；测试使用人工构造的无正文样本，临时数据目录在测试后清理。
