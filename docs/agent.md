@@ -50,6 +50,7 @@
 - 第三批组合缺口（基线 `4b3ff02`）：TC-088 要将内置/显式远端、网络/认证/协议、当前 revision 待传、待核对与本地扫描/覆盖正交验；旧 `lastSuccess`/`pending=0` 不单独证明当前已同步。TC-090 除可读还须纯键盘复制各 Token 原始整数并粘贴比对，`title`/缩写/CSV 不算入口；TC-089 须验证模态背景对 VoiceOver 也不可达。TC-088–091 均仍待注册/验证，仅文档目标。
 - DEV-055 当前阶段（代码 `41838d8`）：主进程现明确服务类型/配置来源、连接/授权/协议、当前 revision 确认；设置页与概览分列待传、待核对和本地覆盖，旧成功时间不代表当前已同步。TC-088 已绑定 6 单元+2 Electron，文档会话独立复跑及门禁通过。DEV-056 仅遥测说明子范围已改，TC-091 绑定 1 单元+1 Electron 并通过；TC-089/090 未注册，TC-091 其余状态/角色/动作矩阵未覆盖。上三条“待开发/待注册”是实施前历史。修改服务连接或界面状态时先复跑 `npm run test:case -- TC-088`、`TC-091`，仍按[验收记录](validation.md)区分合成自动证据与真实远端/打包/目标 Mac。
 - 当前待修：`src/renderer/index.tsx` 的重绑提示在 `upload.pending === 0` 时改称“服务端已同步”，未检查 `currentConfirmed`，可能把服务切换或确认失效后的空队列误报为同步；按 REQ-046/DEV-055/TC-088 修复并补瞬态 Electron 断言，不能以该提示作为当前 revision 已确认的证据。
+- 后续代码 `6a194ea` 已把上述重绑提示改为只在 `currentConfirmed` 时称当前版本获服务端确认，TC-091 新增空队列但确认失效的单元和 Electron 断言；前条“待修”是 `41838d8` 历史。TC-089 已有 1180/760/700px 键盘及弹窗 `inert`/`aria-hidden` 自动绑定，TC-090 已有两项原始整数剪贴板/待核对/未知自动绑定，TC-091 聚合既有状态断言；文档会话独立单编号和完整门禁结果见[验收记录](validation.md)。目标 Mac VoiceOver 人工导航/朗读、REQ-040 真零、真实生产库与打包 App 未验。后续改动复跑 TC-089/090/091 和 TC-087，不把自动 `aria-hidden` 当作人工辅助技术证据。
 
 - 覆盖来源依据：Codex [官方 `exec` 文档](https://learn.chatgpt.com/docs/developer-commands#codex-exec)允许 `--ephemeral` 不持久化 rollout 文件；Claude Code [官方监测文档](https://code.claude.com/docs/en/monitoring-usage)要求显式开启 OTel，exporter 可为 `none`。单凭本地文件或 OTel 缺记录，不能断定工具未使用、真零或历史完整；TC-077/078 保持待验。
 - 来源归属必须显式绑定；普通用户的查询范围由主进程登录态约束。每个 IPC 在主进程验证发送方、权限和参数；预加载脚本只暴露命名方法，不能暴露通用 IPC、文件系统或 SQL。
