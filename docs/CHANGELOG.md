@@ -4,6 +4,13 @@
 
 ## 2026-10-03
 
+### 覆盖缺失的官方来源依据（REQ-040、TC-077–078；文档分支 `codex/docs/20261003-coverage-source-evidence`）
+
+- **尝试**：核对本地会话文件和 OTel 未收到记录是否可用来证明历史窗口无用量。
+- **卡点**：[Codex 官方文档](https://learn.chatgpt.com/docs/developer-commands#codex-exec)支持不落 rollout 文件的 `exec --ephemeral`；[Claude Code 官方文档](https://code.claude.com/docs/en/monitoring-usage)说明 OTel 要显式开启，exporter 可禁用。两类缺失都不能直接推断真零。
+- **处理**：把官方资料及其仅支持“未观察到不等于零”的推论写入 REQ-040/TC-077–078 的设计、验收、追溯工作簿和技术指南；保留保守未知/部分范围，不改 SOP。
+- **结果**：证据边界更明确；未新增采集能力、完整覆盖证明或用例通过结果，真零与同比正例仍待证据方案。
+
 ### 可证覆盖的保守实施范围（REQ-040、DEV-049、TC-077–078；文档分支 `codex/docs/20261003-conservative-coverage`）
 
 - **尝试**：核对现有采集记录能否支持选定用户范围的“已确认零”与同口径同比正例，并划定下一笔可独立交付范围。
