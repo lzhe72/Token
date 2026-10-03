@@ -2,7 +2,11 @@
 
 `TC-001` 至 `TC-094` 的编号以[追溯工作簿](../outputs/20261002-token-docs/Token-需求开发测试追溯.xlsx)为准。当前 94 个编号均在 `scripts/test-cases.mjs` 有入口，可用同一脚本重复执行；人工清单有入口不等于已通过。多个旧 TC 可共享覆盖较广的测试；TC-021 保留共享测试及独立分页单元/Electron，TC-073 包含 fallback 归并与 6000 条合成事实性能，TC-074 包含设备授权和服务切换竞态。新增用例时，同步增加注册项和断言。
 
-TC-074 现可用 `npm run test:case -- TC-074` 单独执行；服务端设备/用户授权、客户端加密凭据及待传恢复分别有绑定，实际边界见[逐项验收](test-case-acceptance.md)。`npm run test:cases:check` 在代码 `1e70412` 核对 94 个编号。
+2026-10-04 TC-076 新增 `scripts/verify-auto-upgrade-faults.mjs` 绑定；真实 DMG 模式需四个 `TOKEN_TC076_*` 路径/摘要环境变量。不带真实包时故障脚本跳过，不能从命令退出码推断真实故障已验。代码 `80e7f10` 的文档会话独立运行曾在最终重试读取一次性状态文件处退出码 1；已观察的五种 installer 模块故障回退不等于整条 TC-076 或打包 helper/UI 故障闭环通过。详见[逐项验收](test-case-acceptance.md)与[验收记录](validation.md)。
+
+`0eac84b` 修正一次性状态读取断言后，文档会话用相同真实 DMG 和固定 SHA-256 将完整 TC-076 独立复跑到退出码 0；`80e7f10` 的退出码 1 作为历史失败保留。证据仍限隔离可写路径与 installer 模块 hooks，见[验收记录](validation.md)。
+
+TC-074 现可用 `npm run test:case -- TC-074` 单独执行；服务端设备/用户授权、客户端加密凭据及待传恢复分别有绑定，实际边界见[逐项验收](test-case-acceptance.md)。`npm run test:cases:check` 在代码 `0eac84b` 核对 94 个编号。
 
 M5 的 `TC-030` 至 `TC-049` 及 CSV 修复用例 `TC-029` 已绑定自动测试；[逐项验收](test-case-acceptance.md#m5-用例绑定与覆盖tc-030tc-049)列出实际断言和仍需验证的边界。测试代码存在并不自动表示真实安装、非回环部署或目标 Mac 人工验收通过。
 
