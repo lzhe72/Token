@@ -73,7 +73,7 @@ test('TC-078 只有待核对记录时保留已确认小计零而完整总量未�
     await page.getByRole('button', { name: /用量报表/ }).first().click();
     await page.getByLabel('工具筛选').selectOption('codex');
     await page.getByLabel('用户筛选').selectOption({ label: 'viewer' });
-    await expect(page.locator('.coverage-strip')).toContainText('部分覆盖');
+    await expect(page.locator('.coverage-strip')).toContainText('覆盖未知');
     await expect(page.locator('.metric-card').first()).toContainText('完整总量不可确认');
     await expect(page.locator('.metric-card').first().locator('strong')).toHaveText('0');
     await expect(page.locator('.metric-card').nth(1).locator('strong')).toHaveText('0');

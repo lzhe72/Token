@@ -25,7 +25,8 @@ test('TC-077 管理员筛选覆盖不借用其他 owner 或全局 ready', async 
     db.run("INSERT INTO source_status(provider,status,file_count,fact_count,last_scan,detail,diagnostic_json,last_success) VALUES ('codex','ready',3,2,'2026-10-03T00:00:00Z','global ready','{}','2026-10-03T00:00:00Z')");
     const scopedA = report.query({ ...query, userId: 'a' }, admin);
     expect(scopedA.coverage[0]).toMatchObject({ factCount: 1, telemetryFactCount: 0, lastScan: null,
-      windowCoverage: { state: 'partial', asOf: null, lastObserved: '2026-10-02T10:00:00Z' } });
+      windowCoverage: { state: 'unknown', asOf: null, lastObserved: '2026-10-02T10:00:00Z' } });
+    expect(scopedA.coverage[0].windowCoverage?.reason).toContain('尚无可证的连续采集子区间');
     for (const userId of ['b', 'unassigned']) {
       const result = report.query({ ...query, userId }, admin);
       expect(result.totals.totalTokens).toBe(0);
@@ -38,7 +39,7 @@ test('TC-077 管理员筛选覆盖不借用其他 owner 或全局 ready', async 
     expect(report.query({ ...query, userId: 'a', model: 'other-model' }, admin).coverage[0].windowCoverage)
       .toMatchObject({ state: 'unknown', lastObserved: null });
     expect(report.query({ ...query, userId: 'a', projectKey: 'unknown' }, admin).coverage[0].windowCoverage)
-      .toMatchObject({ state: 'partial', lastObserved: '2026-10-02T10:00:00Z' });
+      .toMatchObject({ state: 'unknown', lastObserved: '2026-10-02T10:00:00Z' });
   } finally { db.close(); workspace.cleanup(); }
 });
 
@@ -58,7 +59,7 @@ test('TC-078 时区边界和待核对窗口不伪造完整覆盖或同比', asyn
     const current = report.query(query, admin);
     const previous = report.query({ ...query, from: '2026-10-02', to: '2026-10-02' }, admin);
     expect(current.accounting).toMatchObject({ status: 'uncertain', confirmedSubtotal: { totalTokens: 0 }, conflictCount: 2 });
-    expect(current.coverage[0].windowCoverage).toMatchObject({ state: 'partial', asOf: null });
+    expect(current.coverage[0].windowCoverage).toMatchObject({ state: 'unknown', asOf: null });
     expect(previous.totals.totalTokens).toBe(0);
     expect(previous.coverage[0].windowCoverage).toMatchObject({ state: 'unknown', asOf: null });
     const utc = report.query({ ...query, timeZone: 'UTC' }, admin);

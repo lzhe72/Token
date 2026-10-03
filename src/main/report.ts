@@ -147,9 +147,9 @@ export class ReportService {
       const telemetry = facts.filter(fact => fact.source_key.startsWith('otel:'));
       const latest = (values: FactRow[]) => values.reduce<string | null>((value, fact) =>
         !value || fact.occurred_at > value ? fact.occurred_at : value, null);
-      const state = facts.length ? 'partial' : 'unknown';
+      const state = 'unknown';
       const reason = facts.length
-        ? '此范围有已归属记录，但来源历史留存起点及连续采集尚无可证边界，完整覆盖未知'
+        ? '此范围有已观测记录，但尚无可证的连续采集子区间或历史留存起点，完整覆盖未知'
         : '此范围没有已归属记录；无法证明来源历史留存与连续采集，不能认定为零用量';
       return { provider, status: 'idle', fileCount: null,
         factCount: local.length, telemetryFactCount: telemetry.length,
