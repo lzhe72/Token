@@ -4,6 +4,13 @@
 
 ## 2026-10-04
 
+### Claude 遥测账户归属与累计游标边界（REQ-048、DEV-057、TC-092–094；文档分支 `codex/docs/20261004-claude-otel-identity-boundary`）
+
+- **尝试**：只读核对 `telemetry.ts` 的 Claude OTel 来源键、`user.id` 解析、累计指标 `stream`/事实键及官方属性语义，对照旧库归属和上报验收。
+- **卡点**：缺 `user.id` 会退回 macOS 用户名；空串会形成可绑定的 `hash('')` 来源，无效类型/超长值也退回用户名。官方将普通 `user.id` 定义为安装级匿名标识而非账户 ID；同机切换 Claude 账户时即使字段存在也不能据此证明账户归属。缺 ID 的同 stream/time 累计点还可能共用 `otel_metric_cursors`，静默丢失或错算增量。
+- **处理**：沿用原编号，要求缺失/空白/无效/超长及仅安装级 ID 的事实进入未归属 unknown；旧 username/空串混合键审计后无法拆分则保守撤销绑定。补管理员诊断、viewer/CSV/上报隔离、真实启动快照重算和两账户同游标不同数值反例；另给 Codex 无 `user.account_id` 的跨账户同字段双 POST 与真正重送列对照断言，缺稳定事件 ID 时不作确定去重；无法区分重送的观测标待核对，历史无法重建的不报完整总量。网关 IdP subject 或认证账户属性须有实际身份来源证据才可授权绑定。
+- **结果**：仅补非 SOP 静态风险与待验收断言；未改产品代码、未运行新用例或提升 REQ/DEV/TC 状态。官方依据见[Claude Code 监测属性](https://code.claude.com/docs/en/monitoring-usage)。
+
 ### 旧本地来源迁移与重扫反馈（REQ-048、DEV-057、TC-092–094；文档分支 `codex/docs/20261004-local-legacy-rescan-ux`）
 
 - **尝试**：只读核对本地 Codex/Claude 回退来源、扫描状态和开发草稿的 `*:legacy-unverified:*` 迁移方案，检查旧归属被暂停后用户能否理解历史用量变化。
