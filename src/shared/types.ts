@@ -111,6 +111,7 @@ export interface UsageReport {
   projects: ProjectTotal[];
   providers: Array<TokenTotals & { provider: Provider }>;
   availableModels: string[];
+  availableModelOptions: Array<{ provider: Provider; model: string }>;
   availableProjects: Array<{ key: string; label: string }>;
   coverage: SourceStatus[];
 }

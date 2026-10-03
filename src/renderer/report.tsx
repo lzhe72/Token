@@ -1,6 +1,7 @@
 import React from 'react';
 import type { Granularity, Provider, PublicUser, ReportQuery, SourceStatus, UsageDetailsPage, UsageReport } from '../shared/types';
 import { formatPeriodLabel, formatTokens } from './format';
+import type { ReportDestination } from './report-navigation';
 
 function localDate(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -44,17 +45,36 @@ function matchesQuery(report: UsageReport, query: ReportQuery, user: PublicUser)
   return (Object.keys(effective) as Array<keyof ReportQuery>).every(key => report.query[key] === effective[key]);
 }
 
-export function ReportPanel({ user, users, onDrilldownChange }: { user: PublicUser; users: PublicUser[]; onDrilldownChange?: (active: boolean) => void }) {
-  const [query, setQuery] = React.useState<ReportQuery>(initialQuery);
+export function ReportPanel({ user, users, destination, backTick, onDrilldownChange }: { user: PublicUser; users: PublicUser[];
+  destination?: ReportDestination | null; backTick?: number; onDrilldownChange?: (active: boolean) => void }) {
+  const [query, setQuery] = React.useState<ReportQuery>(() => destination?.query || initialQuery());
   const [loadedReport, setLoadedReport] = React.useState<UsageReport | null>(null);
   const [details, setDetails] = React.useState<UsageDetailsPage | null>(null);
   const [detailPage, setDetailPage] = React.useState(1);
-  const [detailPeriod, setDetailPeriod] = React.useState('');
+  const [detailPeriod, setDetailPeriod] = React.useState(destination?.period || '');
   const [error, setError] = React.useState('');
   const [exporting, setExporting] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [reload, setReload] = React.useState(0);
   const report = loadedReport && matchesQuery(loadedReport, query, user) ? loadedReport : null;
+  const detailRef = React.useRef<HTMLElement | null>(null);
+  const lastBackTick = React.useRef(backTick);
+  const focusedDestination = React.useRef(false);
+
+  React.useEffect(() => {
+    if (lastBackTick.current === backTick) return;
+    lastBackTick.current = backTick;
+    setQuery(current => ({ ...current, model: '', projectKey: '' }));
+    setDetailPeriod('');
+    setDetailPage(1);
+  }, [backTick]);
+
+  React.useEffect(() => {
+    if (!details || !destination || focusedDestination.current || !(detailPeriod || query.model || query.projectKey)) return;
+    focusedDestination.current = true;
+    detailRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    detailRef.current?.focus();
+  }, [details, destination, detailPeriod, query.model, query.projectKey]);
 
   React.useEffect(() => { onDrilldownChange?.(Boolean(detailPeriod || query.model || query.projectKey)); },
     [detailPeriod, query.model, query.projectKey, onDrilldownChange]);
@@ -98,6 +118,12 @@ export function ReportPanel({ user, users, onDrilldownChange }: { user: PublicUs
     setDetailPeriod('');
   }
 
+  function selectModel(provider: Provider, model: string) {
+    setQuery(current => ({ ...current, provider, model }));
+    setDetailPage(1);
+    setDetailPeriod('');
+  }
+
   async function exportCsv() {
     if (!report || loading) return;
     setExporting(true);
@@ -127,7 +153,10 @@ export function ReportPanel({ user, users, onDrilldownChange }: { user: PublicUs
     <p className="hint export-summary">导出范围：{query.from} 至 {query.to} · {query.timeZone} · {query.provider === 'all' ? '全部工具' : query.provider === 'codex' ? 'Codex' : 'Claude Code'} · 模型 {query.model || '全部'} · 项目 {query.projectKey || '全部'} · 用户 {user.role === 'viewer' ? '当前用户' : query.userId === 'all' ? '全部' : query.userId === 'unassigned' ? '未归属' : '指定用户'}</p>
     <div className="report-filters">
       <label>工具<select aria-label="工具筛选" value={query.provider} onChange={e => { setQuery(current => ({ ...current, provider: e.target.value as Provider | 'all', model: '' })); setDetailPage(1); setDetailPeriod(''); }}><option value="all">全部工具</option><option value="codex">Codex</option><option value="claude">Claude Code</option></select></label>
-      <label>模型<select aria-label="模型筛选" value={query.model} onChange={e => update('model', e.target.value)}><option value="">全部模型</option>{report?.availableModels.map(model => <option key={model} value={model}>{model}</option>)}</select></label>
+      <label>模型<select aria-label="模型筛选" value={query.model ? `${query.provider}\0${query.model}` : ''} onChange={e => {
+        if (!e.target.value) update('model', '');
+        else { const [selectedProvider, model] = e.target.value.split('\0'); selectModel(selectedProvider as Provider, model); }
+      }}><option value="">全部模型</option>{report?.availableModelOptions?.map(item => <option key={`${item.provider}:${item.model}`} value={`${item.provider}\0${item.model}`}>{item.provider === 'codex' ? 'Codex' : 'Claude Code'} · {item.model}</option>)}</select></label>
       <label>项目<select aria-label="项目筛选" value={query.projectKey || ''} onChange={e => update('projectKey', e.target.value)}><option value="">全部项目</option>{report?.availableProjects.map(project => <option key={project.key} value={project.key}>{project.label}</option>)}</select></label>
       {user.role !== 'viewer' && <label>用户<select aria-label="用户筛选" value={query.userId} onChange={e => update('userId', e.target.value)}><option value="all">全部用户与未归属</option><option value="unassigned">未归属</option>{users.map(item => <option key={item.id} value={item.id}>{item.username}</option>)}</select></label>}
       <label>统计时区<select aria-label="统计时区" value={query.timeZone} onChange={e => update('timeZone', e.target.value)}>
@@ -158,8 +187,8 @@ export function ReportPanel({ user, users, onDrilldownChange }: { user: PublicUs
           <strong title={`${number(item.totalTokens)} Token`}>{formatTokens(item.totalTokens)}</strong>
         </button>)}{report.projects.length === 0 && <div className="empty-row">暂无项目用量。</div>}</div>
       </section>
-      <section className="panel model-panel"><div className="panel-head"><h2>模型用量</h2><span>{report.models.length} 个模型</span></div><div className="table-wrap"><table><thead><tr><th>工具 / 模型</th><th>输入</th><th>输出</th><th>缓存读取</th><th>缓存写入</th><th>总 Token</th></tr></thead><tbody>{report.models.map(item => <tr key={`${item.provider}:${item.model}`}><td><button type="button" className="model-link" onClick={() => update('model', item.model)}>{item.model}</button><small className="model-provider">{item.provider === 'codex' ? 'Codex' : 'Claude Code'}</small></td><td title={number(item.inputTokens)}>{formatTokens(item.inputTokens)}</td><td title={number(item.outputTokens)}>{formatTokens(item.outputTokens)}</td><td title={number(item.cacheReadTokens)}>{formatTokens(item.cacheReadTokens)}</td><td title={number(item.cacheCreationTokens)}>{formatTokens(item.cacheCreationTokens)}</td><td title={number(item.totalTokens)}><strong>{formatTokens(item.totalTokens)}</strong></td></tr>)}</tbody></table>{report.models.length === 0 && <div className="empty-row">暂无模型用量。</div>}</div></section>
-      <section className="panel detail-panel"><div className="panel-head"><h2>用量明细</h2><span>{details ? `${number(details.total)} 条记录` : '加载中'}</span></div>
+      <section className="panel model-panel"><div className="panel-head"><h2>模型用量</h2><span>{report.models.length} 个模型</span></div><div className="table-wrap"><table><thead><tr><th>工具 / 模型</th><th>输入</th><th>输出</th><th>缓存读取</th><th>缓存写入</th><th>总 Token</th></tr></thead><tbody>{report.models.map(item => <tr key={`${item.provider}:${item.model}`}><td><button type="button" className="model-link" onClick={() => selectModel(item.provider, item.model)}>{item.model}</button><small className="model-provider">{item.provider === 'codex' ? 'Codex' : 'Claude Code'}</small></td><td title={number(item.inputTokens)}>{formatTokens(item.inputTokens)}</td><td title={number(item.outputTokens)}>{formatTokens(item.outputTokens)}</td><td title={number(item.cacheReadTokens)}>{formatTokens(item.cacheReadTokens)}</td><td title={number(item.cacheCreationTokens)}>{formatTokens(item.cacheCreationTokens)}</td><td title={number(item.totalTokens)}><strong>{formatTokens(item.totalTokens)}</strong></td></tr>)}</tbody></table>{report.models.length === 0 && <div className="empty-row">暂无模型用量。</div>}</div></section>
+      <section className="panel detail-panel" ref={detailRef} tabIndex={-1}><div className="panel-head"><h2>用量明细</h2><span>{details ? `${number(details.total)} 条记录` : '加载中'}</span></div>
         <p className="hint">选择趋势柱或模型名称可定位对应记录。时间按 {query.timeZone} 显示；悬浮可查看精确 Token 原值。</p>
         {(detailPeriod || query.model || query.projectKey) && <div className="detail-filters">{detailPeriod && <button className="text-button" onClick={() => { setDetailPeriod(''); setDetailPage(1); }}>{detailPeriod} ×</button>}{query.model && <button className="text-button" onClick={() => update('model', '')}>{query.model} ×</button>}{query.projectKey && <button className="text-button" onClick={() => update('projectKey', '')}>项目筛选 ×</button>}</div>}
         <div className="table-wrap"><table><thead><tr><th>时间</th><th>工具 / 模型</th><th>项目</th><th>来源</th><th>输入</th><th>输出</th><th>缓存读</th><th>缓存写</th><th>总 Token</th></tr></thead><tbody>{details?.records.map(item => <tr key={item.id}><td>{new Date(item.occurredAt).toLocaleString('zh-CN', { timeZone: query.timeZone })}</td><td><strong>{item.model}</strong><small className="model-provider">{item.provider === 'codex' ? 'Codex' : 'Claude Code'}</small></td><td>{item.projectLabel}</td><td title={item.sourceLabel}>{item.source === 'local' ? '本地' : '遥测'}</td><td title={number(item.inputTokens)}>{formatTokens(item.inputTokens)}</td><td title={number(item.outputTokens)}>{formatTokens(item.outputTokens)}</td><td title={number(item.cacheReadTokens)}>{formatTokens(item.cacheReadTokens)}</td><td title={number(item.cacheCreationTokens)}>{formatTokens(item.cacheCreationTokens)}</td><td title={number(item.totalTokens)}><strong>{formatTokens(item.totalTokens)}</strong></td></tr>)}</tbody></table>{details?.records.length === 0 && <div className="empty-row">当前筛选没有明细。</div>}</div>

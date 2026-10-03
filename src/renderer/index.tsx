@@ -1,11 +1,12 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import type { AccountCollectionStatus, AppState, CollectionDiagnostic, FeedbackItem, PublicUser, Role, ServerStatus, SourceIdentity, SourceStatus, TelemetryConfiguration, UpdateStatus, UploadStatus } from '../shared/types';
+import type { AccountCollectionStatus, AppState, CollectionDiagnostic, FeedbackItem, Provider, PublicUser, Role, ServerStatus, SourceIdentity, SourceStatus, TelemetryConfiguration, UpdateStatus, UploadStatus } from '../shared/types';
 import { ReportPanel } from './report';
 import { OverviewPanel } from './overview';
 import { SettingsPanel } from './settings';
 import { DiagnosticsPanel } from './diagnostics';
 import { FeedbackPanel } from './feedback';
+import type { ReportDestination } from './report-navigation';
 import './style.css';
 
 function errorMessage(error: unknown): string {
@@ -55,7 +56,13 @@ function App() {
   const [resetPassword, setResetPassword] = React.useState('');
   const [conflictUsername, setConflictUsername] = React.useState('');
   const [reportDrilldown, setReportDrilldown] = React.useState(false);
-  const [reportKey, setReportKey] = React.useState(0);
+  const [reportDestination, setReportDestination] = React.useState<ReportDestination | null>(null);
+  const [reportBackTick, setReportBackTick] = React.useState(0);
+  const [overviewDays, setOverviewDays] = React.useState(30);
+  const [overviewProvider, setOverviewProvider] = React.useState<Provider | 'all'>('all');
+  const [overviewUserId, setOverviewUserId] = React.useState('all');
+  const [overviewTimeZone, setOverviewTimeZone] = React.useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai');
+  const [returnFocusId, setReturnFocusId] = React.useState('');
 
   React.useEffect(() => {
     window.tokenApi.getState().then(setState).catch(e => setError(errorMessage(e)));
@@ -75,6 +82,14 @@ function App() {
     void refresh();
     const timer = window.setInterval(refresh, 5000);
     return () => window.clearInterval(timer);
+  }, [state?.user?.id]);
+
+  React.useEffect(() => {
+    setOverviewUserId('all');
+    if (!state?.user || state.user.role === 'viewer') { setUsers([]); return; }
+    let active = true;
+    void window.tokenApi.listUsers().then(value => { if (active) setUsers(value); }).catch(() => {});
+    return () => { active = false; };
   }, [state?.user?.id]);
 
   React.useEffect(() => {
@@ -184,15 +199,21 @@ function App() {
     finally { setBusy(false); }
   }
 
-  async function showReport() {
+  async function showReport(destination?: ReportDestination) {
     setError('');
     try {
       if (state?.user?.role !== 'viewer') setUsers(await window.tokenApi.listUsers());
+      setReportDestination(destination || null);
       setReportDrilldown(false);
       setTab('report');
     } catch (e) {
       setError(errorMessage(e));
     }
+  }
+
+  function returnToOverview() {
+    setReturnFocusId(reportDestination?.originId || '');
+    setTab('overview');
   }
 
   async function scanSources() {
@@ -328,8 +349,8 @@ function App() {
       <aside className="sidebar">
         <div className="app-logo"><span>T</span><strong>Token</strong></div>
         <div className="nav-group"><div className="nav-label">工作台</div>
-          <button className={tab === 'overview' ? 'nav active' : 'nav'} onClick={() => setTab('overview')}><span>◫</span> 概览</button>
-          <button className={tab === 'report' ? 'nav active' : 'nav'} onClick={showReport}><span>▤</span> 用量报表</button>
+          <button className={tab === 'overview' ? 'nav active' : 'nav'} onClick={returnToOverview}><span>◫</span> 概览</button>
+          <button className={tab === 'report' ? 'nav active' : 'nav'} onClick={() => void showReport()}><span>▤</span> 用量报表</button>
           {state.user.role !== 'viewer' && <button className={tab === 'sources' ? 'nav active' : 'nav'} onClick={showSources}><span>◇</span> 数据来源</button>}
           <button className={tab === 'diagnostics' ? 'nav active' : 'nav'} onClick={showDiagnostics}><span>◎</span> 采集诊断</button>
           <button className={tab === 'feedback' ? 'nav active' : 'nav'} onClick={() => setTab('feedback')}><span>✎</span> 问题反馈</button>
@@ -340,12 +361,15 @@ function App() {
       </aside>
       <main className="main-content" ref={contentRef}>
         <div className="content-wrap">
-        <header><div><nav className="breadcrumb" aria-label="当前位置"><button onClick={() => setTab('overview')}>工作台</button><span> / </span>{tab === 'report' && reportDrilldown ? <><button onClick={() => { setReportKey(value => value + 1); setReportDrilldown(false); }}>用量报表</button><span> / 明细</span></> : <span>{tab === 'users' ? '管理中心' : tab === 'sources' ? '数据来源' : tab === 'report' ? '用量报表' : tab === 'settings' ? '系统设置' : tab === 'diagnostics' ? '采集诊断' : tab === 'feedback' ? '问题反馈' : '概览'}</span>}</nav><h1>{tab === 'users' ? '管理中心' : tab === 'sources' ? '数据来源' : tab === 'report' ? '用量报表' : tab === 'settings' ? '系统设置' : tab === 'diagnostics' ? '采集诊断' : tab === 'feedback' ? '问题反馈' : '用量概览'}</h1></div><div className="date-chip">{server?.online ? '服务已连接' : '本机运行'}</div></header>
+        <header><div><nav className="breadcrumb" aria-label="当前位置"><button onClick={returnToOverview}>工作台</button><span> / </span>{tab === 'report' && reportDrilldown ? <><button onClick={() => { setReportBackTick(value => value + 1); setReportDrilldown(false); }}>用量报表</button><span> / 明细</span></> : <span>{tab === 'users' ? '管理中心' : tab === 'sources' ? '数据来源' : tab === 'report' ? '用量报表' : tab === 'settings' ? '系统设置' : tab === 'diagnostics' ? '采集诊断' : tab === 'feedback' ? '问题反馈' : '概览'}</span>}</nav><h1>{tab === 'users' ? '管理中心' : tab === 'sources' ? '数据来源' : tab === 'report' ? '用量报表' : tab === 'settings' ? '系统设置' : tab === 'diagnostics' ? '采集诊断' : tab === 'feedback' ? '问题反馈' : '用量概览'}</h1></div><div className="date-chip">{server?.online ? '服务已连接' : '本机运行'}</div></header>
         {error && <div className="error banner" role="alert">{error}</div>}
         {notice && <div className="notice banner" role="status">{notice}</div>}
-        {tab === 'overview' ? <OverviewPanel sources={sourceStatuses} server={server} upload={upload} update={update}
-          onCheckUpdate={checkUpdate} onDownloadUpdate={downloadUpdate} onReport={showReport} />
-        : tab === 'report' ? <ReportPanel key={reportKey} user={state.user} users={users} onDrilldownChange={setReportDrilldown} />
+        {tab === 'overview' ? <OverviewPanel sources={sourceStatuses} server={server} upload={upload} update={update} user={state.user} users={users}
+          days={overviewDays} provider={overviewProvider} userId={overviewUserId} timeZone={overviewTimeZone}
+          focusId={returnFocusId} onFocusRestored={() => setReturnFocusId('')}
+          setDays={setOverviewDays} setProvider={setOverviewProvider} setUserId={setOverviewUserId} setTimeZone={setOverviewTimeZone}
+          onCheckUpdate={checkUpdate} onDownloadUpdate={downloadUpdate} onReport={destination => void showReport(destination)} />
+        : tab === 'report' ? <ReportPanel user={state.user} users={users} destination={reportDestination} backTick={reportBackTick} onDrilldownChange={setReportDrilldown} />
         : tab === 'settings' ? <SettingsPanel user={state.user} server={server} upload={upload} telemetry={telemetry} update={update} diagnostics={diagnostics}
           serverUrl={serverUrl} serverToken={serverToken} adminToken={serverAdminToken} busy={busy} checking={checkingUpdate}
           setServerUrl={setServerUrl} setServerToken={setServerToken} setAdminToken={setServerAdminToken} saveServer={saveServer}

@@ -34,7 +34,7 @@ test('TC-021 报表明细可翻到第二页且切换模型重置页码', async (
     await page.locator('.detail-pager').getByRole('button', { name: '下一页' }).click();
     await expect(page.locator('.detail-panel tbody tr')).toHaveCount(11);
     await expect(page.locator('.detail-pager')).toContainText('2 / 2');
-    await page.getByLabel('模型筛选').selectOption('gpt-second');
+    await page.getByLabel('模型筛选').selectOption({ label: 'Codex · gpt-second' });
     await expect(page.locator('.metric-card').first().locator('strong')).toHaveText('10');
     await expect(page.locator('.detail-panel tbody tr')).toHaveCount(10);
     await expect(page.locator('.detail-pager')).toHaveCount(0);

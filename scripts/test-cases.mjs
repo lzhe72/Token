@@ -80,7 +80,9 @@ const cases = [
   ['TC-074', 'unit', 'tests/server-ownership.test.ts', 'TC-074 聚合上报拒绝跨设备跨用户覆盖并保留原快照', '聚合上报设备与用户归属授权回归'],
   ['TC-075', 'unit', 'tests/signed-release.test.ts', 'TC-075 签名发布预检与命令构造', '签名发布脚本预检与命令构造'],
   ['TC-076', 'integration', 'scripts/verify-auto-upgrade.mjs', 'TC-076 自动更新打包应用', '自动退出、替换和重启新版'],
-  ['TC-079', 'unit', 'tests/report-snapshot.test.ts', 'TC-079 查询后新增事实必须刷新快照才能导出相同事实集合', '报表快照与 CSV 一致']
+  ['TC-079', 'unit', 'tests/report-snapshot.test.ts', 'TC-079 查询后新增事实必须刷新快照才能导出相同事实集合', '报表快照与 CSV 一致'],
+  ['TC-080', 'e2e', 'tests/e2e/overview-drilldown.spec.ts', 'TC-080 概览趋势继承时间工具并在面包屑返回后保留筛选与焦点', '概览趋势上下文下钻'],
+  ['TC-081', 'e2e', 'tests/e2e/overview-drilldown.spec.ts', 'TC-081 同名模型按提供方下钻且筛选选项不混合', '模型提供方身份下钻']
 ];
 const extraRuns = {
   'TC-079': [{ kind: 'e2e', file: 'tests/e2e/report-snapshot.spec.ts', testName: 'TC-079 快速切换筛选时旧响应不覆盖且导出等待当前快照' }],

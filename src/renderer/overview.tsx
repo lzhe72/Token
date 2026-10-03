@@ -1,19 +1,18 @@
 import React from 'react';
-import type { Provider, ReportQuery, ServerStatus, SourceStatus, UpdateStatus, UploadStatus, UsageReport } from '../shared/types';
+import type { Provider, PublicUser, ReportQuery, ServerStatus, SourceStatus, UpdateStatus, UploadStatus, UsageReport } from '../shared/types';
 import { formatTokens } from './format';
+import type { ReportDestination } from './report-navigation';
 
-function localDate(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-}
-
-function queryFor(days: number, provider: Provider | 'all', shift = 0): ReportQuery {
-  const to = new Date();
-  to.setDate(to.getDate() - shift);
+function queryFor(days: number, provider: Provider | 'all', userId: string, timeZone: string, shift = 0): ReportQuery {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+  const value = (name: string) => Number(parts.find(part => part.type === name)?.value);
+  const to = new Date(Date.UTC(value('year'), value('month') - 1, value('day') - shift, 12));
   const from = new Date(to);
-  from.setDate(from.getDate() - days + 1);
-  return { from: localDate(from), to: localDate(to), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai',
-    granularity: 'day', provider, model: '', userId: 'all' };
+  from.setUTCDate(from.getUTCDate() - days + 1);
+  return { from: toIsoDate(from), to: toIsoDate(to), timeZone, granularity: 'day', provider, model: '', projectKey: '', userId };
 }
+
+function toIsoDate(date: Date): string { return date.toISOString().slice(0, 10); }
 
 export function statusLabel(source: SourceStatus): string {
   if (source.status === 'ready') return '采集正常';
@@ -30,56 +29,93 @@ export function comparisonLabel(current: number, previous: number | null, covere
   return `${current >= previous ? '+' : ''}${(((current - previous) / previous) * 100).toFixed(1)}%`;
 }
 
-export function OverviewPanel({ sources, server, upload, update, onCheckUpdate, onDownloadUpdate, onReport }: {
+export function OverviewPanel({ sources, server, upload, update, user, users, days, provider, userId, timeZone,
+  setDays, setProvider, setUserId, setTimeZone, focusId, onFocusRestored, onCheckUpdate, onDownloadUpdate, onReport }: {
   sources: SourceStatus[];
   server: ServerStatus | null;
   upload: UploadStatus | null;
   update: UpdateStatus | null;
+  user: PublicUser;
+  users: PublicUser[];
+  days: number;
+  provider: Provider | 'all';
+  userId: string;
+  timeZone: string;
+  setDays: (days: number) => void;
+  setProvider: (provider: Provider | 'all') => void;
+  setUserId: (userId: string) => void;
+  setTimeZone: (timeZone: string) => void;
+  focusId: string;
+  onFocusRestored: () => void;
   onCheckUpdate: () => void;
   onDownloadUpdate: () => void;
-  onReport: () => void;
+  onReport: (destination: ReportDestination) => void;
 }) {
-  const [days, setDays] = React.useState(30);
-  const [provider, setProvider] = React.useState<Provider | 'all'>('all');
-  const [report, setReport] = React.useState<UsageReport | null>(null);
+  const [loadedReport, setLoadedReport] = React.useState<UsageReport | null>(null);
   const [previous, setPrevious] = React.useState<UsageReport | null>(null);
   const [error, setError] = React.useState('');
+  const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
     let active = true;
+    setLoadedReport(null);
+    setPrevious(null);
+    setLoading(true);
     const refresh = async () => {
       try {
         const [current, prior] = await Promise.all([
-          window.tokenApi.queryUsage(queryFor(days, provider)),
-          window.tokenApi.queryUsage(queryFor(days, provider, days))
+          window.tokenApi.queryUsage(queryFor(days, provider, userId, timeZone)),
+          window.tokenApi.queryUsage(queryFor(days, provider, userId, timeZone, days))
         ]);
-        if (active) { setReport(current); setPrevious(prior); setError(''); }
+        if (active) { setLoadedReport(current); setPrevious(prior); setError(''); setLoading(false); }
       } catch (reason) {
-        if (active) setError(reason instanceof Error ? reason.message : '概览加载失败');
+        if (active) { setError(reason instanceof Error ? reason.message : '概览加载失败'); setLoading(false); }
       }
     };
     void refresh();
     const timer = window.setInterval(() => void refresh(), 15000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [days, provider]);
+  }, [days, provider, userId, timeZone]);
 
-  const coverage = sources.some(source => source.status === 'ready' || source.status === 'no_records');
+  const currentQuery = queryFor(days, provider, userId, timeZone);
+  const report = loadedReport && loadedReport.query.from === currentQuery.from && loadedReport.query.to === currentQuery.to &&
+    loadedReport.query.provider === provider && loadedReport.query.userId === (user.role === 'viewer' ? user.id : userId) &&
+    loadedReport.query.timeZone === timeZone ? loadedReport : null;
+  const loadingCurrent = loading || Boolean(loadedReport && !report);
+  const coverage = sources.some(source => (provider === 'all' || source.provider === provider) &&
+    (source.status === 'ready' || source.status === 'no_records'));
   const currentTotal = report?.totals.totalTokens ?? 0;
   const priorTotal = previous?.totals.totalTokens ?? 0;
   const change = comparisonLabel(currentTotal, previous ? priorTotal : null, coverage);
+  const scanEvidence = sources.filter(source => provider === 'all' || source.provider === provider)
+    .map(source => `${source.provider === 'codex' ? 'Codex' : 'Claude Code'}：${(source.status === 'ready' || source.status === 'no_records') && source.lastScan
+      ? new Date(source.lastScan).toLocaleString('zh-CN', { timeZone }) : '尚无成功采集'}`).join('；');
   const max = Math.max(1, ...(report?.points.map(point => point.totalTokens) ?? []));
   const totalModels = report?.models.slice(0, 5) ?? [];
 
+  React.useEffect(() => {
+    if (!focusId || !report) return;
+    const frame = requestAnimationFrame(() => {
+      const target = document.getElementById(focusId) || document.getElementById('overview-ranking-heading');
+      target?.focus();
+      onFocusRestored();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusId, report, onFocusRestored]);
+
   return <div className="overview-page">
-    <div className="overview-toolbar"><div><span className="eyebrow">YOUR USAGE</span><p>查看模型、趋势与数据覆盖情况。</p></div><div className="overview-controls"><select aria-label="概览时间范围" value={days} onChange={event => setDays(Number(event.target.value))}><option value={7}>近 7 天</option><option value={30}>近 30 天</option><option value={90}>近 90 天</option></select><select aria-label="概览工具" value={provider} onChange={event => setProvider(event.target.value as Provider | 'all')}><option value="all">全部工具</option><option value="codex">Codex</option><option value="claude">Claude Code</option></select></div></div>
+    <div className="overview-toolbar"><div><span className="eyebrow">YOUR USAGE</span><p>查看模型、趋势与数据覆盖情况。</p></div><div className="overview-controls"><select aria-label="概览时间范围" value={days} onChange={event => setDays(Number(event.target.value))}><option value={7}>近 7 天</option><option value={30}>近 30 天</option><option value={90}>近 90 天</option></select><select aria-label="概览工具" value={provider} onChange={event => setProvider(event.target.value as Provider | 'all')}><option value="all">全部工具</option><option value="codex">Codex</option><option value="claude">Claude Code</option></select>{user.role !== 'viewer' && <select aria-label="概览用户" value={userId} onChange={event => setUserId(event.target.value)}><option value="all">全部用户与未归属</option><option value="unassigned">未归属</option>{users.map(item => <option value={item.id} key={item.id}>{item.username}</option>)}</select>}<select aria-label="概览时区" value={timeZone} onChange={event => setTimeZone(event.target.value)}>{[...new Set([timeZone, 'Asia/Shanghai', 'UTC', 'America/Los_Angeles', 'Europe/London'])].map(zone => <option value={zone} key={zone}>{zone}</option>)}</select></div></div>
     {error && <div className="error" role="alert">{error}</div>}
     <div className="overview-metrics">
-      <div className="overview-primary"><span>总 Token</span><strong title={`${currentTotal.toLocaleString('zh-CN')} Token`}>{!coverage ? '未覆盖' : formatTokens(currentTotal)}</strong><div className="overview-change"><b>{change}</b><span>对比上一个 {days} 天</span></div></div>
-      <div className="overview-secondary"><div><span>用量记录</span><strong>{coverage ? report?.totals.requests.toLocaleString('zh-CN') ?? '—' : '未覆盖'}</strong></div><div><span>使用模型</span><strong>{coverage ? report?.models.length ?? '—' : '未覆盖'}</strong></div><div><span>输入 / 输出</span><strong>{coverage ? `${formatTokens(report?.totals.inputTokens ?? 0)} / ${formatTokens(report?.totals.outputTokens ?? 0)}` : '未覆盖'}</strong></div></div>
+      <div className="overview-primary"><span>总 Token</span><strong title={report ? `${currentTotal.toLocaleString('zh-CN')} Token` : ''}>{loadingCurrent ? '加载中' : !coverage || !report ? '未覆盖' : formatTokens(currentTotal)}</strong><div className="overview-change"><b>{loadingCurrent ? '—' : coverage ? '不可比较' : change}</b><span>本期含进行中的今天，暂不显示同期变化率</span></div><small className="overview-asof">今日进行中 · 各来源最近采集：{scanEvidence || '尚无来源状态'}</small></div>
+      <div className="overview-secondary"><div><span>用量记录</span><strong>{loadingCurrent ? '—' : coverage ? report?.totals.requests.toLocaleString('zh-CN') ?? '—' : '未覆盖'}</strong></div><div><span>使用模型</span><strong>{loadingCurrent ? '—' : coverage ? report?.models.length ?? '—' : '未覆盖'}</strong></div><div><span>输入 / 输出</span><strong>{loadingCurrent ? '—' : coverage && report ? `${formatTokens(report.totals.inputTokens)} / ${formatTokens(report.totals.outputTokens)}` : '未覆盖'}</strong></div></div>
     </div>
     <div className="overview-grid">
-      <section className="panel overview-trend"><div className="panel-head"><h2>用量走势</h2><button className="text-button" onClick={onReport}>详细报表 →</button></div>{report?.points.length ? <><div className="overview-bars">{report.points.map(point => <div key={point.period} title={`${point.period} · ${point.totalTokens.toLocaleString('zh-CN')} Token`} className="overview-bar-wrap"><div className="overview-bar" style={{ height: `${Math.max(3, point.totalTokens / max * 100)}%` }} /></div>)}</div><div className="overview-range"><span>{report.query.from}</span><span>{report.query.to}</span></div></> : <div className="empty-row">{coverage ? '此时间范围没有用量记录' : '等待数据来源完成扫描'}</div>}</section>
-      <section className="panel overview-ranking"><div className="panel-head"><h2>模型排行</h2><span>按 Token</span></div>{totalModels.length ? totalModels.map((model, index) => <div className="ranking-row" key={`${model.provider}:${model.model}`}><span className="rank-number">{index + 1}</span><div><strong>{model.model}</strong><small>{model.provider === 'codex' ? 'Codex' : 'Claude Code'}</small></div><b title={`${model.totalTokens.toLocaleString('zh-CN')} Token`}>{formatTokens(model.totalTokens)}</b></div>) : <div className="empty-row">暂无模型用量</div>}</section>
+      <section className="panel overview-trend"><div className="panel-head"><h2>用量走势</h2><button className="text-button" disabled={!report || loadingCurrent} onClick={() => report && onReport({ query: report.query })}>详细报表 →</button></div>{report?.points.length ? <><div className="overview-bars">{report.points.map(point => <button type="button" id={`overview-trend-${point.period}`} key={point.period} title={`${point.period} · ${point.totalTokens.toLocaleString('zh-CN')} Token`} aria-label={`查看 ${point.period} 用量明细`} className="overview-bar-wrap" onClick={() => onReport({ query: report.query, period: point.period, originId: `overview-trend-${point.period}` })}><div className="overview-bar" style={{ height: `${Math.max(3, point.totalTokens / max * 100)}%` }} /></button>)}</div><div className="overview-range"><span>{report.query.from}</span><span>{report.query.to}</span></div></> : <div className="empty-row">{loadingCurrent ? '正在加载用量…' : !report ? '用量暂不可用' : coverage ? '此时间范围没有用量记录' : '等待数据来源完成扫描'}</div>}</section>
+      <section className="panel overview-ranking"><div className="panel-head"><h2 id="overview-ranking-heading" tabIndex={-1}>模型排行</h2><span>按 Token</span></div>{totalModels.length ? totalModels.map((model, index) => {
+        const originId = `overview-model-${encodeURIComponent(`${model.provider}:${model.model}`)}`;
+        return <button type="button" className="ranking-row" key={`${model.provider}:${model.model}`} aria-label={`查看 ${model.provider === 'codex' ? 'Codex' : 'Claude Code'} ${model.model} 用量明细`} onClick={() => onReport({ query: { ...report!.query, provider: model.provider, model: model.model }, originId })} id={originId}><span className="rank-number">{index + 1}</span><div><strong>{model.model}</strong><small>{model.provider === 'codex' ? 'Codex' : 'Claude Code'}</small></div><b title={`${model.totalTokens.toLocaleString('zh-CN')} Token`}>{formatTokens(model.totalTokens)}</b></button>;
+      }) : <div className="empty-row">{loadingCurrent ? '正在加载模型…' : !report ? '模型用量暂不可用' : '暂无模型用量'}</div>}</section>
     </div>
     <div className="section-heading"><h2>数据来源与同步</h2><span>每 10 分钟扫描并上报</span></div>
     <div className="source-grid">{(['codex', 'claude'] as const).map(name => {

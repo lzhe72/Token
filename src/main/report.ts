@@ -158,9 +158,11 @@ export class ReportService {
     const projects = new Map<string, ProjectTotal>();
     const providers = new Map<Provider, TokenTotals & { provider: Provider }>();
     const availableModels = new Set<string>();
+    const availableModelOptions = new Map<string, { provider: Provider; model: string }>();
     const availableProjects = new Map<string, string>();
     for (const { fact, period } of snapshot.rows) {
       availableModels.add(fact.model);
+      availableModelOptions.set(`${fact.provider}\0${fact.model}`, { provider: fact.provider, model: fact.model });
       const projectKey = fact.project_key || 'unknown';
       const projectLabel = fact.project_label || '未识别项目';
       availableProjects.set(projectKey, projectLabel);
@@ -185,6 +187,7 @@ export class ReportService {
       projects: [...projects.values()].sort((a, b) => b.totalTokens - a.totalTokens || a.label.localeCompare(b.label) || a.key.localeCompare(b.key)),
       providers: [...providers.values()].sort((a, b) => b.totalTokens - a.totalTokens),
       availableModels: [...availableModels].sort(),
+      availableModelOptions: [...availableModelOptions.values()].sort((a, b) => a.provider.localeCompare(b.provider) || a.model.localeCompare(b.model)),
       availableProjects: [...availableProjects].map(([key, label]) => ({ key, label })).sort((a, b) => a.label.localeCompare(b.label) || a.key.localeCompare(b.key)),
       coverage: this.scanner.statuses()
     };

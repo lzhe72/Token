@@ -3,21 +3,32 @@ import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { createTestWorkspace } from '../support/test-workspace';
 
-export function writeUsage(dir: string, session: string, cwd: string, model: string, tokens: number) {
+export function writeUsage(dir: string, session: string, cwd: string, model: string, tokens: number,
+  timestamp = '2026-10-02T00:00:00Z') {
   writeFileSync(path.join(dir, `${session}.jsonl`), [
     { type: 'session_meta', payload: { session_id: session, cwd } },
     { type: 'turn_context', payload: { turn_id: 't', model } },
-    { type: 'token_usage_record', timestamp: '2026-10-02T00:00:00Z', payload: {
+    { type: 'token_usage_record', timestamp, payload: {
       session_id: session, turn_id: 't', response_id: 'r', usage: { input_tokens: tokens, output_tokens: 0, total_tokens: tokens }
     } }
   ].map(value => JSON.stringify(value)).join('\n') + '\n');
 }
 
-export async function launchM6(label: string, options: { usage?: boolean; missingCodex?: boolean } = {}) {
+export async function launchM6(label: string, options: { usage?: boolean; missingCodex?: boolean;
+  usageDate?: string; sameModel?: boolean; extraRecords?: number } = {}) {
   const workspace = createTestWorkspace(label);
-  if (options.usage) {
-    writeUsage(workspace.codexDir, 'one', '/work/alpha', 'gpt-alpha', 12);
-    writeUsage(workspace.codexDir, 'two', '/work/beta', 'gpt-beta', 30);
+  if (options.sameModel) {
+    const timestamp = options.usageDate || '2026-10-02T00:00:00Z';
+    writeUsage(workspace.codexDir, 'one', '/work/alpha', 'shared-model', 12, timestamp);
+    writeFileSync(path.join(workspace.claudeDir, 'shared.jsonl'), JSON.stringify({ type: 'assistant', timestamp,
+      sessionId: 'claude-shared', requestId: 'response', message: { model: 'shared-model',
+        usage: { input_tokens: 30, output_tokens: 0 } } }) + '\n');
+  } else if (options.usage) {
+    writeUsage(workspace.codexDir, 'one', '/work/alpha', 'gpt-alpha', 12, options.usageDate);
+    writeUsage(workspace.codexDir, 'two', '/work/beta', 'gpt-beta', 30, options.usageDate);
+    for (let index = 0; index < (options.extraRecords || 0); index++) {
+      writeUsage(workspace.codexDir, `extra-${index}`, '/work/alpha', 'gpt-alpha', 1, options.usageDate);
+    }
   }
   const packaged = process.env.TOKEN_E2E_EXECUTABLE;
   const app = await electron.launch({ executablePath: packaged || (require('electron') as string),

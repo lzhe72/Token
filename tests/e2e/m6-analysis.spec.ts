@@ -17,7 +17,7 @@ test('TC-054 项目模型筛选及趋势下钻保持同一用量范围', async (
     await page.getByRole('button', { name: '查看 2026-10-02 用量明细' }).click();
     await expect(page.getByRole('navigation', { name: '当前位置' })).toContainText('明细');
     await expect(page.locator('.detail-panel tbody tr')).toHaveCount(1);
-    await page.getByLabel('模型筛选').selectOption('gpt-beta');
+    await page.getByLabel('模型筛选').selectOption({ label: 'Codex · gpt-beta' });
     await expect(page.locator('.detail-panel tbody tr')).toHaveCount(0);
   } finally { await context.close(); }
 });
