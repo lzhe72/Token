@@ -59,8 +59,12 @@ test('TC-036 自动安装目标选择、退出后替换和失败回滚', async (
     };
     fs.writeFileSync(packageFile, bytes);
     const success = request();
+    const aliasParent = path.join(workspace.root, 'installed-alias');
+    fs.symlinkSync(path.dirname(installed), aliasParent, 'dir');
     await runAutomaticInstall(success, { run: command, alive: () => true,
-      launch: (bundle, userData, id) => { if (id) markUpdatedAppReady(userData, id, '1.1.0', bundle); } });
+      launch: (bundle, userData, id) => {
+        if (id) markUpdatedAppReady(userData, id, '1.1.0', path.join(aliasParent, path.basename(bundle)));
+      } });
     expect(fs.readFileSync(path.join(installed, 'version.txt'), 'utf8')).toBe('1.1.0');
     expect(readInstallStatus(workspace.root)?.status).toBe('success');
     expect(fs.existsSync(packageFile)).toBe(false);

@@ -144,6 +144,11 @@ function verifyPackage(request: InstallRequest): void {
 function statusFile(userData: string): string { return path.join(userData, 'updates', 'last-install.json'); }
 function readyFile(userData: string, id: string): string { return path.join(userData, 'updates', `ready-${id}.json`); }
 
+function sameBundlePath(candidate: string, target: string): boolean {
+  return path.isAbsolute(candidate) && !fs.lstatSync(candidate).isSymbolicLink() &&
+    fs.realpathSync(candidate) === fs.realpathSync(target);
+}
+
 function writeStatus(request: InstallRequest, status: 'success' | 'rollback', message: string): void {
   const file = statusFile(request.userData);
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
@@ -221,7 +226,8 @@ export async function runAutomaticInstall(request: InstallRequest, hooks: Instal
     while (Date.now() < deadline) {
       try {
         const ready = JSON.parse(fs.readFileSync(marker, 'utf8')) as Record<string, unknown>;
-        if (ready.id === request.id && ready.version === request.version && ready.bundle === request.targetBundle &&
+        if (ready.id === request.id && ready.version === request.version &&
+          typeof ready.bundle === 'string' && sameBundlePath(ready.bundle, request.targetBundle) &&
           typeof ready.pid === 'number' && ready.pid > 0 && isAlive(ready.pid)) {
           succeeded = true;
           break;

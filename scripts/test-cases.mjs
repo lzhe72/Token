@@ -157,6 +157,7 @@ const extraRuns = {
   'TC-079': [{ kind: 'e2e', file: 'tests/e2e/report-snapshot.spec.ts', testName: 'TC-079 快速切换筛选时旧响应不覆盖且导出等待当前快照' }],
   'TC-093': [{ kind: 'e2e', file: 'tests/e2e/overlap-privacy.spec.ts', testName: 'TC-093 普通用户来源状态诊断和反馈附件不含其他账户数据' }],
   'TC-036': [{ kind: 'unit', file: 'tests/update-install.test.ts', testName: 'TC-036 自动安装目标选择、退出后替换和失败回滚' }],
+  'TC-076': [{ kind: 'integration', file: 'scripts/verify-auto-upgrade-faults.mjs' }],
   'TC-030': [{ kind: 'e2e', file: 'tests/e2e/trust.spec.ts', testName: 'TC-030 应用重启自动登录并在退出后撤销' }],
   'TC-032': [{ kind: 'unit', file: 'tests/next-server.test.ts', testName: 'TC-032 临时 CA 严格验证非回环服务与证书失败路径' }],
   'TC-038': [{ kind: 'e2e', file: 'tests/e2e/upload.spec.ts', testName: 'TC-038 应用扫描后自动上报到独立本机服务' }],
