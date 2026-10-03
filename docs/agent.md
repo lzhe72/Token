@@ -81,6 +81,8 @@
 - `0eac84b` 已修 TC-076 故障脚本的一次性状态读取竞态；文档会话用同一真实旧/新 DMG 全命令独立复跑退出码 0，五种 installer 模块回退与重试子范围通过。`80e7f10` 退出码 1 是历史失败，不得抹去；真实系统目标、打包 helper/UI 故障、安装中取消仍待验。
 - 当前 TC-076 的真实制品故障绑定会直接调用生产 installer 模块；独立验证时必须分别记录成功链路、五种 hooks 回退、最后重试及整条命令退出码。`readInstallStatus` 为读取后删除的一次性状态，可能被新版 UI 先消费；不得只凭新版版本、部分通过输出或开发会话结果把失败命令登记通过。实际打包 helper/UI 故障、系统安装位置和安装中取消仍另验。
 
+**`1961de3` 打包 helper 隔离故障补证（2026-10-04）**：TC-076 新增 `scripts/verify-packaged-helper-faults.mjs` 和隔离进程预加载 `scripts/tc076-helper-fault.cjs`。脚本从真实 0.3.5 DMG 复制旧 App 到专用临时可写安装目录，经旧 UI 下载真实 0.3.6 DMG；故障注入只在该目录中的实际打包 `update-helper.cjs` 生效。mount、space、replace、launch、health 五种注入各核 helper 命中、旧版自动回退、受信登录/合成 1280 Token、挂载/备份/下载残留清理；随后旧 UI 重试成功到新版。文档会话在固定代码与两包已知 SHA-256 下独立运行完整 `npm run test:case -- TC-076`，三段集成脚本和最后重试均完成、退出码 0；`npm run test:case -- TC-036` 两项单元退出码 0。此结果提升隔离打包 helper/UI 故障子范围；故障是预加载模拟，未制造真实满盘、进程崩溃或系统目录安装，也未执行安装中取消、生产库或签名公证异机验收。REQ-023/DEV-025/TC-076 整项继续按剩余边界待验。
+
 ## 常用命令
 
 环境：macOS、Node.js 24、npm。
@@ -104,7 +106,7 @@
 | M6 批量逐编号验收 | `npm run test:acceptance -- 50 71` |
 | 目标 Mac 人工权限验收清单 | `npm run test:case -- TC-072` |
 | 签名脚本自动回归（已注册） | `npm run test:case -- TC-075`；覆盖预检、合成 p12、命令构造与五处模拟核验失败/清理；真实发布仍按 TC-028 |
-| 自动升级实际制品回归（已注册） | `npm run test:case -- TC-076`；给定真实旧/新 DMG 绝对路径与 SHA-256 时，`0eac84b` 已验隔离升级、只读旧包初始启动、五种 installer 模块 hooks 故障回退与重试；不带参数的故障脚本跳过，打包 helper/UI、真实系统目标和安装中取消待验 |
+| 自动升级实际制品回归（已注册） | `npm run test:case -- TC-076`；给定真实旧/新 DMG 绝对路径与 SHA-256 时，`0eac84b` 已验隔离升级、只读旧包初始启动、五种 installer 模块 hooks 故障回退与重试；不带真实 DMG 参数的故障脚本跳过；`1961de3` 已独立验隔离打包 helper 五故障与重试，真实满盘/崩溃、系统目标和安装中取消待验 |
 | 下一轮产品打磨与重叠缺陷（计划） | `TC-079` 在 `78b3a3b` 单元/Electron 各 1/1 通过；`TC-080/081` 在 `d18bb47` 各一项 Electron 通过；`TC-077–078`、`TC-082–091` 未注册，按工作簿实施独立绑定 |
 
 服务端监听地址由 `TOKEN_SERVER_HOST`、`TOKEN_SERVER_PORT` 配置，非回环监听还需 `TOKEN_SERVER_TLS_CERT` 和 `TOKEN_SERVER_TLS_KEY`。App 连接地址与密钥可配置；非回环连接必须使用 HTTPS。更新清单、安装包和反馈提交使用全局 bearer；聚合上报使用经管理凭据登记的独立设备令牌；反馈管理读取和状态修改另需独立管理密钥。不要提交服务密钥、管理密钥、设备令牌、证书私钥、反馈正文或服务数据库。
