@@ -161,7 +161,10 @@ const extraRuns = {
       testName: 'TC-093 真实本地和遥测事实经归属调和贯穿概览报表明细 CSV v2 且切换用户隔离' }
   ],
   'TC-036': [{ kind: 'unit', file: 'tests/update-install.test.ts', testName: 'TC-036 自动安装目标选择、退出后替换和失败回滚' }],
-  'TC-076': [{ kind: 'integration', file: 'scripts/verify-auto-upgrade-faults.mjs' }],
+  'TC-076': [
+    { kind: 'integration', file: 'scripts/verify-auto-upgrade-faults.mjs' },
+    { kind: 'integration', file: 'scripts/verify-packaged-helper-faults.mjs' }
+  ],
   'TC-030': [{ kind: 'e2e', file: 'tests/e2e/trust.spec.ts', testName: 'TC-030 应用重启自动登录并在退出后撤销' }],
   'TC-032': [{ kind: 'unit', file: 'tests/next-server.test.ts', testName: 'TC-032 临时 CA 严格验证非回环服务与证书失败路径' }],
   'TC-038': [{ kind: 'e2e', file: 'tests/e2e/upload.spec.ts', testName: 'TC-038 应用扫描后自动上报到独立本机服务' }],
