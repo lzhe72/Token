@@ -97,7 +97,14 @@ const cases = [
   ['TC-091', 'e2e', 'tests/e2e/settings-copy.spec.ts', 'TC-091 遥测说明与疑似重叠报表及 CSV v2 状态一致', '遥测说明与调和口径一致'],
   ['TC-092', 'unit', 'tests/reconciliation.test.ts', 'TC-092 跨用户和不同会话遥测独立保留且同会话冲突不伪造总量', '本地与遥测归属和会话调和'],
   ['TC-093', 'unit', 'tests/reconciliation.test.ts', 'TC-093 报表明细和 CSV v2 同源逐组小计且时区边界不漏冲突', '报表明细与 CSV v2 调和'],
-  ['TC-094', 'unit', 'tests/sync-reconciliation.test.ts', 'TC-094 服务 v2 清除旧聚合并保留冲突状态旧队列重算和权限边界', '服务上报协议 v2 与旧数据迁移']
+  ['TC-094', 'unit', 'tests/sync-reconciliation.test.ts', 'TC-094 服务 v2 清除旧聚合并保留冲突状态旧队列重算和权限边界', '服务上报协议 v2 与旧数据迁移'],
+  ['TC-095', 'manual', '当前 Mac 未签名版实际安装与可用验收', `按 docs/local-mac-acceptance.md 在当前 Mac 逐项执行并记录脱敏证据：
+1. 固定同一代码提交、版本、x64 DMG 大小/SHA-256；执行 hdiutil verify，并核对服务 manifest。
+2. 备份现有 App 与生产 userData，记录完整性；从该 DMG 实际安装至选定的 /Applications 或 ~/Applications 路径，打开并核对版本。
+3. 用受控管理员登录；只读核对原账户/来源/用量，验证权限拒绝、授权重扫、Codex/Claude 可观察采集与归属，未知不写真零。
+4. 固定同一授权用户、时区和筛选，核对概览、明细、CSV 快照及冲突状态；受管 CLI 能力另核管理员边界、未验证归属和结果隐私。
+5. 隔离副本运行真实旧/新 DMG 故障恢复与重试；备份确认后人工触发当前 Mac 已安装旧版的正常自动更新，核安装路径、退出与新版启动。
+6. 比较升级前后脱敏数据计数和受信状态，确认旧版 App/数据库备份、兼容回退步骤及未验项。记录每步时间、结果和截图位置；只有所有通过条件成立才能登记 pass。`]
 ];
 const extraRuns = {
   'TC-077': [
