@@ -1,6 +1,8 @@
 # 测试执行与数据隔离
 
-`TC-001` 至 `TC-094` 的编号以[追溯工作簿](../outputs/20261002-token-docs/Token-需求开发测试追溯.xlsx)为准。当前 94 个编号均在 `scripts/test-cases.mjs` 有入口，可用同一脚本重复执行；人工清单有入口不等于已通过。多个旧 TC 可共享覆盖较广的测试；TC-021 保留共享测试及独立分页单元/Electron，TC-073 包含 fallback 归并与 6000 条合成事实性能，TC-074 包含设备授权和服务切换竞态。新增用例时，同步增加注册项和断言。
+2026-10-04 新增 TC-095 当前 Mac 实际安装/可用人工用例，尚未在 `scripts/test-cases.mjs` 注册；下文“94 个编号均有入口”是新增前的固定代码状态。注册后单独运行 `npm run test:case -- TC-095` 获取手工清单，再以已存在的绝对路径脱敏证据文件登记 `pass|fail`。自动测试仅用隔离用户数据，不能写现有生产目录。详见[本机验收](local-mac-acceptance.md)。
+
+`TC-001` 至 `TC-095` 的编号以[追溯工作簿](../outputs/20261002-token-docs/Token-需求开发测试追溯.xlsx)为准。现有代码只为前 94 个编号在 `scripts/test-cases.mjs` 注册入口，TC-095 待注册；人工清单有入口不等于已通过。多个旧 TC 可共享覆盖较广的测试；TC-021 保留共享测试及独立分页单元/Electron，TC-073 包含 fallback 归并与 6000 条合成事实性能，TC-074 包含设备授权和服务切换竞态。新增用例时，同步增加注册项和断言。
 
 2026-10-04 TC-076 新增 `scripts/verify-auto-upgrade-faults.mjs` 绑定；真实 DMG 模式需四个 `TOKEN_TC076_*` 路径/摘要环境变量。不带真实包时故障脚本跳过，不能从命令退出码推断真实故障已验。代码 `80e7f10` 的文档会话独立运行曾在最终重试读取一次性状态文件处退出码 1；已观察的五种 installer 模块故障回退不等于整条 TC-076 或打包 helper/UI 故障闭环通过。详见[逐项验收](test-case-acceptance.md)与[验收记录](validation.md)。
 
