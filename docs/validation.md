@@ -527,3 +527,11 @@ TC-079 所关联的共用打包报表用例在 `508851a` 目录包重复测试�
 ## REQ-040/044 受管来源完整性设计核对（2026-10-04）
 
 本次只做非 SOP 文档设计：核对 `scanner.ts` 的来源状态/游标/事实、`report.ts` 的范围覆盖和 `telemetry.ts` 的输入边界，以及 Codex/Claude 官方 CLI/遥测资料；形成[可实施设计决议](coverage-evidence-decision.md)。比较用户主动启用的受管持续采集与固定文件快照，决定仅前者在启动/结束账本、用量事件和连续水位均可证时具备未来真实窗口正例路径。**未改产品代码、未运行 TC-077/078/084 的新增正例或真实 CLI 测试**；既有保守子断言结果不变，REQ-040/044、DEV-049/053 和三条 TC 整项仍待实现及独立验收。真实账户、CLI 版本/维度字段、守护服务中断恢复与范围外执行均需后续环境证据。
+
+## 0.3.8 数字完整数值菜单本机验证（2026-10-04）
+
+- **固定候选**：源码提交 `87fa4c6`，macOS 15.7.4 x86_64，本机未签名 0.3.8。仅改概览/报表的数字菜单、对应布局与测试，并限制 Vitest worker 数以稳定既有耗时门禁；采集、去重、授权、数据库和 CSV 计算口径未改。
+- **逐编号**：`npm run test:case -- TC-090` 两项 2/2、`npm run test:case -- TC-048` 一项 1/1，均退出码 0，使用隔离用户数据和无正文合成事实。TC-090 核鼠标悬停、离开、完整整数、键盘 Tab/Enter/Escape、实际剪贴板、700px 窗口和未知/待核对边界；TC-048 核趋势布局。`npm run test:cases:check` 为 95 个入口。
+- **完整回归**：`npm run test:gate` 最终退出码 0，103/103 单元及 46/46 Electron。先前两次默认 30 worker 门禁有 TC-073 5 秒耗时阈值失败，首次另有 TC-077 超时；以 `--maxWorkers=4` 控制资源后完整门禁通过，历史失败保留。`npm run test:e2e:packaged` 对 0.3.8 目录包 46/46，退出码 0。
+- **制品与实装**：`Token-0.3.8.dmg` SHA-256 为 `3eee22fdb510661ee7ada501fd4039850a78510403acd2bbf901b40666a32b44`，`hdiutil verify` 为 VALID。目录包和已安装 `/Applications/Token.app` 的 `app.asar` SHA-256 均为 `3d0666ff506815e1c68df65504932d99e14a992969781f177c42c6502ff57545`；安装后版本 0.3.8，主进程可启动，实际安装可执行文件以隔离用户数据再次执行 `TOKEN_E2E_EXECUTABLE=/Applications/Token.app/Contents/MacOS/Token npx playwright test tests/e2e/exact-tokens.spec.ts`，2/2、退出码 0。旧 0.3.7 App 摘要与备份一致，升级前用户数据已在仓库外受限目录保存。
+- **边界**：这次没有读取或改写私人会话正文，也未把生产数据库用于自动测试。安装后的真实私人数据菜单未做人工作用例；0.3.8 未重走 TC-095 全部人工流程。VoiceOver、Developer ID 签名公证与另一台 Mac 安装仍待验，0.3.7 的 TC-095 历史通过不外推到这些范围。
