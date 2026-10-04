@@ -22,6 +22,7 @@ test('TC-038 应用扫描后自动上报到独立本机服务', async () => {
     const page = await app.firstWindow();
     await page.getByPlaceholder('至少 10 位').fill('safe-password-123');
     await page.getByRole('button', { name: '创建并进入' }).click();
+    await page.getByRole('button', { name: '跳过引导' }).click();
     await expect(page.getByRole('heading', { name: '用量概览' })).toBeVisible();
     await page.screenshot({ path: path.join('test-results', 'overview.png'), fullPage: true });
     await page.getByRole('button', { name: /系统设置/ }).click();

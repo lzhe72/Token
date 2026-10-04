@@ -125,9 +125,9 @@ const extraRuns = {
   ],
   'TC-082': [
     { kind: 'unit', file: 'tests/onboarding.test.ts', testName: 'TC-082 大量合成历史记录的引导状态响应保持可用' },
-    { kind: 'e2e', file: 'tests/e2e/onboarding.spec.ts', testName: 'TC-082 管理员可跳过重开且四步随真实采集归属更新' }
+    { kind: 'e2e', file: 'tests/e2e/onboarding.spec.ts', testName: 'TC-082 首次建账自动引导且跳过后不常驻，四步随真实采集归属更新' }
   ],
-  'TC-083': [{ kind: 'e2e', file: 'tests/e2e/onboarding.spec.ts', testName: 'TC-083 普通用户引导不显示他人进度且无权扫描归属' }],
+  'TC-083': [{ kind: 'e2e', file: 'tests/e2e/onboarding.spec.ts', testName: 'TC-083 后建普通用户不弹引导且只能读取本人状态，不能扫描归属' }],
   'TC-084': [
     { kind: 'e2e', file: 'tests/e2e/empty-state.spec.ts', testName: 'TC-084 报表筛选无匹配保持覆盖未知并可清除筛选进入诊断' },
     { kind: 'e2e', file: 'tests/e2e/managed-privacy.spec.ts', testName: 'TC-084 受管结果仅当前登录窗口暂存且不进入持久数据库' }
@@ -162,9 +162,9 @@ const extraRuns = {
     { kind: 'e2e', file: 'tests/e2e/settings-copy.spec.ts',
       testName: 'TC-091 重绑后待传为零但当前修订版未确认时不提示已同步' },
     { kind: 'e2e', file: 'tests/e2e/onboarding.spec.ts',
-      testName: 'TC-082 管理员可跳过重开且四步随真实采集归属更新' },
+      testName: 'TC-082 首次建账自动引导且跳过后不常驻，四步随真实采集归属更新' },
     { kind: 'e2e', file: 'tests/e2e/onboarding.spec.ts',
-      testName: 'TC-083 普通用户引导不显示他人进度且无权扫描归属' },
+      testName: 'TC-083 后建普通用户不弹引导且只能读取本人状态，不能扫描归属' },
     { kind: 'e2e', file: 'tests/e2e/empty-state.spec.ts',
       testName: 'TC-084 报表筛选无匹配保持覆盖未知并可清除筛选进入诊断' },
     { kind: 'e2e', file: 'tests/e2e/empty-state.spec.ts',

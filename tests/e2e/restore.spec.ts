@@ -18,6 +18,7 @@ test('管理员备份、恢复后账户回到备份状态', async () => {
     const page = await app.firstWindow();
     await page.getByPlaceholder('至少 10 位').fill('safe-password-123');
     await page.getByRole('button', { name: '创建并进入' }).click();
+    await page.getByRole('button', { name: '跳过引导' }).click();
     await page.getByRole('button', { name: /数据来源/ }).click();
     const backup = path.join(userData, 'snapshot.sqlite');
     await app.evaluate(({ dialog, app: electronApp }, filePath) => {

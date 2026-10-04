@@ -25,6 +25,7 @@ test('TC-021 报表明细可翻到第二页且切换模型重置页码', async (
     const page = await app.firstWindow();
     await page.getByPlaceholder('至少 10 位').fill('safe-password-123');
     await page.getByRole('button', { name: '创建并进入' }).click();
+    await page.getByRole('button', { name: '跳过引导' }).click();
     await page.getByRole('button', { name: /用量报表/ }).first().click();
     await page.getByLabel('开始日期').fill('2026-10-02');
     await page.getByLabel('结束日期').fill('2026-10-02');

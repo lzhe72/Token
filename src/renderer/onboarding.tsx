@@ -14,7 +14,7 @@ export function OnboardingPanel({ status, user, onNavigate, onSkip, onRefresh }:
   const steps = status?.steps ?? [];
   const completed = steps.filter(step => step.state === 'complete').length;
   return <div className="onboarding-page">
-    <p className="page-lead">按实际采集状态完成四步。状态会在切换账户或重新打开时重新核对；跳过只隐藏提示，不修改来源、扫描或用量。</p>
+    <p className="page-lead">按实际采集状态完成四步。进入相关页面操作后可返回引导；结束引导不会修改来源、扫描或用量。</p>
     <section className="panel"><div className="panel-head"><h2>首次使用引导</h2><span>{status ? `${completed} / 4 步已完成` : '正在核对'}</span></div>
       <div className="onboarding-steps">{steps.map((step, index) => {
         const viewer = user.role === 'viewer';
@@ -28,7 +28,7 @@ export function OnboardingPanel({ status, user, onNavigate, onSkip, onRefresh }:
         </div>;
       })}</div>
       {!status && <p role="status">正在读取当前账户的引导状态…</p>}
-      <div className="onboarding-actions"><button type="button" onClick={onRefresh}>重新核对进度</button><button type="button" className="text-button" onClick={onSkip}>跳过引导</button></div>
+      <div className="onboarding-actions"><button type="button" onClick={onRefresh}>重新核对进度</button><button type="button" className="text-button" onClick={onSkip}>{status && completed === steps.length ? '完成引导' : '跳过引导'}</button></div>
     </section>
   </div>;
 }

@@ -63,7 +63,7 @@ function App() {
   const [scanActive, setScanActive] = React.useState(false);
   const [tab, setTab] = React.useState<'overview' | 'report' | 'sources' | 'users' | 'settings' | 'diagnostics' | 'feedback' | 'onboarding'>('overview');
   const [onboarding, setOnboarding] = React.useState<{ userId: string; status: OnboardingStatus } | null>(null);
-  const [onboardingPreference, setOnboardingPreference] = React.useState<{ userId: string; skipped: boolean } | null>(null);
+  const [onboardingActiveUserId, setOnboardingActiveUserId] = React.useState<string | null>(null);
   const onboardingRequest = React.useRef(0);
   const [users, setUsers] = React.useState<PublicUser[]>([]);
   const [accountStatuses, setAccountStatuses] = React.useState<AccountCollectionStatus[]>([]);
@@ -117,7 +117,13 @@ function App() {
   const [returnFocusId, setReturnFocusId] = React.useState('');
 
   React.useEffect(() => {
-    window.tokenApi.getState().then(setState).catch(e => setError(errorMessage(e)));
+    window.tokenApi.getState().then(value => {
+      setState(value);
+      if (value.user && localStorage.getItem(`token:onboarding:active:${value.user.id}`) === '1') {
+        setOnboardingActiveUserId(value.user.id);
+        setTab('onboarding');
+      }
+    }).catch(e => setError(errorMessage(e)));
     void window.tokenApi.getAppInfo().then(info => {
       if (info.installResult?.status === 'rollback') setError(info.installResult.message);
       else if (info.installResult?.status === 'success') setNotice(info.installResult.message);
@@ -168,12 +174,6 @@ function App() {
   }, [tab]);
 
   React.useEffect(() => {
-    const userId = state?.user?.id;
-    if (!userId) return;
-    setOnboardingPreference({ userId, skipped: localStorage.getItem(`token:onboarding:skipped:${userId}`) === '1' });
-  }, [state?.user?.id]);
-
-  React.useEffect(() => {
     if (!bindingError || bindingPreview) return;
     const frame = requestAnimationFrame(() => bindingErrorRef.current?.focus());
     return () => cancelAnimationFrame(frame);
@@ -189,7 +189,7 @@ function App() {
   }
 
   React.useEffect(() => {
-    if (state?.user && (tab === 'overview' || tab === 'onboarding')) refreshOnboarding();
+    if (state?.user && tab === 'onboarding') refreshOnboarding();
   }, [state?.user?.id, tab]);
 
   React.useEffect(() => {
@@ -218,10 +218,19 @@ function App() {
     setBusy(true);
     setError('');
     try {
-      state.needsSetup
+      const firstSetup = state.needsSetup;
+      firstSetup
         ? await window.tokenApi.setupAdmin('admin', password, trustDevice)
         : await window.tokenApi.login(username, password, trustDevice);
-      setState(await window.tokenApi.getState());
+      const nextState = await window.tokenApi.getState();
+      if (nextState.user) {
+        const key = `token:onboarding:active:${nextState.user.id}`;
+        if (firstSetup) localStorage.setItem(key, '1');
+        const active = localStorage.getItem(key) === '1';
+        setOnboardingActiveUserId(active ? nextState.user.id : null);
+        setTab(active ? 'onboarding' : 'overview');
+      }
+      setState(nextState);
       setPassword('');
     } catch (e) {
       setError(errorMessage(e));
@@ -247,18 +256,13 @@ function App() {
     setTab('overview');
   }
 
-  function setOnboardingSkipped(skipped: boolean) {
+  function finishOnboarding() {
     const userId = state?.user?.id;
     if (!userId) return;
-    const key = `token:onboarding:skipped:${userId}`;
-    if (skipped) localStorage.setItem(key, '1');
-    else localStorage.removeItem(key);
-    setOnboardingPreference({ userId, skipped });
-  }
-
-  function showOnboarding() {
-    setOnboardingSkipped(false);
-    setTab('onboarding');
+    localStorage.removeItem(`token:onboarding:active:${userId}`);
+    localStorage.removeItem(`token:onboarding:skipped:${userId}`);
+    setOnboardingActiveUserId(null);
+    setTab('overview');
   }
 
   async function showUsers() {
@@ -597,10 +601,7 @@ function App() {
   const codexStatus = sourceStatuses.find(source => source.provider === 'codex');
   const claudeStatus = sourceStatuses.find(source => source.provider === 'claude');
   const currentOnboarding = onboarding?.userId === state.user.id ? onboarding.status : null;
-  const viewerOnboardingDone = state.user.role === 'viewer' && currentOnboarding?.steps
-    .filter(step => step.key === 'bind' || step.key === 'usage').every(step => step.state === 'complete');
-  const showOnboardingHint = onboardingPreference?.userId === state.user.id && !onboardingPreference.skipped &&
-    currentOnboarding && !viewerOnboardingDone && currentOnboarding.steps.some(step => step.state !== 'complete');
+  const onboardingInProgress = onboardingActiveUserId === state.user.id;
   const deferredReady = deferredView?.userId === state.user.id;
   const deferredSourceSet = new Set(deferredReady ? deferredView.keys : []);
   const unassignedFileCount = sourceIdentities.filter(item => item.key.startsWith('claude:local-file:') && !item.ownerUserId).length;
@@ -635,7 +636,6 @@ function App() {
         <div className="app-logo"><span>T</span><strong>Token</strong></div>
         <div className="nav-group"><div className="nav-label">工作台</div>
           <button className={tab === 'overview' ? 'nav active' : 'nav'} onClick={returnToOverview}><span>◫</span> 概览</button>
-          <button className={tab === 'onboarding' ? 'nav active' : 'nav'} onClick={showOnboarding}><span>◉</span> 首次引导</button>
           <button className={tab === 'report' ? 'nav active' : 'nav'} onClick={() => void showReport()}><span>▤</span> 用量报表</button>
           {state.user.role !== 'viewer' && <button className={tab === 'sources' ? 'nav active' : 'nav'} onClick={showSources}><span>◇</span> 数据来源</button>}
           <button className={tab === 'diagnostics' ? 'nav active' : 'nav'} onClick={showDiagnostics}><span>◎</span> 采集诊断</button>
@@ -650,14 +650,15 @@ function App() {
         <header><div><nav className="breadcrumb" aria-label="当前位置"><button onClick={returnToOverview}>工作台</button><span> / </span>{tab === 'report' && reportDrilldown ? <><button onClick={() => { setReportBackTick(value => value + 1); setReportDrilldown(false); }}>用量报表</button><span> / 明细</span></> : <span>{tab === 'users' ? '管理中心' : tab === 'sources' ? '数据来源' : tab === 'report' ? '用量报表' : tab === 'settings' ? '系统设置' : tab === 'diagnostics' ? '采集诊断' : tab === 'feedback' ? '问题反馈' : tab === 'onboarding' ? '首次引导' : '概览'}</span>}</nav><h1>{tab === 'users' ? '管理中心' : tab === 'sources' ? '数据来源' : tab === 'report' ? '用量报表' : tab === 'settings' ? '系统设置' : tab === 'diagnostics' ? '采集诊断' : tab === 'feedback' ? '问题反馈' : tab === 'onboarding' ? '首次引导' : '用量概览'}</h1></div><div className="header-status" role="group" aria-label="服务与采集状态"><span>{serviceLabels(server).type} · {serviceLabels(server).connection}</span><span>{serviceLabels(server).authorization} · {serviceLabels(server).protocol}</span><span>{syncLabels(upload).delivery} · {syncLabels(upload).review}</span><span>{localLabels(sourceStatuses)}</span></div></header>
         {error && <div className="error banner" role="alert">{error}</div>}
         {notice && <div className="notice banner" role="status">{notice}</div>}
-        {tab === 'overview' ? <>{showOnboardingHint && <div className="panel onboarding-hint" role="status"><div><strong>继续首次使用引导</strong><p>已完成 {currentOnboarding.steps.filter(step => step.state === 'complete').length} / 4 步。进入页面或点击重新核对时更新当前账户状态。</p></div><div><button type="button" onClick={showOnboarding}>查看引导</button><button type="button" className="text-button" onClick={() => setOnboardingSkipped(true)}>跳过引导</button></div></div>}<OverviewPanel sources={sourceStatuses} server={server} upload={upload} update={update} user={state.user} users={users}
+        {onboardingInProgress && tab !== 'onboarding' && <div className="panel onboarding-hint" role="status"><div><strong>首次设置尚未结束</strong><p>完成当前操作后可返回引导，核对四步进度。</p></div><div><button type="button" onClick={() => setTab('onboarding')}>返回引导</button><button type="button" className="text-button" onClick={finishOnboarding}>结束引导</button></div></div>}
+        {tab === 'overview' ? <OverviewPanel sources={sourceStatuses} server={server} upload={upload} update={update} user={state.user} users={users}
           days={overviewDays} provider={overviewProvider} userId={overviewUserId} timeZone={overviewTimeZone}
           focusId={returnFocusId} onFocusRestored={() => setReturnFocusId('')}
           setDays={setOverviewDays} setProvider={setOverviewProvider} setUserId={setOverviewUserId} setTimeZone={setOverviewTimeZone}
-          onCheckUpdate={checkUpdate} onDownloadUpdate={downloadUpdate} onReport={destination => void showReport(destination)} /></>
+          onCheckUpdate={checkUpdate} onDownloadUpdate={downloadUpdate} onReport={destination => void showReport(destination)} />
         : tab === 'onboarding' ? <OnboardingPanel status={currentOnboarding} user={state.user}
           onNavigate={target => { if (target === 'sources') void showSources(); else if (target === 'diagnostics') void showDiagnostics(); else void showReport(); }}
-          onSkip={() => { setOnboardingSkipped(true); setTab('overview'); }}
+          onSkip={finishOnboarding}
           onRefresh={refreshOnboarding} />
         : tab === 'report' ? <ReportPanel user={state.user} users={users} destination={reportDestination} backTick={reportBackTick} onDrilldownChange={setReportDrilldown} onDiagnostics={() => void showDiagnostics()} onPermissions={() => void openFilePermissions()} />
         : tab === 'settings' ? <SettingsPanel user={state.user} server={server} upload={upload} telemetry={telemetry} update={update} diagnostics={diagnostics}

@@ -16,7 +16,7 @@ export function writeUsage(dir: string, session: string, cwd: string, model: str
 
 export async function launchM6(label: string, options: { usage?: boolean; missingCodex?: boolean;
   usageDate?: string; sameModel?: boolean; extraRecords?: number; scanDelayMs?: number;
-  managedBinary?: string; singleUserDefault?: boolean } = {}) {
+  managedBinary?: string; singleUserDefault?: boolean; stayOnboarding?: boolean } = {}) {
   const workspace = createTestWorkspace(label);
   if (options.sameModel) {
     const timestamp = options.usageDate || '2026-10-02T00:00:00Z';
@@ -43,7 +43,9 @@ export async function launchM6(label: string, options: { usage?: boolean; missin
   const page = await app.firstWindow();
   await page.getByPlaceholder('至少 10 位').fill('safe-password-123');
   await page.getByRole('button', { name: '创建并进入' }).click();
-  await expect(page.getByRole('heading', { name: '用量概览' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '首次使用引导' })).toBeVisible();
+  if (!options.stayOnboarding) await page.getByRole('button', { name: /^(跳过引导|完成引导)$/ }).click();
+  if (!options.stayOnboarding) await expect(page.getByRole('heading', { name: '用量概览' })).toBeVisible();
   return { workspace, app, page, close: async () => { await app.close().catch(() => {}); workspace.cleanup(); } };
 }
 

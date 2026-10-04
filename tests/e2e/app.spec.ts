@@ -30,6 +30,7 @@ test('管理员创建、用户管理与普通用户权限', async () => {
     await expect(page.getByRole('heading', { name: '创建管理员账户' })).toBeVisible();
         await page.getByPlaceholder('至少 10 位').fill('safe-password-123');
     await page.getByRole('button', { name: '创建并进入' }).click();
+    await page.getByRole('button', { name: '跳过引导' }).click();
     await expect(page.getByRole('heading', { name: '用量概览' })).toBeVisible();
     await page.getByRole('button', { name: /管理中心/ }).click();
     await expect(page.getByRole('heading', { name: '管理中心' })).toBeVisible();

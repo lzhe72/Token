@@ -21,6 +21,7 @@ test('工具目录缺失、无权限和空目录有清晰状态', async () => {
     const page = await app.firstWindow();
         await page.getByPlaceholder('至少 10 位').fill('safe-password-123');
     await page.getByRole('button', { name: '创建并进入' }).click();
+    await page.getByRole('button', { name: '跳过引导' }).click();
     await page.getByRole('button', { name: /数据来源/ }).click();
     const sources = page.locator('.source-grid .source-card');
     await expect(sources.nth(0).locator('.status-pill')).toHaveText('未找到');

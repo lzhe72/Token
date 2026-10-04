@@ -23,6 +23,7 @@ test('TC-086 Claude 文件待归属分页、逐项预览与暂不归属不改授
     const page = await app.firstWindow();
     await page.getByPlaceholder('至少 10 位').fill('safe-password-123');
     await page.getByRole('button', { name: '创建并进入' }).click();
+    await page.getByRole('button', { name: '跳过引导' }).click();
     await page.getByRole('button', { name: /管理中心/ }).click();
     await page.getByPlaceholder('3–32 位').fill('viewer');
     await page.getByPlaceholder('至少 10 位').fill('viewer-password-123');

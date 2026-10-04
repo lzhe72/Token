@@ -14,6 +14,7 @@ test('TC-030 应用重启自动登录并在退出后撤销', async () => {
         await page.getByPlaceholder('至少 10 位').fill('safe-password-123');
     await page.getByRole('checkbox', { name: /信任此设备/ }).check();
     await page.getByRole('button', { name: '创建并进入' }).click();
+    await page.getByRole('button', { name: '跳过引导' }).click();
     await expect(page.getByRole('heading', { name: '用量概览' })).toBeVisible();
     await app.close();
     app = await launch();
