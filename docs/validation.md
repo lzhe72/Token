@@ -1,5 +1,30 @@
 # 首版验收记录
 
+## `7fd0ce7` 报表日期测试定位修复的独立复验（2026-10-04）
+
+固定提交 `7fd0ce7` 仅修改 `scripts/test-cases.mjs` 与三个 Electron 测试文件，**产品代码和原生日期控件未改**。共用管理员流程先等 `.report-page` 可见，再在容器内精确查找两端日期；TC-079 新增独立 Electron 绑定，使用隔离数据库与无正文合成用量验证倒置范围报错/导出禁用、连续双日期输入、最终 42 Token 与 CSV 日期/模型。原 TC-079 单元及 A→B Electron 继续覆盖授权 `snapshotId`、旧响应和旧快照拒绝；新双日期用例本身没有单独截取 IPC 的 `snapshotId`。TC-094 仅在创建管理员后等概览出现再关闭测试 App，修复其首次登录测试竞态。此前开发全量 43/44 的 TC-094 失败与打包共用用例旧 2/5、新报告 1/5 失败均保留为修复前事实。
+
+文档会话在干净 `7fd0ce7` 工作区、macOS 15.7.4 x86_64、Node v24.15.0 独立执行：
+
+| 命令 | 结果与范围 |
+| --- | --- |
+| `npm run test:cases:check` | 94 个已注册编号及入口，exit 0 |
+| `npm run test:case -- TC-079` | 1 单元、2 Electron，通过，exit 0 |
+| `npm run test:case -- TC-021` | 1 单元、2 Electron（含共享管理员流程），通过，exit 0 |
+| `npm run test:case -- TC-094` | 2 单元、1 Electron，通过，exit 0 |
+| `npm run test:gate` | 类型检查、94 入口、97/97 单元、44/44 Electron，通过，exit 0 |
+| `CSC_IDENTITY_AUTO_DISCOVERY=false npm run pack:dir` | 未签名 mac x64 0.3.6 目录包构建，exit 0；`app.asar` SHA-256 `8a687bf692b150e59615e338b57e75f94db516477fad5b9e30f98b70d66eb460` |
+| `npm run test:e2e:packaged -- tests/e2e/app.spec.ts --repeat-each=5 --retries=0` | 同一新构建目录包的管理员共用流程 5/5，无失败重试，exit 0 |
+| `npm run test:e2e:packaged` | 同一目录包 Electron 全量 44/44，通过，exit 0 |
+
+上述结果支持 TC-079 日期输入/查询/CSV 和 TC-021、TC-094 的**本机隔离自动子范围**，以及修复后的打包用例稳定性样本；不抹去旧失败，也不证明真实生产账户、`/Applications` 实装升级、签名公证或另一台 Mac。0.3.6 仍是本机临时候选，完整版本验收未完成。
+
+## 本机更新服务制品与在线状态边界（2026-10-04）
+
+开发会话执行并报告 `npm run publish:update` 退出码 0，将未签名 0.3.6 x64 DMG 放入本机内置更新服务目录；需求会话随后只读核对清单与包。文档会话也只读核对该目录 `releases/latest.json` 与 `Token-0.3.6-x64.dmg`：版本 0.3.6、x64、大小 **142579388 字节**及 SHA-256 `8773dd3865cda61709061916723c0ff607ed126649f32edaee451a3e2d1815a2` 一致，`hdiutil verify` 为 VALID；当前 `/Applications/Token.app` 的 `CFBundleShortVersionString` 仍为 **0.3.5**。这证实本机服务目录的清单与落盘包一致，不证实用户已点击安装。
+
+在线服务使用动态端口：文档会话尝试默认 `127.0.0.1:47839` 时连接被拒；需求会话随后据当时端口文件在 `127.0.0.1:51688/health` 报告 HTTP 200、`ok:true`，之后该进程退出、端口文件消失。该健康端点曾可达不能代替**当前**带授权的 `/v1/update/latest` 在线清单核对；文档会话没有独立取得此在线响应。真实 `/Applications` 点击升级及生产用户数据连续性也未执行；安装成功/故障回退证据仍限隔离 TC-076，TC-028/072 资源边界不变。
+
 ## TC-079 打包日期失败的定位修订（2026-10-04）
 
 此前固定 `508851a` 目录包的 `tests/e2e/app.spec.ts --repeat-each=5` 为 **3/5 通过、2/5 失败**，错误快照最终显示报表页开始日期仍是默认值、结束日期为新值；该运行事实保留。需求会话另报告新目录包同类无重试执行 **4/5 通过、1/5 失败**，失败时操作快照仍在“工作台 / 数据来源”；文档会话未独立读取这一新批次的原始日志或固定制品 SHA，故将其列为报告证据。
