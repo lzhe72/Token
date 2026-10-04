@@ -1,6 +1,6 @@
 {
   "name": "token-monitor",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "private": true,
   "description": "Local Codex and Claude Code token usage monitor for macOS",
   "author": "lzhe72",
@@ -11,7 +11,7 @@
     "server": "npm run build && node dist/server.cjs",
     "publish:update": "node scripts/publish-update.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --maxWorkers=4",
     "test:e2e": "npm run build && playwright test",
     "test:e2e:packaged": "TOKEN_E2E_EXECUTABLE=release/mac/Token.app/Contents/MacOS/Token playwright test",
     "pack:dir": "npm run build && electron-builder --mac dir",

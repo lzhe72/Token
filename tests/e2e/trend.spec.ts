@@ -37,9 +37,9 @@ test('TC-048 趋势图宽窄窗口自适应且数值日期不重叠', async () =
     for (const width of [1180, 860]) {
       await app.evaluate(({ BrowserWindow }, requested) => BrowserWindow.getAllWindows()[0].setSize(requested, 760), width);
       await page.locator('.trend-panel').screenshot({ path: path.join('test-results', `trend-${width}.png`) });
-      const boxes = await page.locator('.bar-column').evaluateAll(columns => columns.map(column => {
-        const value = column.querySelector('.bar-value')!.getBoundingClientRect();
-        const label = column.querySelector('.bar-label')!.getBoundingClientRect();
+      const boxes = await page.locator('.bar-item').evaluateAll(items => items.map(item => {
+        const value = item.querySelector('.bar-value')!.getBoundingClientRect();
+        const label = item.querySelector('.bar-label')!.getBoundingClientRect();
         return { value: { left: value.left, right: value.right, bottom: value.bottom },
           label: { left: label.left, right: label.right, top: label.top } };
       }));
