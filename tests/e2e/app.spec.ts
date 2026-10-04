@@ -50,8 +50,12 @@ test('管理员创建、用户管理与普通用户权限', async () => {
     await bindSource(page, /Codex · 本机账户/, 'viewer');
     await expect(page.getByRole('row', { name: /Codex · 本机账户/ }).getByRole('combobox')).toHaveValue(viewerId || '');
     await page.getByRole('button', { name: /用量报表/ }).first().click();
-    await page.getByLabel('开始日期').fill('2026-01-01');
-    await page.getByLabel('结束日期').fill('2026-01-02');
+    const report = page.locator('.report-page');
+    await expect(report).toBeVisible();
+    await report.getByLabel('开始日期', { exact: true }).fill('2026-01-01');
+    await report.getByLabel('结束日期', { exact: true }).fill('2026-01-02');
+    await expect(report.getByLabel('开始日期', { exact: true })).toHaveValue('2026-01-01');
+    await expect(report.getByLabel('结束日期', { exact: true })).toHaveValue('2026-01-02');
     await expect(page.locator('.metric-card').first().locator('strong')).toHaveText('26');
     await expect(page.locator('.model-panel').getByText('claude-test')).toBeVisible();
     await expect(page.locator('.detail-panel tbody tr')).toHaveCount(2);
@@ -82,8 +86,12 @@ test('管理员创建、用户管理与普通用户权限', async () => {
     await expect(page.getByRole('heading', { name: '用量概览' })).toBeVisible();
     await expect(page.getByRole('button', { name: /管理中心/ })).toHaveCount(0);
     await page.getByRole('button', { name: /用量报表/ }).first().click();
-    await page.getByLabel('开始日期').fill('2026-01-01');
-    await page.getByLabel('结束日期').fill('2026-01-02');
+    const viewerReport = page.locator('.report-page');
+    await expect(viewerReport).toBeVisible();
+    await viewerReport.getByLabel('开始日期', { exact: true }).fill('2026-01-01');
+    await viewerReport.getByLabel('结束日期', { exact: true }).fill('2026-01-02');
+    await expect(viewerReport.getByLabel('开始日期', { exact: true })).toHaveValue('2026-01-01');
+    await expect(viewerReport.getByLabel('结束日期', { exact: true })).toHaveValue('2026-01-02');
     await expect(page.locator('.metric-card').first().locator('strong')).toHaveText('12');
     await expect(page.locator('.model-panel').getByText('gpt-test')).toBeVisible();
     await expect(page.locator('.model-panel').getByText('claude-test')).toHaveCount(0);
@@ -102,8 +110,12 @@ test('管理员创建、用户管理与普通用户权限', async () => {
     await reopened.getByRole('button', { name: /数据来源/ }).click();
     await reopened.getByRole('button', { name: '立即扫描' }).click();
     await reopened.getByRole('button', { name: /用量报表/ }).first().click();
-    await reopened.getByLabel('开始日期').fill('2026-01-01');
-    await reopened.getByLabel('结束日期').fill('2026-01-02');
+    const reopenedReport = reopened.locator('.report-page');
+    await expect(reopenedReport).toBeVisible();
+    await reopenedReport.getByLabel('开始日期', { exact: true }).fill('2026-01-01');
+    await reopenedReport.getByLabel('结束日期', { exact: true }).fill('2026-01-02');
+    await expect(reopenedReport.getByLabel('开始日期', { exact: true })).toHaveValue('2026-01-01');
+    await expect(reopenedReport.getByLabel('结束日期', { exact: true })).toHaveValue('2026-01-02');
     await expect(reopened.locator('.metric-card').first().locator('strong')).toHaveText('26');
   } finally {
     await app.close().catch(() => {});

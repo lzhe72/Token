@@ -24,6 +24,7 @@ test('TC-094 真实 Electron 启动先迁移旧绑定并只发送清理后的首
     let page = await app.firstWindow();
     await page.getByPlaceholder('至少 10 位').fill('safe-password-123');
     await page.getByRole('button', { name: '创建并进入' }).click();
+    await expect(page.getByRole('heading', { name: '用量概览' })).toBeVisible();
     await app.close();
     const owner = randomUUID();
     const fallback = `codex:otel:${createHash('sha256').update(os.userInfo().username).digest('hex').slice(0, 20)}`;

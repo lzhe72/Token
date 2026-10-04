@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import type { ReportQuery } from '../../src/shared/types';
 import { launchM6 } from './m6-support';
 
@@ -45,5 +47,47 @@ test('TC-079 快速切换筛选时旧响应不覆盖且导出等待当前快照'
     await expect(page.getByRole('button', { name: '刷新报表' })).toBeVisible();
     await page.getByRole('button', { name: '刷新报表' }).click();
     await expect(page.locator('.metric-card').first().locator('strong')).toHaveText('30');
+  } finally { await context.close(); }
+});
+
+test('TC-079 连续修改双日期后保持最终范围并以同一快照导出', async () => {
+  const context = await launchM6('tc079-dates', { usage: true, usageDate: '2026-01-01T12:00:00Z' });
+  try {
+    const { page } = context;
+    await page.getByRole('button', { name: /数据来源/ }).click();
+    await expect(page.getByRole('button', { name: '立即扫描', exact: true })).toBeEnabled();
+    await page.getByRole('button', { name: '立即扫描', exact: true }).click();
+    await expect.poll(async () => (await page.evaluate(() => window.tokenApi.getScanProgress())).length).toBe(0);
+    await page.getByRole('button', { name: /用量报表/ }).first().click();
+    const report = page.locator('.report-page');
+    await expect(report).toBeVisible();
+    const fromInput = report.getByLabel('开始日期', { exact: true });
+    const toInput = report.getByLabel('结束日期', { exact: true });
+    await fromInput.fill('2026-01-03');
+    await toInput.fill('2026-01-02');
+    await expect(page.getByRole('alert')).toContainText('日期范围无效');
+    await expect(page.getByRole('button', { name: '导出 CSV' })).toBeDisabled();
+    await fromInput.fill('2026-01-01');
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    for (const [from, to] of [['2026-01-01', '2026-01-02'], ['2026-02-01', '2026-02-02'],
+      ['2026-03-01', '2026-03-02'], ['2026-01-01', '2026-01-02']] as const) {
+      await fromInput.fill(from);
+      await toInput.fill(to);
+      await expect(fromInput).toHaveValue(from);
+      await expect(toInput).toHaveValue(to);
+      await expect(page.locator('.export-summary')).toContainText(`${from} 至 ${to}`);
+      await expect(page.getByRole('alert')).toHaveCount(0);
+    }
+    await expect(page.locator('.metric-card').first().locator('strong')).toHaveText('42');
+    const csvFile = path.join(context.workspace.root, 'tc079-dates.csv');
+    await context.app.evaluate(({ dialog }, filePath) => {
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath });
+    }, csvFile);
+    await page.getByRole('button', { name: '导出 CSV' }).click();
+    await expect.poll(() => existsSync(csvFile)).toBe(true);
+    const csv = readFileSync(csvFile, 'utf8');
+    expect(csv).toContain('2026-01-01');
+    expect(csv).toContain('gpt-alpha');
+    expect(csv).toContain('gpt-beta');
   } finally { await context.close(); }
 });

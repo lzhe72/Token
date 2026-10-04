@@ -167,7 +167,10 @@ const extraRuns = {
     { kind: 'unit', file: 'tests/next-sync.test.ts',
       testName: 'TC-040 发送失败时保留最新快照并遵守退避，到期后自动补传' }
   ],
-  'TC-079': [{ kind: 'e2e', file: 'tests/e2e/report-snapshot.spec.ts', testName: 'TC-079 快速切换筛选时旧响应不覆盖且导出等待当前快照' }],
+  'TC-079': [
+    { kind: 'e2e', file: 'tests/e2e/report-snapshot.spec.ts', testName: 'TC-079 快速切换筛选时旧响应不覆盖且导出等待当前快照' },
+    { kind: 'e2e', file: 'tests/e2e/report-snapshot.spec.ts', testName: 'TC-079 连续修改双日期后保持最终范围并以同一快照导出' }
+  ],
   'TC-094': [{ kind: 'unit', file: 'tests/sync-reconciliation.test.ts',
     testName: 'TC-094 启动迁移先替换旧待传快照并在线清理原 owner 服务聚合' },
     { kind: 'e2e', file: 'tests/e2e/startup-identity-migration.spec.ts',
