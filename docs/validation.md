@@ -1,5 +1,11 @@
 # 首版验收记录
 
+## TC-096 单用户来源默认归属本机验证（2026-10-04）
+
+固定代码提交 `dba32ff` 的 0.3.9 在 macOS 15.7.4 x86_64 的隔离用户数据中执行 `npm run test:case -- TC-096`，单元 1/1、Electron 1/1；`npm run test:gate` 为 96 个注册入口、104/104 单元和 47/47 Electron，`npm run test:e2e:packaged` 为 47/47。最终目录包重建后，TC-096 再次 1/1；实际安装 `/Applications/Token.app` 后以隔离用户数据运行同一 Electron 用例，1/1。均退出码 0。用例覆盖先扫描后创建唯一账户、后续文件、重复扫描、手动解除不反弹、多账户不自动归属、旧身份与代次未知保留未归属，以及界面说明。
+
+`Token-0.3.9.dmg` SHA-256 为 `b8fb2cd9d73e20cbd4fc26d6808fc96e1c869fe36289cf1a5f4d85897287a30d`，`hdiutil verify` 为 VALID；安装 App 的 `app.asar` SHA-256 为 `6dcb9906b5cfc1afc39c4af02446cfdb97666efbfa8e28e6007bf7a882211b9f`，版本 0.3.9 且主进程运行。安装前备份 0.3.8 App 和用户数据到仓库外、权限为 `0700` 的 `~/Library/Application Support/Token Local Backups/2026-10-04-0.3.9-single-user`。仅通过 SQLite 只读聚合查询核当前 Mac：唯一 Token 用户、14 个可确认 Claude 文件来源安装前均未归属，安装后 14 个均已归属且生成 14 条本机默认归属审计。没有复制或查看真实 JSONL、会话正文、账户标识或数据库行。**结论：TC-096 当前 Mac 单用户范围通过。**本机归属并非 Claude 账号验证；旧混合身份、未知文件代次、完整覆盖、真零、签名公证及其他 Mac 仍按各自门槛待验。
+
 ## TC-095 当前 Mac 本机范围通过（2026-10-04）
 
 开发会话在被 Git 忽略的脱敏证据中补录：以 SHA 已固定的真实 0.3.6 与最终 0.3.7 DMG，在隔离安装路径/合成数据运行 `TOKEN_TC076_SKIP_BUILD=1 npm run test:case -- TC-076`，退出码 0。旧版 UI 自动升级、新版受信登录及只读 DMG 启动通过；installer 模块和打包 helper 分别对 mount、space、replace、launch、health 五类故障核旧版恢复、合成报表保留、受信登录、残留清理和失败后重试。注入没有触碰生产目录，也不证明真实满盘或断电。文档会话只读核脱敏记录及本地 `99f77b4` 与远端 `ee617f3` 的 Git 文件树同为 `55cba4bc790ad534287edbf04276bc3a75ab93c5`；未独立重跑 TC-076。

@@ -732,3 +732,7 @@ TC-077 的缺失来源反例还应覆盖 `codex exec --ephemeral` 不落本地 s
 文档会话在固定提交 `8157e2d` 的 macOS 本机隔离工作树独立复跑 `npm run test:case -- TC-092` 单元 1/1、`TC-093` 单元 1/1 与 Electron 1/1、`TC-094` 单元 1/1，退出码均为 0；`npm run test:gate` 独立通过 typecheck、82 个注册入口检查、56/56 单元和 22/22 Electron。上述通过只对应现有断言，REQ-040 的管理员选定范围完整覆盖、REQ-043–047、目标 Mac/真实签名公证均不能据此标通过。
 
 **`47b03d5` 补强及独立复跑**：原 TC-093 Electron 用例增加 viewer `sources:scan` IPC 直调拒绝、概览同提供方来源卡显示本人 1 条且不显示 B 的 2 条或 B 的遥测时间；TC-023 在 `tests/report-snapshot.test.ts` 新增第二个 Vitest 绑定，冲突 v2 CSV 的项目 `+unsafe-project` 与模型 `=SUM(1,2)` 均转义；TC-079 原单元加同会话遥测使 v1 转 v2、扫描后旧 `snapshotId` 拒绝和刷新后已确认小计 99→104。文档会话在该提交独立执行 `npm run test:case -- TC-023`（两项单元）、`TC-079`（单元+Electron）、`TC-093`（单元+Electron），均退出码 0。现有 TC-093 的冲突 UI 仍使用注入响应，未用真实冲突事实走完整 Electron 流程；TC-092 无共同稳定事件 ID 正向去重，TC-094 真实生产迁移/旧服务互操作及 REQ-040 均维持待验。
+
+## TC-096 单用户 Mac 的 Claude 本地来源默认归属（2026-10-04）
+
+`npm run test:case -- TC-096` 绑定 `tests/single-user-source.test.ts` 与 `tests/e2e/single-user-source.spec.ts`，在隔离用户数据、合成无正文 Claude JSONL 中分别 1/1 通过。先扫描后创建唯一管理员会将可确认的本地来源归属该用户，后续扫描自动处理新来源；重复扫描不重复审计。管理员手动解除后不反弹，两个应用账户时新来源保持未归属，旧身份/未知代次仍隔离；界面说明本机归属不等于 Claude 账号验证。`npm run test:gate` 为 96 个入口、104/104 单元与 47/47 Electron；目录包全量 47/47。实际安装 0.3.9 的可执行文件以隔离数据重跑 Electron 1/1。当前 Mac 的实际来源只做只读汇总：14 个可确认文件来源从未归属变为归属唯一用户，自动审计 14 条；真实会话正文未读取，异机与提供方账号真实性未验。
