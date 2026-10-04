@@ -2,6 +2,7 @@ import { appendFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test, vi } from 'vitest';
 import { UsageScanner } from '../src/collectors/scanner';
+import { scopedLocalFactKey } from '../src/collectors/fact-key';
 import { AppDatabase } from '../src/main/database';
 import { ReportService } from '../src/main/report';
 import type { PublicUser, ReportQuery } from '../src/shared/types';
@@ -48,7 +49,7 @@ test('TC-073 Codex fallback 跨扫描替换与旧库修复保持幂等', async (
     ]);
     await scanner.scan();
     expect(db.all("SELECT source_key, total_tokens FROM usage_facts WHERE provider='codex'"))
-      .toMatchObject([{ source_key: 'codex:codex-session:response-one', total_tokens: 12 }]);
+      .toMatchObject([{ source_key: scopedLocalFactKey('codex:codex-session:response-one', `codex:macos:${process.getuid!()}`), total_tokens: 12 }]);
     let report = new ReportService(db, scanner);
     expect(report.query(query, admin).totals.totalTokens).toBe(12);
     expect(report.details(query, 1, '', admin).total).toBe(1);
@@ -106,22 +107,25 @@ test('TC-073 Codex fallback 跨扫描替换与旧库修复保持幂等', async (
     expect(db.all('SELECT source_key FROM usage_facts')).toHaveLength(4);
     expect(db.all('SELECT source_key FROM fact_projects')).toHaveLength(4);
     let scanner = new UsageScanner(db);
-    expect(db.all('SELECT source_key FROM usage_facts ORDER BY source_key').map(row => row.source_key)).toEqual([
-      'claude:session:request', 'codex:fallback:other:100', 'codex:target:response-one'
-    ]);
-    expect(db.all('SELECT source_key FROM fact_projects ORDER BY source_key').map(row => row.source_key)).toEqual([
-      'claude:session:request', 'codex:fallback:other:100', 'codex:target:response-one'
-    ]);
-    expect(db.all('SELECT key FROM source_identities ORDER BY key')).toHaveLength(2);
+    const migrated = [
+      scopedLocalFactKey('claude:session:request', 'claude:local'),
+      scopedLocalFactKey('codex:fallback:other:100', 'codex:local'),
+      scopedLocalFactKey('codex:target:response-one', 'codex:local')
+    ].sort();
+    expect(db.all('SELECT source_key FROM usage_facts ORDER BY source_key').map(row => row.source_key)).toEqual(migrated);
+    expect(db.all('SELECT source_key FROM fact_projects ORDER BY source_key').map(row => row.source_key)).toEqual(migrated);
+    expect(db.all('SELECT key FROM source_identities ORDER BY key')).toHaveLength(4);
     expect(db.one("SELECT fact_count FROM source_status WHERE provider='codex'")?.fact_count).toBe(2);
     let report = new ReportService(db, scanner);
-    expect(report.query(query, admin).totals.totalTokens).toBe(32);
+    expect(report.query(query, admin).accounting).toMatchObject({ status: 'uncertain', conflictCount: 3,
+      confirmedSubtotal: { totalTokens: 0 } });
     await scanner.scan();
     db.close();
     db = await AppDatabase.open(legacy.databasePath);
     scanner = new UsageScanner(db);
     report = new ReportService(db, scanner);
-    expect(report.query(query, admin).totals.totalTokens).toBe(32);
+    expect(report.query(query, admin).accounting).toMatchObject({ status: 'uncertain', conflictCount: 3,
+      confirmedSubtotal: { totalTokens: 0 } });
     expect(db.all('SELECT source_key FROM usage_facts')).toHaveLength(3);
   } finally {
     db.close();

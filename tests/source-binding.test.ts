@@ -192,3 +192,48 @@ test('TC-091 重绑确认后待传为零但连接身份已变化不得提示服�
     expect(f.db.one('SELECT owner_user_id FROM source_identities')?.owner_user_id).toBe(f.b.id);
   } finally { vi.restoreAllMocks(); f.db.close(); f.workspace.cleanup(); }
 });
+
+test('TC-086 Claude 文件归属证据经主进程校验，错误可在同一预览修正且审计仅记人工确认', async () => {
+  const f = await fixture('tc086-claude-evidence');
+  try {
+    const key = `claude:local-file:${'a'.repeat(40)}`;
+    f.db.run('INSERT INTO source_identities VALUES (?, ?, ?, ?)', [key, 'claude', 'Claude Code · 文件来源 aaaaaaaa', null]);
+    f.db.run('INSERT INTO usage_facts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      ['claude:synthetic-fact', 'claude', key, 'session', 'claude-test', '2026-10-02T10:00:00Z', 3, 0, 0, 0, 3]);
+    const connection = { getConnectionIdentity: () => 'synthetic-server',
+      uploadUsage: async () => new Response('', { status: 200 }) } as unknown as ServerConnection;
+    const service = new SourceBindingService(f.db, f.scanner, f.reports, new UsageSync(f.db, f.scanner, connection));
+    const filter = { ...f.filter, provider: 'claude' as const };
+    const preview = service.preview(key, f.b.id, filter, f.admin);
+    const valid = { evidenceCategory: 'controlled_account_file_mapping', evidenceSource: 'external_managed_registry',
+      evidenceRef: `evr_${'a'.repeat(32)}`, evidenceReviewed: true };
+    const invalid: Array<[unknown, string]> = [[undefined, 'evidenceCategory'],
+      [{ ...valid, evidenceCategory: 'local_file' }, 'evidenceCategory'],
+      [{ ...valid, evidenceSource: 'file_path' }, 'evidenceSource'],
+      [{ ...valid, evidenceRef: '' }, 'evidenceRef'],
+      [{ ...valid, evidenceRef: '/private/work/account-map.json' }, 'evidenceRef'],
+      [{ ...valid, evidenceRef: `evr_${'a'.repeat(31)}` }, 'evidenceRef'],
+      [{ ...valid, evidenceRef: `evr_${'a'.repeat(33)}` }, 'evidenceRef'],
+      [{ ...valid, evidenceReviewed: false }, 'evidenceReviewed'],
+      [{ ...valid, extra: 'unreviewed' }, 'evidenceCategory']];
+    for (const [evidence, field] of invalid) {
+      await expect(service.confirm(preview.id, f.admin, evidence)).rejects.toMatchObject({ field });
+      expect(f.db.one('SELECT owner_user_id FROM source_identities WHERE key=?', [key])?.owner_user_id).toBeNull();
+      expect(f.db.all('SELECT * FROM source_binding_audit')).toHaveLength(0);
+      expect(f.db.all('SELECT * FROM sync_outbox')).toHaveLength(0);
+    }
+    const expired = service.preview(key, f.b.id, filter, f.admin);
+    await expect(service.confirm(expired.id, f.admin, { ...valid, evidenceRef: '' })).rejects.toMatchObject({ field: 'evidenceRef' });
+    const now = vi.spyOn(Date, 'now').mockReturnValue(new Date(expired.expiresAt).getTime() + 1);
+    await expect(service.confirm(expired.id, f.admin, valid)).rejects.toThrow('预览已过期');
+    now.mockRestore();
+    const result = await service.confirm(preview.id, f.admin, valid);
+    expect(result.localCommitted).toBe(true);
+    expect(f.db.one('SELECT owner_user_id FROM source_identities WHERE key=?', [key])?.owner_user_id).toBe(f.b.id);
+    const audit = f.db.one('SELECT * FROM source_binding_audit');
+    expect(audit).toMatchObject({ evidence_category: valid.evidenceCategory, evidence_source: valid.evidenceSource,
+      evidence_ref: valid.evidenceRef, verification_status: 'admin_manual_confirmed' });
+    expect(JSON.stringify(audit)).not.toContain(key);
+    await expect(service.confirm(preview.id, f.admin, valid)).rejects.toThrow('预览已过期');
+  } finally { f.db.close(); f.workspace.cleanup(); }
+});

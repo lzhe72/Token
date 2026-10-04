@@ -43,10 +43,10 @@ test('TC-050 Codex cwd 归属与缺失项目保持未知', async () => {
     writeFileSync(path.join(dirs.codex, 'known.jsonl'), codex('known', '/work/alpha'));
     writeFileSync(path.join(dirs.codex, 'unknown.jsonl'), codex('unknown'));
     await scanner.scan();
-    const known = db.one("SELECT project_key, project_label FROM fact_projects WHERE source_key = 'codex:known:r'");
+    const known = db.one("SELECT p.project_key, p.project_label FROM fact_projects p JOIN usage_facts f ON f.source_key=p.source_key WHERE f.session_id='known'");
     expect(String(known?.project_key)).toMatch(/^[a-f0-9]{24}$/);
     expect(String(known?.project_label)).toContain('alpha');
-    expect(db.one("SELECT * FROM fact_projects WHERE source_key = 'codex:unknown:r'")).toBeNull();
+    expect(db.one("SELECT p.* FROM fact_projects p JOIN usage_facts f ON f.source_key=p.source_key WHERE f.session_id='unknown'")).toBeNull();
     expect(scanner.diagnostics().find(row => row.provider === 'codex')?.unknownProjectCount).toBe(1);
   });
 });

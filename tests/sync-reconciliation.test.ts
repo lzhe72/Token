@@ -1,13 +1,79 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { expect, test } from 'vitest';
 import { AppDatabase } from '../src/main/database';
 import { UsageScanner } from '../src/collectors/scanner';
-import { UsageSync } from '../src/main/usage-sync';
+import { UsageSync, prepareUsageSync } from '../src/main/usage-sync';
+import { TelemetryReceiver } from '../src/main/telemetry';
 import { LocalServer, type UsageSnapshotV1, type UsageSnapshotV2 } from '../src/server/server';
 import type { ServerConnection } from '../src/main/server-connection';
 import { createTestWorkspace } from './support/test-workspace';
+
+test('TC-094 启动迁移先替换旧待传快照并在线清理原 owner 服务聚合', async () => {
+  const workspace = createTestWorkspace('tc094-startup-quarantine');
+  const directory = path.join(workspace.root, 'server');
+  const server = new LocalServer(directory);
+  let started = false;
+  let db = await AppDatabase.open(workspace.databasePath);
+  let sync: UsageSync | undefined;
+  try {
+    let scanner = new UsageScanner(db);
+    const owner = randomUUID();
+    const fallback = `codex:otel:${createHash('sha256').update(os.userInfo().username).digest('hex').slice(0, 20)}`;
+    db.run('INSERT INTO users(id, username, password_hash, role, active, created_at) VALUES (?, ?, ?, ?, 1, ?)',
+      [owner, 'owner-a', 'unused', 'viewer', '2026-10-02T00:00:00Z']);
+    db.run('INSERT INTO source_identities VALUES (?, ?, ?, ?)', [fallback, 'codex', 'legacy', owner]);
+    db.run('INSERT INTO usage_facts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      ['otel:codex:legacy-fact', 'codex', fallback, 'legacy-session', 'gpt-test',
+        '2026-10-02T08:00:00Z', 12, 0, 0, 0, 12]);
+    db.run("INSERT INTO source_status(provider,status,file_count,fact_count,last_scan) VALUES ('codex','ready',0,0,'2026-10-02T08:00:00Z')");
+    const port = await server.start(); started = true;
+    const base = `http://127.0.0.1:${port}`;
+    const globalSecret = fs.readFileSync(path.join(directory, 'server.secret'), 'utf8').trim();
+    const adminSecret = fs.readFileSync(path.join(directory, 'server-admin.secret'), 'utf8').trim();
+    const uploaded: string[] = [];
+    const connection = { getConnectionIdentity: () => base,
+      uploadUsage: async (payload: string, deviceId: string, ownerUserIds: string[]) => {
+        uploaded.push(payload);
+        const registration = await fetch(`${base}/v1/admin/devices/enroll`, { method: 'POST', headers: {
+          authorization: `Bearer ${globalSecret}`, 'x-token-admin': adminSecret,
+          'content-type': 'application/json' }, body: JSON.stringify({ deviceId, ownerUserIds }) });
+        if (!registration.ok) return registration;
+        const token = (await registration.json() as { token: string }).token;
+        return fetch(`${base}/v1/usage`, { method: 'POST', headers: {
+          authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: payload });
+      } } as ServerConnection;
+    const before = new UsageSync(db, scanner, connection);
+    db.transactionDurable(() => before.queueSnapshot(['codex']));
+    await before.flush();
+    expect(server.getDatabase().one('SELECT owner_user_id, total_tokens FROM aggregates'))
+      .toMatchObject({ owner_user_id: owner, total_tokens: 12 });
+    db.close();
+    db = await AppDatabase.open(workspace.databasePath);
+    scanner = new UsageScanner(db);
+    const receiver = new TelemetryReceiver(db, workspace.root, 0);
+    expect(receiver.didQuarantineLegacyIdentity()).toBe(true);
+    const uploadsBeforeRestart = uploaded.length;
+    sync = prepareUsageSync(db, scanner, connection,
+      scanner.didQuarantineLegacyFacts() || receiver.didQuarantineLegacyIdentity());
+    const queued = String(db.one('SELECT payload FROM sync_outbox WHERE id = 1')?.payload);
+    expect(queued).not.toContain(owner);
+    sync.start();
+    await sync.waitIdle();
+    expect(uploaded.slice(uploadsBeforeRestart)).toHaveLength(1);
+    expect(uploaded.at(-1)).not.toContain(owner);
+    expect(server.getDatabase().all('SELECT * FROM aggregates')).toHaveLength(0);
+    expect(server.getDatabase().all('SELECT * FROM aggregate_status')).toHaveLength(0);
+    expect(sync.status().currentConfirmed).toBe(true);
+  } finally {
+    sync?.stop();
+    if (started) await server.stop();
+    db.close();
+    workspace.cleanup();
+  }
+});
 
 test('TC-094 服务 v2 清除旧聚合并保留冲突状态旧队列重算和权限边界', async () => {
   const workspace = createTestWorkspace('tc094-sync');

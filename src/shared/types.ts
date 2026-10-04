@@ -40,6 +40,8 @@ export interface SourceIdentity {
   label: string;
   ownerUserId: string | null;
   factCount: number;
+  lastRecordAt?: string | null;
+  projectLabel?: string | null;
 }
 
 export interface BindingScopeSummary {
@@ -54,6 +56,8 @@ export interface SourceBindingPreview {
   id: string;
   sourceKey: string;
   sourceLabel: string;
+  projectLabel?: string | null;
+  lastRecordAt?: string | null;
   oldOwnerId: string | null;
   newOwnerId: string | null;
   oldOwnerLabel: string;
@@ -63,6 +67,19 @@ export interface SourceBindingPreview {
   before: { oldOwner: BindingScopeSummary; newOwner: BindingScopeSummary };
   after: { oldOwner: BindingScopeSummary; newOwner: BindingScopeSummary };
   expiresAt: string;
+}
+
+export interface BindingEvidenceDeclaration {
+  evidenceCategory: 'controlled_account_file_mapping';
+  evidenceSource: 'external_managed_registry';
+  evidenceRef: string;
+  evidenceReviewed: boolean;
+}
+
+export type BindingEvidenceField = keyof BindingEvidenceDeclaration;
+export interface SourceBindingValidationFailure {
+  localCommitted: false;
+  validationError: { field: BindingEvidenceField; message: string };
 }
 
 export interface SourceBindingResult {
@@ -269,7 +286,9 @@ export interface TokenApi {
   getScanProgress(): Promise<ScanProgress[]>;
   getSourceIdentities(): Promise<SourceIdentity[]>;
   previewSourceBinding(key: string, userId: string | null, filter: ReportQuery): Promise<SourceBindingPreview>;
-  confirmSourceBinding(previewId: string): Promise<SourceBindingResult>;
+  confirmSourceBinding(previewId: string, evidence?: BindingEvidenceDeclaration): Promise<SourceBindingResult | SourceBindingValidationFailure>;
+  getDeferredSourceKeys(): Promise<string[]>;
+  setSourceDeferred(key: string, deferred: boolean): Promise<string[]>;
   cancelSourceBinding(previewId: string): Promise<void>;
   getTelemetryConfiguration(): Promise<TelemetryConfiguration>;
   getServerStatus(): Promise<ServerStatus>;

@@ -36,14 +36,14 @@ test('本机遥测只接受密钥，Codex 去重，Claude 累计点计算增量�
       timeUnixNano: '1767225600000000000', attributes: [
         attr('event.name', 'codex.sse_event'), attr('event.kind', 'response.completed'),
         attr('input_token_count', '10'), attr('output_token_count', '2'), attr('cached_token_count', '4'),
-        attr('conversation.id', 'c1'), attr('model', 'gpt-test')
+        attr('conversation.id', 'c1'), attr('model', 'gpt-test'), attr('user.account_id', 'account-test')
       ]
     }] }] }] };
     expect((await post('/v1/logs', codex, 'Bearer wrong')).status).toBe(401);
     expect((await post('/v1/logs', codex)).status).toBe(200);
     expect((await post('/v1/logs', codex)).status).toBe(200);
 
-    const claude = (value: number, end: string) => ({ resourceMetrics: [{ resource: { attributes: [attr('user.id', 'u1')] }, scopeMetrics: [{ metrics: [{
+    const claude = (value: number, end: string) => ({ resourceMetrics: [{ resource: { attributes: [attr('user.id', 'u1'), attr('user.account_uuid', 'account-u1')] }, scopeMetrics: [{ metrics: [{
       name: 'claude_code.token.usage', sum: { aggregationTemporality: 2, dataPoints: [{
         attributes: [attr('type', 'input'), attr('model', 'claude-test'), attr('session.id', 's1')],
         startTimeUnixNano: '1767225600000000000', timeUnixNano: end, asInt: String(value)
@@ -58,14 +58,15 @@ test('本机遥测只接受密钥，Codex 去重，Claude 累计点计算增量�
     const admin: PublicUser = { id: 'a', username: 'a', role: 'admin', active: true, createdAt: '' };
     const query: ReportQuery = { from: '2026-01-01', to: '2026-01-01', timeZone: 'UTC', granularity: 'day', provider: 'all', model: '', userId: 'all' };
     const report = new ReportService(db, scanner);
-    expect(report.query(query, admin).totals.totalTokens).toBe(20);
-    expect(report.query(query, admin).accounting.status).toBe('confirmed');
+    expect(report.query(query, admin).totals.totalTokens).toBe(8);
+    expect(report.query(query, admin).accounting).toMatchObject({ status: 'uncertain', conflictCount: 1,
+      confirmedSubtotal: { totalTokens: 8 } });
     db.run("INSERT INTO source_identities VALUES ('codex:local', 'codex', 'Codex', NULL)");
     db.run("INSERT INTO usage_facts VALUES ('local:1', 'codex', 'codex:local', 'c1', 'gpt-test', '2026-01-01T00:00:00Z', 10, 2, 4, 0, 12)");
     expect(report.query(query, admin).totals.totalTokens).toBe(8);
     expect(report.query(query, admin).accounting).toMatchObject({ status: 'uncertain', conflictCount: 2,
       confirmedSubtotal: { totalTokens: 8 } });
-    const delta = { resourceMetrics: [{ scopeMetrics: [{ metrics: [{ name: 'claude_code.token.usage',
+    const delta = { resourceMetrics: [{ resource: { attributes: [attr('user.account_uuid', 'account-u1')] }, scopeMetrics: [{ metrics: [{ name: 'claude_code.token.usage',
       sum: { aggregationTemporality: 1, dataPoints: [{
         attributes: [attr('type', 'output'), attr('model', 'claude-test'), attr('session.id', 's1')],
         startTimeUnixNano: '1767225602000000000', timeUnixNano: '1767225603000000000', asInt: '7'

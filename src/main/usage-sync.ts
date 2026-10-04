@@ -25,6 +25,7 @@ function exact(value: unknown): number {
 export class UsageSync {
   private timer: NodeJS.Timeout | null = null;
   private sending: Promise<void> | null = null;
+  private continueAfterDrain = false;
   private readonly deviceId: string;
 
   constructor(private readonly db: AppDatabase, private readonly scanner: UsageScanner,
@@ -68,13 +69,16 @@ export class UsageSync {
   private aggregate(providers: Array<'codex' | 'claude'>): UsageAggregateV2[] {
     if (!providers.length) return [];
     const facts = this.db.all(`SELECT f.source_key, f.session_id, f.occurred_at, f.provider, f.model, substr(f.occurred_at, 1, 10) AS day,
+        CASE WHEN uncertain.source_key IS NULL THEN 0 ELSE 1 END AS identity_uncertain,
         s.owner_user_id, f.input_tokens, f.output_tokens, f.cache_read_tokens,
         f.cache_creation_tokens, f.total_tokens
       FROM usage_facts f JOIN source_identities s ON s.key = f.source_identity_key
+      LEFT JOIN usage_uncertain_facts uncertain ON uncertain.source_key = f.source_key
       JOIN users u ON u.id = s.owner_user_id AND u.active = 1
       WHERE f.provider IN ('codex', 'claude')`) as Array<{
         source_key: string; session_id: string; occurred_at: string; provider: 'codex' | 'claude';
-        model: string; day: string; owner_user_id: string; input_tokens: number; output_tokens: number;
+        model: string; day: string; owner_user_id: string; identity_uncertain: number;
+        input_tokens: number; output_tokens: number;
         cache_read_tokens: number; cache_creation_tokens: number; total_tokens: number;
       }>;
     const pendingKeys = reconcileFacts(facts.filter(fact => providers.includes(fact.provider))).pendingKeys;
@@ -148,9 +152,30 @@ export class UsageSync {
   }
 
   flush(): Promise<void> {
-    if (this.sending) return this.sending;
-    this.sending = this.sendPending().finally(() => { this.sending = null; });
+    // Chaining a concurrent request also covers the small interval after the
+    // drain's final outbox read but before its promise settles.
+    if (this.sending) return this.sending.then(() => this.flush());
+    this.sending = this.drainPending().finally(() => {
+      this.sending = null;
+      if (this.continueAfterDrain) {
+        this.continueAfterDrain = false;
+        setImmediate(() => void this.flush().catch(() => {}));
+      }
+    });
     return this.sending;
+  }
+
+  private async drainPending(): Promise<void> {
+    // A scan may queue a newer revision while an upload is in flight. After a
+    // successful send, continue with that latest snapshot without waiting for
+    // the one-minute timer. A failed/deferred send keeps normal retry backoff.
+    for (let sent = 0; sent < 20; sent++) {
+      const before = this.db.one('SELECT payload FROM sync_outbox WHERE id = 1');
+      if (!before || !await this.sendPending()) return;
+      const after = this.db.one('SELECT payload FROM sync_outbox WHERE id = 1');
+      if (!after || String(after.payload) === String(before.payload)) return;
+    }
+    this.continueAfterDrain = true;
   }
 
   async retryNow(): Promise<void> {
@@ -159,13 +184,13 @@ export class UsageSync {
     await this.flush();
   }
 
-  private async sendPending(): Promise<void> {
+  private async sendPending(): Promise<boolean> {
     const row = this.db.one('SELECT payload, attempts FROM sync_outbox WHERE id = 1');
-    if (!row) return;
+    if (!row) return false;
     const attempts = Number(row.attempts);
     const lastAttempt = this.db.one("SELECT value FROM sync_meta WHERE key = 'last_attempt'")?.value;
     const delay = Math.min(10 * 60_000, 30_000 * 2 ** Math.min(attempts, 5));
-    if (attempts > 0 && lastAttempt && Date.now() - Date.parse(String(lastAttempt)) < delay) return;
+    if (attempts > 0 && lastAttempt && Date.now() - Date.parse(String(lastAttempt)) < delay) return false;
     let payload = String(row.payload);
     let snapshot = JSON.parse(payload) as UsageSnapshot;
     if (snapshot.accountingVersion !== 2) {
@@ -197,7 +222,7 @@ export class UsageSync {
               this.setMeta('revision', String(bumped.revision));
             });
           }
-          return;
+          return true;
         }
       }
       if (!response.ok) throw new Error(response.status === 401
@@ -212,12 +237,23 @@ export class UsageSync {
         this.setMeta('last_success', new Date().toISOString());
         this.setMeta('last_error', '');
       });
+      return true;
     } catch (error) {
       const current = this.db.one('SELECT payload FROM sync_outbox WHERE id = 1');
-      if (current && (JSON.parse(String(current.payload)) as UsageSnapshot).revision === revision) {
+      if (current) {
         this.db.run('UPDATE sync_outbox SET attempts = attempts + 1 WHERE id = 1');
         this.setMeta('last_error', error instanceof Error ? error.message : '上报失败');
       }
+      return false;
     }
   }
+}
+
+// Called before start(): a persisted snapshot from the old authorization state
+// must be replaced before the sender gets any chance to flush it.
+export function prepareUsageSync(db: AppDatabase, scanner: UsageScanner,
+  connection: ServerConnection, historicalFactsChanged: boolean): UsageSync {
+  const sync = new UsageSync(db, scanner, connection);
+  if (historicalFactsChanged) db.transactionDurable(() => sync.queueSnapshot(['codex', 'claude']));
+  return sync;
 }

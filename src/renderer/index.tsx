@@ -1,6 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import type { AccountCollectionStatus, AppState, CollectionDiagnostic, FeedbackItem, OnboardingStatus, Provider, PublicUser, ReportQuery, Role, ServerStatus, SourceBindingPreview, SourceIdentity, SourceStatus, TelemetryConfiguration, UpdateStatus, UploadStatus } from '../shared/types';
+import type { AccountCollectionStatus, AppState, BindingEvidenceDeclaration, BindingEvidenceField, CollectionDiagnostic, FeedbackItem, OnboardingStatus, Provider, PublicUser, ReportQuery, Role, ServerStatus, SourceBindingPreview, SourceIdentity, SourceStatus, TelemetryConfiguration, UpdateStatus, UploadStatus } from '../shared/types';
 import { localLabels, serviceLabels, syncLabels } from './service-state';
 import { ReportPanel } from './report';
 import { OverviewPanel } from './overview';
@@ -27,6 +27,17 @@ function sourceStatusLabel(status?: Pick<SourceStatus, 'status'>): string {
     case 'error': return '需要检查';
     default: return '等待扫描';
   }
+}
+
+function sourceNeedsIdentityReview(source: SourceIdentity): boolean {
+  return source.key.startsWith('codex:otel:unknown:') ||
+    source.key.startsWith('codex:otel:legacy-ambiguous:') ||
+    source.key.startsWith('codex:legacy-unverified:') ||
+    source.key.startsWith('claude:legacy-unverified:') ||
+    source.key.startsWith('claude:otel:unknown:') ||
+    source.key.startsWith('claude:otel:legacy-unverified:') ||
+    source.key.startsWith('claude:local-file-unknown:') ||
+    source.label.includes('账户身份尚未验证');
 }
 
 function localDate(date: Date): string {
@@ -61,10 +72,22 @@ function App() {
   const [feedbackError, setFeedbackError] = React.useState('');
   const [sourceStatuses, setSourceStatuses] = React.useState<SourceStatus[]>([]);
   const [sourceIdentities, setSourceIdentities] = React.useState<SourceIdentity[]>([]);
+  const [sourceFilter, setSourceFilter] = React.useState<'all' | 'pending' | 'assigned' | 'deferred'>('all');
+  const [sourceProjectFilter, setSourceProjectFilter] = React.useState('');
+  const [sourceLastFrom, setSourceLastFrom] = React.useState('');
+  const [sourceLastTo, setSourceLastTo] = React.useState('');
+  const [appliedSourceDates, setAppliedSourceDates] = React.useState({ from: '', to: '' });
+  const [sourcePage, setSourcePage] = React.useState(1);
+  const [deferredView, setDeferredView] = React.useState<{ userId: string; keys: string[] } | null>(null);
+  const sourceViewRequest = React.useRef(0);
   const [bindingDraft, setBindingDraft] = React.useState<{ key: string; userId: string | null } | null>(null);
+  React.useEffect(() => {
+    try { localStorage.removeItem('token-deferred-source-keys'); } catch { /* obsolete unscoped preference */ }
+  }, []);
   const [bindingPreview, setBindingPreview] = React.useState<SourceBindingPreview | null>(null);
   const [bindingBusy, setBindingBusy] = React.useState(false);
   const [bindingError, setBindingError] = React.useState('');
+  const [bindingValidationField, setBindingValidationField] = React.useState<BindingEvidenceField | null>(null);
   const [bindingRange, setBindingRange] = React.useState(initialBindingRange);
   const bindingTrigger = React.useRef<HTMLButtonElement | null>(null);
   const bindingSelect = React.useRef<HTMLSelectElement | null>(null);
@@ -210,6 +233,10 @@ function App() {
   async function logout() {
     onboardingRequest.current++;
     bindingRequest.current++;
+    sourceViewRequest.current++;
+    setDeferredView(null);
+    setSourceFilter('all'); setSourceProjectFilter(''); setSourceLastFrom(''); setSourceLastTo('');
+    setAppliedSourceDates({ from: '', to: '' }); setSourcePage(1);
     await window.tokenApi.logout();
     setState({ needsSetup: false, user: null });
     setUsers([]);
@@ -252,16 +279,51 @@ function App() {
     setError('');
     bindingRequest.current++; setBindingBusy(false);
     setBindingDraft(null); setBindingPreview(null); setBindingError('');
+    const actorId = state?.user?.id;
+    if (!actorId) return;
+    const request = ++sourceViewRequest.current;
+    setDeferredView(null);
     try {
-      const [identities, allUsers] = await Promise.all([
-        window.tokenApi.getSourceIdentities(), window.tokenApi.listUsers()
+      const [identities, allUsers, deferredKeys] = await Promise.all([
+        window.tokenApi.getSourceIdentities(), window.tokenApi.listUsers(), window.tokenApi.getDeferredSourceKeys()
       ]);
+      if (request !== sourceViewRequest.current) return;
       setSourceIdentities(identities);
       setUsers(allUsers);
+      setDeferredView({ userId: actorId, keys: deferredKeys });
+      setSourcePage(1);
       setTab('sources');
     } catch (e) {
       setError(errorMessage(e));
     }
+  }
+
+  async function toggleSourceDeferred(key: string) {
+    const actorId = state?.user?.id;
+    if (!actorId || deferredView?.userId !== actorId) return;
+    const deferred = !deferredView.keys.includes(key);
+    try {
+      const keys = await window.tokenApi.setSourceDeferred(key, deferred);
+      setDeferredView({ userId: actorId, keys });
+      setSourcePage(1);
+    } catch (reason) { setError(errorMessage(reason)); }
+  }
+
+  function changeSourceDate(field: 'from' | 'to', value: string) {
+    const from = field === 'from' ? value : sourceLastFrom;
+    const to = field === 'to' ? value : sourceLastTo;
+    setSourceLastFrom(from); setSourceLastTo(to);
+    if (from && to && from > to) return;
+    setAppliedSourceDates({ from, to });
+    setSourcePage(1);
+  }
+
+  function clearSourceDates() {
+    setSourceLastFrom(''); setSourceLastTo(''); setAppliedSourceDates({ from: '', to: '' }); setSourcePage(1);
+  }
+
+  function clearSourceFilters() {
+    setSourceFilter('all'); setSourceProjectFilter(''); clearSourceDates();
   }
 
   async function showSettings() {
@@ -410,7 +472,7 @@ function App() {
   async function previewBinding() {
     if (!bindingDraft) return;
     const request = ++bindingRequest.current;
-    setBindingBusy(true); setBindingError('');
+    setBindingBusy(true); setBindingError(''); setBindingValidationField(null);
     try {
       const source = sourceIdentities.find(item => item.key === bindingDraft.key);
       if (!source) throw new Error('来源已变化，请刷新列表');
@@ -425,16 +487,22 @@ function App() {
 
   function closeBinding(keepDraft: boolean, clearError = true, restoreFocus = true) {
     setBindingPreview(null);
+    setBindingValidationField(null);
     if (!keepDraft) setBindingDraft(null);
     if (clearError) setBindingError('');
     if (restoreFocus) requestAnimationFrame(() => (keepDraft ? bindingTrigger.current : bindingSelect.current)?.focus());
   }
 
-  async function confirmBinding() {
+  async function confirmBinding(evidence?: BindingEvidenceDeclaration) {
     if (!bindingPreview) return;
-    setBindingBusy(true); setBindingError('');
+    setBindingBusy(true); setBindingError(''); setBindingValidationField(null);
     try {
-      const result = await window.tokenApi.confirmSourceBinding(bindingPreview.id);
+      const result = await window.tokenApi.confirmSourceBinding(bindingPreview.id, evidence);
+      if (!result.localCommitted) {
+        setBindingValidationField(result.validationError.field);
+        setBindingError(result.validationError.message);
+        return;
+      }
       setSourceIdentities(await window.tokenApi.getSourceIdentities());
       setUpload(await window.tokenApi.getUploadStatus());
       setNotice(result.service === 'synced' ? '来源归属已更新，当前版本已由服务端确认。' :
@@ -533,6 +601,33 @@ function App() {
     .filter(step => step.key === 'bind' || step.key === 'usage').every(step => step.state === 'complete');
   const showOnboardingHint = onboardingPreference?.userId === state.user.id && !onboardingPreference.skipped &&
     currentOnboarding && !viewerOnboardingDone && currentOnboarding.steps.some(step => step.state !== 'complete');
+  const deferredReady = deferredView?.userId === state.user.id;
+  const deferredSourceSet = new Set(deferredReady ? deferredView.keys : []);
+  const unassignedFileCount = sourceIdentities.filter(item => item.key.startsWith('claude:local-file:') && !item.ownerUserId).length;
+  const pendingFileCount = sourceIdentities.filter(item => item.key.startsWith('claude:local-file:') &&
+    !item.ownerUserId && !deferredSourceSet.has(item.key)).length;
+  const sourceProjectOptions = [...new Set(sourceIdentities.map(item => item.projectLabel).filter((label): label is string => !!label))]
+    .sort((a, b) => a.localeCompare(b, 'zh-CN'));
+  const dateRangeInvalid = !!sourceLastFrom && !!sourceLastTo && sourceLastFrom > sourceLastTo;
+  const hasSourceFilters = sourceFilter !== 'all' || !!sourceProjectFilter || !!sourceLastFrom || !!sourceLastTo;
+  const scopedSources = (deferredReady ? sourceIdentities : []).filter(item => {
+    const statusMatches = sourceFilter === 'all' ? true : sourceFilter === 'assigned' ? !!item.ownerUserId :
+      sourceFilter === 'deferred' ? !item.ownerUserId && deferredSourceSet.has(item.key) : !item.ownerUserId && !deferredSourceSet.has(item.key);
+    return statusMatches && (!sourceProjectFilter || item.projectLabel === sourceProjectFilter);
+  });
+  const unknownLastRecordCount = scopedSources.filter(item => !item.lastRecordAt || Number.isNaN(Date.parse(item.lastRecordAt))).length;
+  const visibleSources = scopedSources.filter(item => {
+    if (!appliedSourceDates.from && !appliedSourceDates.to) return true;
+    if (!item.lastRecordAt) return false;
+    const date = new Date(item.lastRecordAt);
+    if (Number.isNaN(date.getTime())) return false;
+    const localDay = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    return (!appliedSourceDates.from || localDay >= appliedSourceDates.from) &&
+      (!appliedSourceDates.to || localDay <= appliedSourceDates.to);
+  });
+  const sourcePageCount = Math.max(1, Math.ceil(visibleSources.length / 20));
+  const visibleSourcePage = Math.min(sourcePage, sourcePageCount);
+  const pageSources = visibleSources.slice((visibleSourcePage - 1) * 20, visibleSourcePage * 20);
 
   return (
     <div className="app-shell">
@@ -577,10 +672,23 @@ function App() {
           <div className="source-grid"><div className="source-card"><div className="source-icon codex">◈</div><div><h3>Codex</h3><p>{codexStatus?.detail || `${codexStatus?.fileCount ?? 0} 个会话文件 · ${codexStatus?.factCount ?? 0} 条本地 · ${codexStatus?.telemetryFactCount ?? 0} 条遥测`}</p></div><span className="status-pill">{sourceStatusLabel(codexStatus)}</span></div><div className="source-card"><div className="source-icon claude">✳</div><div><h3>Claude Code</h3><p>{claudeStatus?.detail || `${claudeStatus?.fileCount ?? 0} 个会话文件 · ${claudeStatus?.factCount ?? 0} 条本地 · ${claudeStatus?.telemetryFactCount ?? 0} 条遥测`}</p></div><span className="status-pill">{sourceStatusLabel(claudeStatus)}</span></div></div>
           <div className="source-actions"><button className="primary" disabled={busy} onClick={scanSources}>{busy ? scanActive ? '扫描中…' : '正在同步…' : '立即扫描'}</button>{busy && scanActive && <button className="export-button" disabled={scanCancelling} onClick={cancelScan}>{scanCancelling ? '正在取消…' : '取消扫描'}</button>}<span>首次导入大量历史记录可能需要几分钟。</span></div>
           <section className="panel"><div className="panel-head"><h2>来源归属</h2><span>{sourceIdentities.length} 个来源</span></div><p className="hint">选择用户只生成草稿；预览后确认才会改变授权。无法确认的来源可保留为未归属。</p>
+            {sourceIdentities.some(source => source.key.startsWith('claude:local-file:')) && <p className="config-warning">Claude Code 本地记录按文件来源区分，文件本身不能证明账号。请核对项目、时间及独立证据后逐项绑定；缺少证据时保持未归属。</p>}
+            {sourceIdentities.some(source => source.key.includes(':legacy-unverified:')) && <p className="config-warning">旧本地记录的归属暂不可确认。请检查文件访问权限并重新扫描；恢复后核对新来源与用量，待重扫来源不能直接绑定。</p>}
+            {sourceIdentities.some(source => source.provider === 'codex' && sourceNeedsIdentityReview(source) && !source.key.includes(':legacy-unverified:')) && <p className="config-warning">Codex 账户身份无法验证，历史归属已暂停。请重新启用包含 account_id 的遥测并核对新来源；未知来源不能直接绑定用户。</p>}
+            {sourceIdentities.some(source => source.provider === 'claude' && sourceNeedsIdentityReview(source) && !source.key.includes(':legacy-unverified:')) && <p className="config-warning">Claude Code 账户身份无法验证，历史归属已暂停。请启用包含 user.account_uuid 或 user.account_id 的遥测并核对新来源；未知来源不能直接绑定用户。</p>}
             <div className="binding-range"><label>预览开始 <input type="date" disabled={bindingBusy} value={bindingRange.from} onChange={e => setBindingRange(current => ({ ...current, from: e.target.value }))} /></label><label>预览结束 <input type="date" disabled={bindingBusy} value={bindingRange.to} onChange={e => setBindingRange(current => ({ ...current, to: e.target.value }))} /></label><span>同一时区 {bindingRange.timeZone} · 当前来源工具 · 全部模型与项目</span></div>
             {bindingError && <p className="error" role="alert" tabIndex={-1} ref={bindingErrorRef}>{bindingError} · 请检查来源后重新预览。 <button type="button" className="text-button" onClick={() => bindingSelect.current?.focus()}>重新选择归属</button></p>}
-            <div className="table-wrap"><table><thead><tr><th>来源</th><th>工具</th><th>记录</th><th>归属用户</th><th>操作</th></tr></thead><tbody>{sourceIdentities.map(identity => <tr key={identity.key}><td><strong>{identity.label}</strong></td><td>{identity.provider === 'codex' ? 'Codex' : 'Claude Code'}</td><td>{identity.factCount.toLocaleString()}</td><td><select className="owner-select" disabled={bindingBusy} aria-label={`${identity.label} 归属草稿`} value={bindingDraft?.key === identity.key ? bindingDraft.userId ?? '' : identity.ownerUserId ?? ''} onChange={e => { bindingRequest.current++; setBindingError(''); setBindingPreview(null); setBindingDraft({ key: identity.key, userId: e.target.value || null }); }}><option value="">未归属</option>{users.filter(user => user.active || user.id === identity.ownerUserId).map(user => <option key={user.id} value={user.id}>{user.username}{user.active ? '' : '（已停用）'}</option>)}</select></td><td>{bindingDraft?.key === identity.key && bindingDraft.userId !== identity.ownerUserId && <><span className="binding-draft-label">未保存草稿</span><button type="button" className="export-button" disabled={bindingBusy} onClick={event => { bindingTrigger.current = event.currentTarget; bindingSelect.current = event.currentTarget.closest('tr')?.querySelector('select') ?? null; void previewBinding(); }}>预览变更</button></>}</td></tr>)}</tbody></table>{sourceIdentities.length === 0 && <div className="empty-row">扫描完成后会在这里显示可识别的来源。</div>}</div></section>
-          {bindingPreview && <SourceBindingDialog preview={bindingPreview} busy={bindingBusy} error={bindingError} onCancel={() => { void window.tokenApi.cancelSourceBinding(bindingPreview.id).catch(() => {}); closeBinding(true); }} onConfirm={() => void confirmBinding()} />}
+            <div className="source-actions"><label>来源状态 <select aria-label="来源状态筛选" value={sourceFilter} onChange={event => { setSourceFilter(event.target.value as typeof sourceFilter); setSourcePage(1); }}><option value="all">全部来源</option><option value="pending">我的待办</option><option value="assigned">已归属</option><option value="deferred">我的暂缓</option></select></label><label>项目 <select aria-label="来源项目筛选" value={sourceProjectFilter} onChange={event => { setSourceProjectFilter(event.target.value); setSourcePage(1); }}><option value="">全部项目</option>{sourceProjectOptions.map(label => <option key={label} value={label}>{label}</option>)}</select></label><label>最近记录从 <input type="date" aria-label="最近记录开始日期" aria-invalid={dateRangeInvalid} value={sourceLastFrom} onChange={event => changeSourceDate('from', event.target.value)} /></label><label>至 <input type="date" aria-label="最近记录结束日期" aria-invalid={dateRangeInvalid} value={sourceLastTo} onChange={event => changeSourceDate('to', event.target.value)} /></label><button type="button" className="text-button" disabled={!sourceLastFrom && !sourceLastTo && !appliedSourceDates.from && !appliedSourceDates.to} onClick={clearSourceDates}>清除日期条件</button><button type="button" className="text-button" disabled={!hasSourceFilters} onClick={clearSourceFilters}>清除来源筛选</button><span>{deferredReady ? `Claude 文件未归属总数 ${unassignedFileCount} 个 · 我的待办 ${pendingFileCount} 个 · 筛选命中 ${visibleSources.length} 个 · 最近时间未知 ${unknownLastRecordCount} 个 · 每页 20 个来源` : '正在加载当前管理员待办…'}</span></div>
+            {dateRangeInvalid && <p className="config-warning" role="alert">最近记录开始日期不能晚于结束日期；保留上一次有效日期筛选结果。请调整日期范围。</p>}
+            <div className="table-wrap"><table><thead><tr><th>来源</th><th>工具</th><th>记录</th><th>归属用户</th><th>操作</th></tr></thead><tbody>{pageSources.map(identity => {
+              const locked = sourceNeedsIdentityReview(identity);
+              return <tr key={identity.key}><td><strong>{identity.label}</strong>{identity.key.startsWith('claude:local-file:') && <small className="model-provider">项目 {identity.projectLabel || '未知'} · {identity.lastRecordAt ? `最近时间 ${new Date(identity.lastRecordAt).toLocaleString('zh-CN')}` : '最近记录：时间未知'}</small>}</td><td>{identity.provider === 'codex' ? 'Codex' : 'Claude Code'}</td><td>{identity.factCount.toLocaleString()}</td><td><select className="owner-select" disabled={bindingBusy || locked} aria-label={`${identity.label} 归属草稿`} value={bindingDraft?.key === identity.key ? bindingDraft.userId ?? '' : identity.ownerUserId ?? ''} onChange={e => { bindingRequest.current++; setBindingError(''); setBindingPreview(null); setBindingDraft({ key: identity.key, userId: e.target.value || null }); }}><option value="">未归属</option>{users.filter(user => user.active || user.id === identity.ownerUserId).map(user => <option key={user.id} value={user.id}>{user.username}{user.active ? '' : '（已停用）'}</option>)}</select></td><td>{locked ? <span className="hint">{identity.key.includes(':legacy-unverified:') ? '等待重新扫描' : '身份无法验证'}</span> : bindingDraft?.key === identity.key && bindingDraft.userId !== identity.ownerUserId && <><span className="binding-draft-label">未保存草稿</span><button type="button" className="export-button" disabled={bindingBusy} onClick={event => { bindingTrigger.current = event.currentTarget; bindingSelect.current = event.currentTarget.closest('tr')?.querySelector('select') ?? null; void previewBinding(); }}>预览变更</button></>}{identity.key.startsWith('claude:local-file:') && !identity.ownerUserId && <button type="button" className="text-button" onClick={() => void toggleSourceDeferred(identity.key)}>{deferredSourceSet.has(identity.key) ? '重新纳入待归属' : '暂不归属'}</button>}</td></tr>;
+            })}</tbody></table>{visibleSources.length === 0 && <div className="empty-row">{!deferredReady ? '正在加载当前管理员的来源视图…' : hasSourceFilters ? <>当前筛选下没有来源。<button type="button" className="text-button" onClick={clearSourceFilters}>清除来源筛选</button></> : sourceIdentities.length ? '当前没有可显示的来源。' : '扫描完成后会在这里显示可识别的来源。'}</div>}</div>
+            {sourcePageCount > 1 && <div className="source-actions"><button type="button" className="export-button" disabled={visibleSourcePage === 1} onClick={() => setSourcePage(page => Math.max(1, page - 1))}>上一页</button><span>第 {visibleSourcePage} / {sourcePageCount} 页</span><button type="button" className="export-button" disabled={visibleSourcePage === sourcePageCount} onClick={() => setSourcePage(page => Math.min(sourcePageCount, page + 1))}>下一页</button></div>}</section>
+          {bindingPreview && <SourceBindingDialog key={bindingPreview.id} preview={bindingPreview} busy={bindingBusy} error={bindingError}
+            validationField={bindingValidationField} onEvidenceEdit={() => { setBindingError(''); setBindingValidationField(null); }}
+            onCancel={() => { void window.tokenApi.cancelSourceBinding(bindingPreview.id).catch(() => {}); closeBinding(true); }}
+            onConfirm={evidence => void confirmBinding(evidence)} />}
         </> : <>
           <p className="page-lead">查看账号状态、采集归属和反馈。普通用户只能查看已分配给自己的用量。</p>
           {state.superadminIssue && <section className="panel"><div className="panel-head"><h2>固定 admin 账号状态</h2><span>需要处理</span></div><p className="hint">{state.superadminIssue}</p>

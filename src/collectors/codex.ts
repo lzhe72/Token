@@ -1,6 +1,7 @@
 import type { LineContext, ParsedLine, ParserState, UsageFact } from './types';
 import { nonempty, record, tokenCount, validTimestamp } from './types';
 import { rememberProject } from './project';
+import { scopedLocalFactKey } from './fact-key';
 
 function trimTurnModels(state: ParserState): void {
   const map = state.turnModels ?? {};
@@ -22,7 +23,7 @@ function usageFact(
   const inputTokens = tokenCount(usage.input_tokens);
   const outputTokens = tokenCount(usage.output_tokens);
   return {
-    sourceKey,
+    sourceKey: scopedLocalFactKey(sourceKey, state.identityKey ?? context.fallbackIdentityKey),
     provider: 'codex',
     sourceIdentityKey: state.identityKey ?? context.fallbackIdentityKey,
     sourceIdentityLabel: state.identityLabel ?? 'Codex · 本机账户',

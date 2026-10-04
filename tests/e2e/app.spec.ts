@@ -45,7 +45,7 @@ test('管理员创建、用户管理与普通用户权限', async () => {
     await page.getByRole('button', { name: /数据来源/ }).click();
     await page.getByRole('button', { name: '立即扫描' }).click();
     await expect(page.getByRole('cell', { name: 'Codex · 本机账户' })).toBeVisible();
-    await expect(page.getByRole('cell', { name: 'Claude Code · 本机账户' })).toBeVisible();
+    await expect(page.getByRole('cell', { name: /Claude Code · 文件来源/ })).toBeVisible();
     const viewerId = await page.evaluate(async () => (await window.tokenApi.listUsers()).find(user => user.username === 'viewer')?.id);
     await bindSource(page, /Codex · 本机账户/, 'viewer');
     await expect(page.getByRole('row', { name: /Codex · 本机账户/ }).getByRole('combobox')).toHaveValue(viewerId || '');

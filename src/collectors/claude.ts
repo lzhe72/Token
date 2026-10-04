@@ -1,6 +1,7 @@
 import type { LineContext, ParsedLine, ParserState, UsageFact } from './types';
 import { nonempty, record, tokenCount, validTimestamp } from './types';
 import { rememberProject } from './project';
+import { scopedLocalFactKey } from './fact-key';
 
 export function parseClaudeLine(value: unknown, state: ParserState, context: LineContext): ParsedLine {
   const line = record(value);
@@ -21,10 +22,11 @@ export function parseClaudeLine(value: unknown, state: ParserState, context: Lin
   const cacheReadTokens = tokenCount(usage.cache_read_input_tokens);
   const cacheCreationTokens = tokenCount(usage.cache_creation_input_tokens);
   const fact: UsageFact = {
-    sourceKey: `claude:${sessionId}:${requestId}`,
+    sourceKey: scopedLocalFactKey(`claude:${sessionId}:${requestId}`, context.fallbackIdentityKey),
     provider: 'claude',
     sourceIdentityKey: context.fallbackIdentityKey,
-    sourceIdentityLabel: 'Claude Code · 本机账户',
+    sourceIdentityLabel: context.fallbackIdentityKey.startsWith('claude:local-file-unknown:')
+      ? 'Claude Code · 文件代次无法验证' : `Claude Code · 文件来源 ${context.fileKey.slice(0, 8)}`,
     sessionId,
     model,
     occurredAt: timestamp,

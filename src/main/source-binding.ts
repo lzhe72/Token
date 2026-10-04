@@ -1,12 +1,16 @@
 import { createHash, randomUUID } from 'node:crypto';
+import os from 'node:os';
 import type { AppDatabase } from './database';
 import type { UsageScanner } from '../collectors/scanner';
 import type { ReportService } from './report';
 import type { UsageSync } from './usage-sync';
-import type { BindingScopeSummary, PublicUser, ReportQuery, SourceBindingPreview, SourceBindingResult, UsageReport } from '../shared/types';
+import type { BindingEvidenceDeclaration, BindingScopeSummary, PublicUser, ReportQuery, SourceBindingPreview, SourceBindingResult, UsageReport } from '../shared/types';
 
 const PREVIEW_LIFETIME_MS = 5 * 60_000;
 const rollbackPreview = Symbol('preview rollback');
+export class BindingEvidenceError extends Error {
+  constructor(readonly field: keyof BindingEvidenceDeclaration, message: string) { super(message); }
+}
 
 interface PendingPreview {
   actorId: string;
@@ -44,6 +48,19 @@ export class SourceBindingService {
     if (typeof key !== 'string' || key.length > 500) throw new Error('来源无效');
     const row = this.db.one('SELECT key, provider, label, owner_user_id FROM source_identities WHERE key = ?', [key]);
     if (!row || (row.provider !== 'codex' && row.provider !== 'claude')) throw new Error('来源不存在，请刷新列表');
+    if (key.startsWith('codex:otel:unknown:') || key.startsWith('codex:otel:legacy-ambiguous:') ||
+        key.startsWith('codex:legacy-unverified:') || key.startsWith('claude:legacy-unverified:') ||
+        key.startsWith('claude:otel:unknown:') || key.startsWith('claude:otel:legacy-unverified:') ||
+        key.startsWith('claude:macos:') || key.startsWith('claude:local-file-unknown:')) {
+      throw new Error(row.provider === 'claude'
+        ? '账户身份无法验证，历史归属已暂停；请启用包含 user.account_uuid 或 user.account_id 的遥测并核对新来源'
+        : '账户身份无法验证，历史归属已暂停；请重新启用包含 account_id 的遥测并核对新来源');
+    }
+    const oldFallback = `codex:otel:${createHash('sha256').update(os.userInfo().username).digest('hex').slice(0, 20)}`;
+    if (key === oldFallback && !this.db.one(`SELECT 1 FROM usage_facts WHERE source_identity_key = ?
+      AND source_key LIKE 'otel:codex:v2:%' LIMIT 1`, [key])) {
+      throw new Error('账户身份尚未验证；请重新启用包含 account_id 的遥测并核对新来源');
+    }
     return { key, provider: row.provider, label: String(row.label), ownerId: row.owner_user_id ? String(row.owner_user_id) : null };
   }
 
@@ -108,16 +125,37 @@ export class SourceBindingService {
     this.pending.set(id, { actorId: actor.id, sourceKey: source.key, newOwnerId: targetId,
       baseline: this.baseline(source.key, targetId, actor.id), expiresAt });
     const affectedFactCount = Number(this.db.one('SELECT COUNT(*) AS count FROM usage_facts WHERE source_identity_key = ?', [source.key])?.count ?? 0);
+    const context = this.scanner.identities().find(item => item.key === source.key);
     return { id, sourceKey: source.key, sourceLabel: source.label, oldOwnerId: source.ownerId, newOwnerId: targetId,
-      oldOwnerLabel, newOwnerLabel, affectedFactCount, filter, before, after, expiresAt: new Date(expiresAt).toISOString() };
+      oldOwnerLabel, newOwnerLabel, affectedFactCount, filter, before, after, expiresAt: new Date(expiresAt).toISOString(),
+      projectLabel: context?.projectLabel ?? null, lastRecordAt: context?.lastRecordAt ?? null };
   }
 
-  async confirm(id: unknown, actor: PublicUser): Promise<SourceBindingResult> {
+  async confirm(id: unknown, actor: PublicUser, evidence?: unknown): Promise<SourceBindingResult> {
     this.actorAllowed(actor);
     if (typeof id !== 'string' || !/^[a-f0-9-]{36}$/.test(id)) throw new Error('预览编号无效');
     const pending = this.pending.get(id);
-    this.pending.delete(id);
     if (!pending || pending.actorId !== actor.id || Date.now() > pending.expiresAt) throw new Error('预览已过期，请重新预览');
+    const fileAssignment = pending.sourceKey.startsWith('claude:local-file:') && pending.newOwnerId !== null;
+    if (fileAssignment) {
+      const declared = evidence && typeof evidence === 'object' && !Array.isArray(evidence)
+        ? evidence as Partial<BindingEvidenceDeclaration> : {};
+      if (declared.evidenceCategory !== 'controlled_account_file_mapping' ||
+          Object.keys(declared).some(key => !['evidenceCategory', 'evidenceSource', 'evidenceRef', 'evidenceReviewed'].includes(key))) {
+        throw new BindingEvidenceError('evidenceCategory', '请选择受控账户与文件映射证据类别');
+      }
+      if (declared.evidenceSource !== 'external_managed_registry') {
+        throw new BindingEvidenceError('evidenceSource', '证据出处必须是外部受管登记');
+      }
+      if (typeof declared.evidenceRef !== 'string' || !/^evr_[a-f0-9]{32}$/.test(declared.evidenceRef)) {
+        throw new BindingEvidenceError('evidenceRef', '证据编号须为 evr_ 后接 32 位小写十六进制字符');
+      }
+      if (declared.evidenceReviewed !== true) {
+        throw new BindingEvidenceError('evidenceReviewed', '请确认已在外部受管登记中人工核对');
+      }
+    }
+    if (!fileAssignment && evidence !== undefined) throw new Error('此归属操作不接受文件登记证据');
+    this.pending.delete(id);
     this.db.transactionDurable(() => {
       this.actorAllowed(actor);
       const source = this.source(pending.sourceKey);
@@ -128,7 +166,8 @@ export class SourceBindingService {
       }
       const count = Number(this.db.one('SELECT COUNT(*) AS count FROM usage_facts WHERE source_identity_key = ?', [source.key])?.count ?? 0);
       this.db.run('UPDATE source_identities SET owner_user_id = ? WHERE key = ?', [pending.newOwnerId, source.key]);
-      this.scanner.recordBindingAudit(source.key, actor.id, source.ownerId, pending.newOwnerId, count);
+      this.scanner.recordBindingAudit(source.key, actor.id, source.ownerId, pending.newOwnerId, count,
+        fileAssignment ? evidence as BindingEvidenceDeclaration : undefined);
       this.sync.queueSnapshot([source.provider]);
     });
     // A previous upload may have started before the authorization change. Send the

@@ -120,6 +120,102 @@ test('TC-040 停服后待传快照持久化并恢复补传', async () => {
   } finally { workspace.cleanup(); }
 });
 
+test('TC-040 发送中新增扫描修订在首包成功后立即续传最新快照', async () => {
+  const { workspace, db, scanner } = await setup('tc040-inflight-drain');
+  try {
+    let resolveFirst: ((response: Response) => void) | undefined;
+    const first = new Promise<Response>(resolve => { resolveFirst = resolve; });
+    const uploaded: string[] = [];
+    const server = { getConnectionIdentity: () => 'test-service', uploadUsage: async (payload: string) => {
+      uploaded.push(payload);
+      return uploaded.length === 1 ? first : new Response('{}', { status: 200 });
+    } } as unknown as ServerConnection;
+    const sync = new UsageSync(db, scanner, server);
+    db.transactionDurable(() => sync.queueSnapshot(['codex']));
+    const firstSend = sync.flush();
+    expect(uploaded).toHaveLength(1);
+    db.run("UPDATE usage_facts SET total_tokens = 20, output_tokens = 10 WHERE source_key = 'private-source-key'");
+    db.transactionDurable(() => sync.queueSnapshot(['codex']));
+    const queuedRevision = sync.status().localRevision;
+    const concurrent = sync.flush();
+    resolveFirst!(new Response('{}', { status: 200 }));
+    await Promise.all([firstSend, concurrent]);
+    expect(uploaded).toHaveLength(2);
+    expect(JSON.parse(uploaded[1]).revision).toBe(queuedRevision);
+    expect(JSON.parse(uploaded[1]).rows[0].totalTokens).toBe(20);
+    expect(sync.status()).toMatchObject({ pending: 0, currentConfirmed: true,
+      confirmedRevision: queuedRevision });
+  } finally { db.close(); workspace.cleanup(); }
+});
+
+test('TC-040 最后一次队列读取与发送 promise 结束之间排入快照仍续传', async () => {
+  const { workspace, db, scanner } = await setup('tc040-tail-race');
+  try {
+    const uploaded: string[] = [];
+    const server = { getConnectionIdentity: () => 'test-service', uploadUsage: async (payload: string) => {
+      uploaded.push(payload);
+      return new Response('{}', { status: 200 });
+    } } as unknown as ServerConnection;
+    const sync = new UsageSync(db, scanner, server);
+    let tail: Promise<void> | null = null;
+    let armed = true;
+    const originalOne = db.one.bind(db);
+    vi.spyOn(db, 'one').mockImplementation((sql, params) => {
+      const row = originalOne(sql, params);
+      if (armed && sql === 'SELECT payload FROM sync_outbox WHERE id = 1' && !row) {
+        armed = false;
+        queueMicrotask(() => {
+          db.run("UPDATE usage_facts SET total_tokens = 20, output_tokens = 10 WHERE source_key = 'private-source-key'");
+          db.transactionDurable(() => sync.queueSnapshot(['codex']));
+          tail = sync.flush();
+        });
+      }
+      return row;
+    });
+    db.transactionDurable(() => sync.queueSnapshot(['codex']));
+    await sync.flush();
+    expect(tail).not.toBeNull();
+    await tail;
+    expect(uploaded).toHaveLength(2);
+    expect(JSON.parse(uploaded[1]).rows[0].totalTokens).toBe(20);
+    expect(sync.status().currentConfirmed).toBe(true);
+  } finally { vi.restoreAllMocks(); db.close(); workspace.cleanup(); }
+});
+
+test('TC-040 发送失败时保留最新快照并遵守退避，到期后自动补传', async () => {
+  const { workspace, db, scanner } = await setup('tc040-inflight-failure');
+  vi.useFakeTimers();
+  try {
+    let resolveFirst: ((response: Response) => void) | undefined;
+    const first = new Promise<Response>(resolve => { resolveFirst = resolve; });
+    const uploaded: string[] = [];
+    const server = { getConnectionIdentity: () => 'test-service', uploadUsage: async (payload: string) => {
+      uploaded.push(payload);
+      return uploaded.length === 1 ? first : new Response('{}', { status: 200 });
+    } } as unknown as ServerConnection;
+    const sync = new UsageSync(db, scanner, server);
+    db.transactionDurable(() => sync.queueSnapshot(['codex']));
+    const running = sync.flush();
+    db.run("UPDATE usage_facts SET total_tokens = 20, output_tokens = 10 WHERE source_key = 'private-source-key'");
+    db.transactionDurable(() => sync.queueSnapshot(['codex']));
+    resolveFirst!(new Response('{}', { status: 500 }));
+    await running;
+    expect(uploaded).toHaveLength(1);
+    expect(sync.status()).toMatchObject({ pending: 1, lastError: '服务端拒绝上报 (500)' });
+    sync.start();
+    await sync.flush();
+    expect(uploaded).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(uploaded).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await sync.waitIdle();
+    sync.stop();
+    expect(uploaded).toHaveLength(2);
+    expect(JSON.parse(uploaded[1]).rows[0].totalTokens).toBe(20);
+    expect(sync.status().currentConfirmed).toBe(true);
+  } finally { vi.useRealTimers(); db.close(); workspace.cleanup(); }
+});
+
 test('TC-074 管理员重新配置后可立即重试待传快照', async () => {
   const { workspace, db, scanner } = await setup('tc074-retry');
   const directory = path.join(workspace.root, 'server');

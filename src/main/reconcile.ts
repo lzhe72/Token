@@ -6,6 +6,7 @@ export interface ReconciliationFact {
   session_id: string;
   occurred_at: string;
   owner_user_id: string | null;
+  identity_uncertain?: number | boolean | null;
 }
 
 export interface ReconciliationResult<T> {
@@ -77,6 +78,7 @@ export function reconcileFacts<T extends ReconciliationFact>(facts: T[]): Reconc
     put(telemetryAllByDay, `${group.provider}\0${group.day}`, group);
   }
   const pendingKeys = new Set<string>();
+  for (const fact of facts) if (fact.identity_uncertain) pendingKeys.add(fact.source_key);
   for (const group of groups.values()) {
     if (group.source !== 'local') continue;
     const candidates = group.session

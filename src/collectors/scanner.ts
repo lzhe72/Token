@@ -7,6 +7,7 @@ import type { AppDatabase } from '../main/database';
 import type { CollectionDiagnostic, ScanProgress, SourceIdentity, SourceStatus } from '../shared/types';
 import { parseCodexLine } from './codex';
 import { parseClaudeLine } from './claude';
+import { claudeFileKey, scopedLocalFactKey } from './fact-key';
 import type { LineContext, ParserState, Provider, UsageFact } from './types';
 
 const CHUNK_SIZE = 128 * 1024;
@@ -15,6 +16,7 @@ export const SCAN_INTERVAL_MS = 10 * 60 * 1000;
 
 interface Cursor {
   fileId: string;
+  birthtimeMs: number;
   offset: number;
   tailHash: string;
   state: ParserState;
@@ -103,6 +105,7 @@ async function tailHash(file: string, offset: number): Promise<string> {
 }
 
 export class UsageScanner {
+  private historicalFactsChanged = false;
   private current: Promise<void> | null = null;
   private scanning = new Set<Provider>();
   private progress = new Map<Provider, NonNullable<CollectionDiagnostic['progress']>>();
@@ -142,6 +145,7 @@ export class UsageScanner {
         byte_offset INTEGER NOT NULL,
         state_json TEXT NOT NULL,
         tail_hash TEXT NOT NULL DEFAULT '',
+        birthtime_ms REAL NOT NULL DEFAULT 0,
         updated_at TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS source_status (
@@ -163,6 +167,11 @@ export class UsageScanner {
         source_key TEXT PRIMARY KEY,
         audit_ref TEXT NOT NULL UNIQUE
       );
+      CREATE TABLE IF NOT EXISTS source_deferrals (
+        actor_id TEXT NOT NULL,
+        source_ref TEXT NOT NULL,
+        PRIMARY KEY(actor_id, source_ref)
+      );
       CREATE TABLE IF NOT EXISTS source_binding_audit (
         id TEXT PRIMARY KEY,
         actor_id TEXT NOT NULL,
@@ -171,11 +180,42 @@ export class UsageScanner {
         new_owner_id TEXT,
         affected_count INTEGER NOT NULL,
         result_code TEXT NOT NULL,
-        occurred_at TEXT NOT NULL
+        occurred_at TEXT NOT NULL,
+        evidence_category TEXT NOT NULL DEFAULT '',
+        evidence_source TEXT NOT NULL DEFAULT '',
+        evidence_ref TEXT NOT NULL DEFAULT '',
+        verification_status TEXT NOT NULL DEFAULT ''
+      );
+      CREATE TABLE IF NOT EXISTS usage_uncertain_facts (
+        source_key TEXT PRIMARY KEY,
+        reason TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS identity_migration_events (
+        id TEXT PRIMARY KEY, affected_user_id TEXT, reason_code TEXT NOT NULL,
+        source_ref TEXT NOT NULL, occurred_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS legacy_claude_cursor_evidence (
+        file_path TEXT PRIMARY KEY, file_id TEXT NOT NULL, birthtime_ms REAL NOT NULL,
+        session_id TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS legacy_reconciled_facts (
+        source_key TEXT PRIMARY KEY, archived_fact TEXT NOT NULL,
+        replacement_key TEXT NOT NULL, archived_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS unknown_claude_file_generations (
+        file_path TEXT PRIMARY KEY, file_id TEXT NOT NULL, generation TEXT NOT NULL
       );
     `);
     if (!db.all('PRAGMA table_info(source_cursors)').some(row => row.name === 'tail_hash')) {
       db.run("ALTER TABLE source_cursors ADD COLUMN tail_hash TEXT NOT NULL DEFAULT ''");
+    }
+    if (!db.all('PRAGMA table_info(source_cursors)').some(row => row.name === 'birthtime_ms')) {
+      db.run('ALTER TABLE source_cursors ADD COLUMN birthtime_ms REAL NOT NULL DEFAULT 0');
+    }
+    for (const column of ['evidence_category', 'evidence_source', 'evidence_ref', 'verification_status']) {
+      if (!db.all('PRAGMA table_info(source_binding_audit)').some(row => row.name === column)) {
+        db.run(`ALTER TABLE source_binding_audit ADD COLUMN ${column} TEXT NOT NULL DEFAULT ''`);
+      }
     }
     if (!db.all('PRAGMA table_info(source_status)').some(row => row.name === 'diagnostic_json')) {
       db.run("ALTER TABLE source_status ADD COLUMN diagnostic_json TEXT NOT NULL DEFAULT '{}'");
@@ -188,8 +228,104 @@ export class UsageScanner {
       db.run("UPDATE source_cursors SET byte_offset = 0, state_json = '{}', tail_hash = ''");
       db.run("INSERT INTO scanner_meta VALUES ('project_backfill', '1')");
     }
+    this.migrateLocalFactKeys();
     this.repairSupersededCodexFallbacks();
     this.redactLegacyBindingAudit();
+  }
+
+  didQuarantineLegacyFacts(): boolean { return this.historicalFactsChanged; }
+
+  private migrateLocalFactKeys(): void {
+    // Recheck on every open: an older app may have written legacy keys after a
+    // rollback. The query is indexed by source_key and is read-only when empty.
+    const legacy = this.db.all(`SELECT source_key, source_identity_key FROM usage_facts
+      WHERE (source_key LIKE 'codex:%' OR source_key LIKE 'claude:%')
+        AND source_key NOT LIKE 'codex:v2:%'
+        AND source_key NOT LIKE 'codex:fallback:v2:%'
+        AND source_key NOT LIKE 'claude:v2:%'`);
+    if (legacy.length) this.historicalFactsChanged = true;
+    this.db.transaction(() => {
+      const audited = new Set<string>();
+      const needsClaudeEvidence = legacy.some(row => String(row.source_key).startsWith('claude:')) ||
+        !!this.db.one("SELECT 1 FROM source_identities WHERE key LIKE 'claude:macos:%' LIMIT 1");
+      const priorClaude = needsClaudeEvidence
+        ? this.db.all("SELECT file_path, file_id, birthtime_ms, state_json FROM source_cursors WHERE provider = 'claude'") : [];
+      for (const cursor of priorClaude) {
+        try {
+          const file = String(cursor.file_path);
+          const state = JSON.parse(String(cursor.state_json)) as ParserState;
+          const stat = fs.statSync(file);
+          if (state.sessionId && Number(cursor.birthtime_ms) > 0 &&
+            Number(cursor.birthtime_ms) === stat.birthtimeMs &&
+            `${stat.dev}:${stat.ino}` === String(cursor.file_id)) {
+            this.db.run('INSERT OR IGNORE INTO legacy_claude_cursor_evidence VALUES (?, ?, ?, ?)',
+              [file, String(cursor.file_id), stat.birthtimeMs, state.sessionId]);
+          }
+        } catch { /* a missing or unreadable file cannot prove its old facts */ }
+      }
+      for (const row of legacy) {
+        const oldKey = String(row.source_key);
+        const originalIdentity = String(row.source_identity_key);
+        const nextKey = scopedLocalFactKey(oldKey, originalIdentity);
+        const provider = oldKey.startsWith('codex:') ? 'codex' : 'claude';
+        const unknownIdentity = `${provider}:legacy-unverified:${createHash('sha256')
+          .update(originalIdentity).digest('hex').slice(0, 24)}`;
+        this.db.run('INSERT OR IGNORE INTO source_identities(key, provider, label) VALUES (?, ?, ?)',
+          [unknownIdentity, provider, `${provider === 'codex' ? 'Codex' : 'Claude Code'} · 旧记录待重扫`]);
+        if (!audited.has(originalIdentity)) {
+          audited.add(originalIdentity);
+          const owner = this.db.one('SELECT owner_user_id FROM source_identities WHERE key = ?', [originalIdentity])?.owner_user_id;
+          if (owner) {
+            const reference = createHash('sha256').update(originalIdentity).digest('hex').slice(0, 24);
+            const occurredAt = new Date().toISOString();
+            this.db.run('INSERT INTO audit_events VALUES (?, ?, ?, ?, ?)',
+              [randomUUID(), null, 'collector.legacy_fact_quarantined', reference, occurredAt]);
+            this.db.run('INSERT INTO identity_migration_events VALUES (?, ?, ?, ?, ?)',
+              [randomUUID(), String(owner), 'legacy_local_key_unverified', reference, occurredAt]);
+          }
+        }
+        if (this.db.one('SELECT 1 FROM usage_facts WHERE source_key = ?', [nextKey])) {
+          this.db.run('UPDATE usage_facts SET source_identity_key = ? WHERE source_key = ?', [unknownIdentity, oldKey]);
+          this.db.run('INSERT OR IGNORE INTO usage_uncertain_facts VALUES (?, ?)', [oldKey, 'legacy_key_collision']);
+          this.db.run('INSERT OR IGNORE INTO usage_uncertain_facts VALUES (?, ?)', [nextKey, 'legacy_key_collision']);
+          continue;
+        }
+        this.db.run('UPDATE usage_facts SET source_key = ?, source_identity_key = ? WHERE source_key = ?',
+          [nextKey, unknownIdentity, oldKey]);
+        this.db.run('UPDATE fact_projects SET source_key = ? WHERE source_key = ?', [nextKey, oldKey]);
+        // Historical collisions may already have overwritten another source's
+        // numbers. A replay of the actual file clears this marker; missing files
+        // remain visible only as pending, never as a confirmed zero or total.
+        this.db.run('INSERT OR IGNORE INTO usage_uncertain_facts VALUES (?, ?)', [nextKey, 'legacy_unverified']);
+      }
+      // A macOS UID cannot prove a Claude account. Retire the old mixed source
+      // even if its fact keys had already been upgraded by an earlier build.
+      const oldClaude = this.db.all("SELECT key, owner_user_id FROM source_identities WHERE key LIKE 'claude:macos:%'");
+      for (const source of oldClaude) {
+        const identity = String(source.key);
+        const reference = createHash('sha256').update(identity).digest('hex').slice(0, 24);
+        const unknownIdentity = `claude:legacy-unverified:${reference}`;
+        const remaining = this.db.all('SELECT source_key FROM usage_facts WHERE source_identity_key = ?', [identity]);
+        if (remaining.length) this.db.run('INSERT OR IGNORE INTO source_identities(key, provider, label) VALUES (?, ?, ?)',
+          [unknownIdentity, 'claude', 'Claude Code · 旧记录待重扫']);
+        for (const fact of remaining) {
+          const key = String(fact.source_key);
+          this.db.run('UPDATE usage_facts SET source_identity_key = ? WHERE source_key = ?', [unknownIdentity, key]);
+          this.db.run('INSERT OR IGNORE INTO usage_uncertain_facts VALUES (?, ?)', [key, 'legacy_unverified']);
+        }
+        if (source.owner_user_id && remaining.length && !audited.has(identity)) {
+          const occurredAt = new Date().toISOString();
+          this.db.run('INSERT INTO audit_events VALUES (?, ?, ?, ?, ?)',
+            [randomUUID(), null, 'collector.legacy_fact_quarantined', reference, occurredAt]);
+          this.db.run('INSERT INTO identity_migration_events VALUES (?, ?, ?, ?, ?)',
+            [randomUUID(), String(source.owner_user_id), 'legacy_local_key_unverified', reference, occurredAt]);
+        }
+        this.db.run('DELETE FROM source_identities WHERE key = ?', [identity]);
+      }
+      if (oldClaude.length) this.historicalFactsChanged = true;
+      if (legacy.length || oldClaude.length) this.db.run("UPDATE source_cursors SET byte_offset = 0, state_json = '{}', tail_hash = ''");
+      if (legacy.length) this.db.run("INSERT OR IGNORE INTO scanner_meta VALUES ('local_fact_key_v2', '1')");
+    });
   }
 
   private sourceAuditRef(key: string): string {
@@ -198,6 +334,26 @@ export class UsageScanner {
     const reference = randomUUID();
     this.db.run('INSERT INTO source_audit_refs VALUES (?, ?)', [key, reference]);
     return reference;
+  }
+
+  deferredSourceKeys(actorId: string): string[] {
+    return this.db.all(`SELECT d.source_ref FROM source_deferrals d
+      JOIN source_identities i ON i.key=d.source_ref
+      WHERE d.actor_id=? AND i.owner_user_id IS NULL AND i.key LIKE 'claude:local-file:%'
+      ORDER BY d.source_ref`, [actorId]).map(row => String(row.source_ref));
+  }
+
+  setSourceDeferred(actorId: string, key: unknown, deferred: unknown): string[] {
+    if (typeof key !== 'string' || !/^claude:local-file:[a-f0-9]{24}$/.test(key) || typeof deferred !== 'boolean') {
+      throw new Error('暂缓来源无效');
+    }
+    this.db.transactionDurable(() => {
+      const source = this.db.one('SELECT owner_user_id FROM source_identities WHERE key=?', [key]);
+      if (!source || source.owner_user_id !== null) throw new Error('来源已变化，请刷新列表');
+      if (deferred) this.db.run('INSERT OR IGNORE INTO source_deferrals VALUES (?, ?)', [actorId, key]);
+      else this.db.run('DELETE FROM source_deferrals WHERE actor_id=? AND source_ref=?', [actorId, key]);
+    });
+    return this.deferredSourceKeys(actorId);
   }
 
   private redactLegacyBindingAudit(): void {
@@ -213,31 +369,40 @@ export class UsageScanner {
   }
 
   recordBindingAudit(key: string, actorId: string, oldOwnerId: string | null,
-    newOwnerId: string | null, affectedCount: number): void {
+    newOwnerId: string | null, affectedCount: number, evidence?: {
+      evidenceCategory: string; evidenceSource: string; evidenceRef: string
+    }): void {
     const reference = this.sourceAuditRef(key);
-    this.db.run('INSERT INTO source_binding_audit VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [
-      randomUUID(), actorId, reference, oldOwnerId, newOwnerId, affectedCount, 'success', new Date().toISOString()
+    this.db.run(`INSERT INTO source_binding_audit
+      (id, actor_id, source_ref, old_owner_id, new_owner_id, affected_count, result_code, occurred_at,
+       evidence_category, evidence_source, evidence_ref, verification_status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
+      randomUUID(), actorId, reference, oldOwnerId, newOwnerId, affectedCount, 'success', new Date().toISOString(),
+      evidence?.evidenceCategory ?? '', evidence?.evidenceSource ?? '', evidence?.evidenceRef ?? '',
+      evidence ? 'admin_manual_confirmed' : ''
     ]);
   }
 
-  private pruneCodexFallbacks(sessionId: string): void {
-    const condition = "provider = 'codex' AND session_id = ? AND source_key LIKE 'codex:fallback:%'";
+  private pruneCodexFallbacks(sessionId: string, identity: string): void {
+    const condition = "provider = 'codex' AND session_id = ? AND source_identity_key = ? AND source_key LIKE 'codex:fallback:%'";
     this.db.run(`DELETE FROM fact_projects WHERE source_key IN
-      (SELECT source_key FROM usage_facts WHERE ${condition})`, [sessionId]);
-    this.db.run(`DELETE FROM usage_facts WHERE ${condition}`, [sessionId]);
+      (SELECT source_key FROM usage_facts WHERE ${condition})`, [sessionId, identity]);
+    this.db.run(`DELETE FROM usage_uncertain_facts WHERE source_key IN
+      (SELECT source_key FROM usage_facts WHERE ${condition})`, [sessionId, identity]);
+    this.db.run(`DELETE FROM usage_facts WHERE ${condition}`, [sessionId, identity]);
   }
 
   private repairSupersededCodexFallbacks(): void {
     // Start with fallback sessions. Checking every official fact against the same
     // long session makes startup quadratic even when no fallback exists.
-    const sessions = this.db.all(`SELECT DISTINCT session_id FROM usage_facts
+    const sessions = this.db.all(`SELECT DISTINCT session_id, source_identity_key FROM usage_facts
       WHERE provider = 'codex' AND source_key LIKE 'codex:fallback:%'`)
       .filter(row => this.db.one(`SELECT 1 FROM usage_facts
-        WHERE provider = 'codex' AND session_id = ? AND source_key LIKE 'codex:%'
-          AND source_key NOT LIKE 'codex:fallback:%' LIMIT 1`, [String(row.session_id)]));
+        WHERE provider = 'codex' AND session_id = ? AND source_identity_key = ? AND source_key LIKE 'codex:%'
+          AND source_key NOT LIKE 'codex:fallback:%' LIMIT 1`, [String(row.session_id), String(row.source_identity_key)]));
     if (sessions.length === 0) return;
     this.db.transaction(() => {
-      for (const row of sessions) this.pruneCodexFallbacks(String(row.session_id));
+      for (const row of sessions) this.pruneCodexFallbacks(String(row.session_id), String(row.source_identity_key));
       this.db.run(`UPDATE source_status SET fact_count =
         (SELECT COUNT(*) FROM usage_facts WHERE provider = 'codex' AND source_key NOT LIKE 'otel:%')
         WHERE provider = 'codex'`);
@@ -362,23 +527,33 @@ export class UsageScanner {
   private async scanFile(provider: Provider, file: string, onChunk?: () => void): Promise<{ malformed: number; oversized: number }> {
     const stat = await fsp.stat(file);
     const fileId = `${stat.dev}:${stat.ino}`;
-    const row = this.db.one('SELECT file_id, byte_offset, state_json, tail_hash FROM source_cursors WHERE file_path = ?', [file]);
+    const row = this.db.one('SELECT file_id, byte_offset, state_json, tail_hash, birthtime_ms FROM source_cursors WHERE file_path = ?', [file]);
     const cursor: Cursor | null = row ? {
       fileId: String(row.file_id),
+      birthtimeMs: Number(row.birthtime_ms),
       offset: Number(row.byte_offset),
       tailHash: String(row.tail_hash),
       state: JSON.parse(String(row.state_json)) as ParserState
     } : null;
-    const reset = !cursor || cursor.fileId !== fileId || stat.size < cursor.offset ||
+    const reset = !cursor || cursor.fileId !== fileId ||
+      (provider === 'claude' && cursor.birthtimeMs !== stat.birthtimeMs) || stat.size < cursor.offset ||
       (cursor.offset > 0 && cursor.tailHash !== await tailHash(file, cursor.offset));
     const state: ParserState = reset ? {} : cursor.state;
     const start = reset ? 0 : cursor.offset;
     if (stat.size === start) return { malformed: state.malformedRecords ?? 0, oversized: state.oversizedRecords ?? 0 };
-    const fileKey = hashPath(file);
+    const verifiedClaudeFileKey = provider === 'claude'
+      ? claudeFileKey(os.userInfo().uid, fileId, stat.birthtimeMs) : null;
+    const storedUnknown = provider === 'claude' && !verifiedClaudeFileKey
+      ? this.db.one('SELECT file_id, generation FROM unknown_claude_file_generations WHERE file_path = ?', [file]) : null;
+    const unknownGeneration = provider === 'claude' && !verifiedClaudeFileKey
+      ? !reset && storedUnknown?.file_id === fileId ? String(storedUnknown.generation) : randomUUID() : null;
+    const fileKey = provider === 'claude' ? verifiedClaudeFileKey ?? unknownGeneration!.replaceAll('-', '').slice(0, 24)
+      : hashPath(file);
     const context: LineContext = {
       fileKey,
       lineOffset: 0,
-      fallbackIdentityKey: `${provider}:macos:${os.userInfo().uid}`
+      fallbackIdentityKey: provider === 'claude' ? `${verifiedClaudeFileKey ? 'claude:local-file' : 'claude:local-file-unknown'}:${fileKey}` :
+        `${provider}:macos:${os.userInfo().uid}`
     };
     const facts = new Map<string, UsageFact>();
     const fallback: UsageFact[] = [];
@@ -408,42 +583,113 @@ export class UsageScanner {
     }
     const committedTailHash = await tailHash(file, result.offset);
     const codexSessions = provider === 'codex'
-      ? new Set([...facts.values()].map(fact => fact.sessionId))
-      : new Set<string>();
+      ? new Map([...facts.values()].map(fact => [`${fact.sessionId}\0${fact.sourceIdentityKey}`, fact]))
+      : new Map<string, UsageFact>();
     this.db.transactionDurable(() => {
-      for (const fact of facts.values()) this.upsertFact(fact);
-      for (const sessionId of codexSessions) {
+      for (const fact of facts.values()) {
+        this.upsertFact(fact);
+        if (provider === 'claude') this.reconcileLegacyClaudeFact(fact, file, fileId, stat.birthtimeMs);
+      }
+      for (const fact of codexSessions.values()) {
         if (this.db.one(`SELECT 1 FROM usage_facts WHERE provider = 'codex' AND session_id = ?
-          AND source_key LIKE 'codex:%' AND source_key NOT LIKE 'codex:fallback:%' LIMIT 1`, [sessionId])) {
-          this.pruneCodexFallbacks(sessionId);
+          AND source_identity_key = ? AND source_key LIKE 'codex:%'
+          AND source_key NOT LIKE 'codex:fallback:%' LIMIT 1`, [fact.sessionId, fact.sourceIdentityKey])) {
+          this.pruneCodexFallbacks(fact.sessionId, fact.sourceIdentityKey);
         }
       }
-      this.db.run(`INSERT INTO source_cursors(file_path, provider, file_id, byte_offset, state_json, tail_hash, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+      this.db.run(`INSERT INTO source_cursors(file_path, provider, file_id, byte_offset, state_json, tail_hash, birthtime_ms, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(file_path) DO UPDATE SET provider=excluded.provider, file_id=excluded.file_id,
-        byte_offset=excluded.byte_offset, state_json=excluded.state_json, tail_hash=excluded.tail_hash, updated_at=excluded.updated_at`,
-        [file, provider, fileId, result.offset, JSON.stringify(state), committedTailHash, new Date().toISOString()]);
+        byte_offset=excluded.byte_offset, state_json=excluded.state_json, tail_hash=excluded.tail_hash,
+        birthtime_ms=excluded.birthtime_ms, updated_at=excluded.updated_at`,
+        [file, provider, fileId, result.offset, JSON.stringify(state), committedTailHash, stat.birthtimeMs, new Date().toISOString()]);
+      if (unknownGeneration) this.db.run(`INSERT INTO unknown_claude_file_generations VALUES (?, ?, ?)
+        ON CONFLICT(file_path) DO UPDATE SET file_id=excluded.file_id, generation=excluded.generation`,
+        [file, fileId, unknownGeneration]);
     });
     return { malformed: state.malformedRecords, oversized: state.oversizedRecords };
   }
 
   private upsertFact(fact: UsageFact): void {
+    const legacyUnverified = !!this.db.one(`SELECT 1 FROM usage_uncertain_facts
+      WHERE source_key = ? AND reason = 'legacy_unverified'`, [fact.sourceKey]);
     this.db.run('INSERT OR IGNORE INTO source_identities(key, provider, label) VALUES (?, ?, ?)',
       [fact.sourceIdentityKey, fact.provider, fact.sourceIdentityLabel]);
     this.db.run(`INSERT INTO usage_facts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(source_key) DO UPDATE SET model=excluded.model, occurred_at=excluded.occurred_at,
+      ON CONFLICT(source_key) DO UPDATE SET
+      source_identity_key=CASE WHEN EXISTS (SELECT 1 FROM usage_uncertain_facts u
+        WHERE u.source_key=usage_facts.source_key AND u.reason='legacy_unverified')
+        THEN excluded.source_identity_key ELSE usage_facts.source_identity_key END,
+      model=excluded.model, occurred_at=excluded.occurred_at,
       input_tokens=excluded.input_tokens, output_tokens=excluded.output_tokens,
       cache_read_tokens=excluded.cache_read_tokens, cache_creation_tokens=excluded.cache_creation_tokens,
       total_tokens=excluded.total_tokens
-      WHERE excluded.total_tokens >= usage_facts.total_tokens`, [
+      WHERE excluded.total_tokens >= usage_facts.total_tokens OR EXISTS
+        (SELECT 1 FROM usage_uncertain_facts u WHERE u.source_key = usage_facts.source_key
+          AND u.reason = 'legacy_unverified')`, [
       fact.sourceKey, fact.provider, fact.sourceIdentityKey, fact.sessionId, fact.model, fact.occurredAt,
       fact.inputTokens, fact.outputTokens, fact.cacheReadTokens, fact.cacheCreationTokens, fact.totalTokens
     ]);
+    this.db.run("DELETE FROM usage_uncertain_facts WHERE source_key = ? AND reason = 'legacy_unverified'", [fact.sourceKey]);
+    if (fact.sourceIdentityKey.startsWith('claude:local-file-unknown:')) {
+      this.db.run('INSERT OR IGNORE INTO usage_uncertain_facts VALUES (?, ?)', [fact.sourceKey, 'file_generation_unknown']);
+    }
     if (fact.projectKey && fact.projectLabel) {
       this.db.run(`INSERT INTO fact_projects(source_key, project_key, project_label) VALUES (?, ?, ?)
         ON CONFLICT(source_key) DO UPDATE SET project_key=excluded.project_key, project_label=excluded.project_label`,
         [fact.sourceKey, fact.projectKey, fact.projectLabel]);
+    } else if (legacyUnverified) {
+      this.db.run('DELETE FROM fact_projects WHERE source_key = ?', [fact.sourceKey]);
     }
+    if (fact.provider === 'claude' && fact.sourceKey.startsWith('claude:v2:')) {
+      const marker = 'claude:v2:';
+      const eventPart = fact.sourceKey.slice(marker.length + 25);
+      const siblings = this.db.all("SELECT source_key FROM usage_facts WHERE provider = 'claude' AND session_id = ? AND source_key <> ?",
+        [fact.sessionId, fact.sourceKey]);
+      for (const sibling of siblings) {
+        const key = String(sibling.source_key);
+        if (key.startsWith(marker) && key.slice(marker.length + 25) === eventPart) {
+          this.db.run('INSERT OR IGNORE INTO usage_uncertain_facts VALUES (?, ?)',
+            [key, 'local_event_identity_ambiguous']);
+          this.db.run('INSERT OR IGNORE INTO usage_uncertain_facts VALUES (?, ?)',
+            [fact.sourceKey, 'local_event_identity_ambiguous']);
+        }
+      }
+    }
+  }
+
+  private reconcileLegacyClaudeFact(fact: UsageFact, file: string, fileId: string, birthtimeMs: number): void {
+    const evidence = this.db.one(`SELECT 1 FROM legacy_claude_cursor_evidence
+      WHERE file_path = ? AND file_id = ? AND birthtime_ms = ?`,
+      [file, fileId, birthtimeMs]);
+    if (!evidence) return;
+    const marker = 'claude:v2:';
+    const eventPart = fact.sourceKey.slice(marker.length + 25);
+    const candidates = this.db.all(`SELECT f.*, p.project_key, p.project_label FROM usage_facts f
+      JOIN usage_uncertain_facts u ON u.source_key=f.source_key AND u.reason='legacy_unverified'
+      LEFT JOIN fact_projects p ON p.source_key=f.source_key
+      WHERE f.provider='claude' AND f.source_identity_key LIKE 'claude:legacy-unverified:%'
+        AND f.session_id = ? AND f.model = ?
+        AND f.input_tokens = ? AND f.output_tokens = ? AND f.cache_read_tokens = ?
+        AND f.cache_creation_tokens = ? AND f.total_tokens = ?`,
+      [fact.sessionId, fact.model, fact.inputTokens, fact.outputTokens,
+        fact.cacheReadTokens, fact.cacheCreationTokens, fact.totalTokens]).filter(row => {
+      const key = String(row.source_key);
+      return key.startsWith(marker) && key.slice(marker.length + 25) === eventPart &&
+        Date.parse(String(row.occurred_at)) === Date.parse(fact.occurredAt) &&
+        (row.project_key ?? null) === (fact.projectKey ?? null);
+    });
+    if (candidates.length !== 1) return;
+    const old = candidates[0];
+    const oldKey = String(old.source_key);
+    this.db.run('INSERT OR IGNORE INTO legacy_reconciled_facts VALUES (?, ?, ?, ?)',
+      [oldKey, JSON.stringify(old), fact.sourceKey, new Date().toISOString()]);
+    this.db.run('DELETE FROM usage_uncertain_facts WHERE source_key = ?', [oldKey]);
+    this.db.run('DELETE FROM fact_projects WHERE source_key = ?', [oldKey]);
+    this.db.run('DELETE FROM usage_facts WHERE source_key = ?', [oldKey]);
+    this.db.run(`DELETE FROM source_identities WHERE key = ? AND NOT EXISTS
+      (SELECT 1 FROM usage_facts WHERE source_identity_key = ?)`,
+      [String(old.source_identity_key), String(old.source_identity_key)]);
   }
 
   private saveStatus(provider: Provider, status: SourceStatus['status'], fileCount: number, detail: string | null,
@@ -529,19 +775,33 @@ export class UsageScanner {
   }
 
   identities(): SourceIdentity[] {
-    return this.db.all(`SELECT s.key, s.provider, s.label, s.owner_user_id, COUNT(f.source_key) AS fact_count
+    return this.db.all(`SELECT s.key, s.provider, s.label, s.owner_user_id, COUNT(f.source_key) AS fact_count,
+        MAX(f.occurred_at) AS last_record_at,
+        (SELECT p.project_label FROM usage_facts latest JOIN fact_projects p ON p.source_key=latest.source_key
+          WHERE latest.source_identity_key=s.key ORDER BY latest.occurred_at DESC LIMIT 1) AS project_label
       FROM source_identities s LEFT JOIN usage_facts f ON f.source_identity_key = s.key
-      GROUP BY s.key ORDER BY s.provider, s.label`).map(row => ({
+      GROUP BY s.key HAVING COUNT(f.source_key) > 0 OR
+        (s.key NOT LIKE 'codex:legacy-unverified:%' AND s.key NOT LIKE 'claude:legacy-unverified:%'
+          AND s.key NOT LIKE 'codex:otel:legacy-ambiguous:%' AND s.key NOT LIKE 'codex:otel:unknown:%')
+      ORDER BY s.provider, s.label`).map(row => ({
       key: String(row.key),
       provider: row.provider as Provider,
       label: String(row.label),
       ownerUserId: row.owner_user_id ? String(row.owner_user_id) : null,
-      factCount: Number(row.fact_count)
+      factCount: Number(row.fact_count),
+      lastRecordAt: row.last_record_at ? String(row.last_record_at) : null,
+      projectLabel: row.project_label ? String(row.project_label) : null
     }));
   }
 
   bindIdentity(key: unknown, userId: unknown, actorId: string): void {
     if (typeof key !== 'string' || (userId !== null && typeof userId !== 'string')) throw new Error('归属参数无效');
+    if (key.startsWith('codex:legacy-unverified:') || key.startsWith('claude:legacy-unverified:') ||
+        key.startsWith('codex:otel:unknown:') || key.startsWith('codex:otel:legacy-ambiguous:') ||
+        key.startsWith('claude:otel:unknown:') || key.startsWith('claude:otel:legacy-unverified:') ||
+        key.startsWith('claude:macos:') || key.startsWith('claude:local-file-unknown:')) {
+      throw new Error('账户身份或旧记录归属无法验证，请先重新采集并核对');
+    }
     if (!this.db.one('SELECT key FROM source_identities WHERE key = ?', [key])) throw new Error('来源不存在');
     if (userId !== null && !this.db.one('SELECT id FROM users WHERE id = ? AND active = 1', [userId])) {
       throw new Error('目标用户不存在或已停用');

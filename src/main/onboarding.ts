@@ -14,8 +14,10 @@ export function onboardingStatus(db: AppDatabase, scanner: UsageScanner, actor: 
   const owned = Number(db.one(`SELECT COUNT(*) AS count FROM source_identities
     WHERE owner_user_id IS NOT NULL ${admin ? '' : 'AND owner_user_id = ?'}`,
   admin ? [] : [actor.id])?.count ?? 0);
-  const facts = db.all(`SELECT f.source_key, f.provider, f.session_id, f.occurred_at, f.total_tokens, s.owner_user_id
+  const facts = db.all(`SELECT f.source_key, f.provider, f.session_id, f.occurred_at, f.total_tokens, s.owner_user_id,
+      CASE WHEN uncertain.source_key IS NULL THEN 0 ELSE 1 END AS identity_uncertain
     FROM usage_facts f JOIN source_identities s ON s.key = f.source_identity_key
+    LEFT JOIN usage_uncertain_facts uncertain ON uncertain.source_key = f.source_key
     WHERE s.owner_user_id IS NOT NULL ${admin ? '' : 'AND s.owner_user_id = ?'}`,
   admin ? [] : [actor.id]) as unknown as Array<ReconciliationFact & { total_tokens: number }>;
   const reconciled = reconcileFacts(facts);

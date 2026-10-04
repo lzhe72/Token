@@ -19,6 +19,7 @@ interface FactRow extends Row {
   cache_read_tokens: number;
   cache_creation_tokens: number;
   total_tokens: number;
+  identity_uncertain: number;
 }
 
 const GRANULARITIES = new Set<Granularity>(['day', 'week', 'month', 'year']);
@@ -102,13 +103,25 @@ function csvCell(value: string): string {
 export class ReportService {
   constructor(private readonly db: AppDatabase, private readonly scanner: UsageScanner) {}
 
+  private wasIdentityMigrationAffected(actor: PublicUser): boolean {
+    return actor.role === 'viewer' && !!this.db.one(`SELECT 1 FROM identity_migration_events e
+      WHERE e.affected_user_id = ? AND EXISTS (
+        SELECT 1 FROM usage_facts f JOIN usage_uncertain_facts u ON u.source_key = f.source_key
+        WHERE f.source_identity_key IN ('codex:legacy-unverified:' || e.source_ref,
+          'claude:legacy-unverified:' || e.source_ref,
+          'codex:otel:legacy-ambiguous:' || e.source_ref,
+          'claude:otel:legacy-unverified:' || e.source_ref)) LIMIT 1`, [actor.id]);
+  }
+
   coverage(actor: PublicUser): SourceStatus[] {
     if (actor.role !== 'viewer') return this.scanner.statuses();
+    const affected = this.wasIdentityMigrationAffected(actor);
     return (['codex', 'claude'] as const).map(provider => {
       const owned = Number(this.db.one('SELECT COUNT(*) AS count FROM source_identities WHERE provider = ? AND owner_user_id = ?',
         [provider, actor.id])?.count ?? 0);
       if (!owned) return { provider, status: 'idle', fileCount: null, factCount: null, telemetryFactCount: null,
-        lastTelemetry: null, lastScan: null, detail: '尚未绑定来源，覆盖未知' };
+        lastTelemetry: null, lastScan: null, detail: affected
+          ? '部分历史用量归属已暂停，请联系管理员核对；当前覆盖未知' : '尚未绑定来源，覆盖未知' };
       const local = this.db.one(`SELECT COUNT(*) AS count FROM usage_facts f JOIN source_identities s
         ON s.key = f.source_identity_key WHERE f.provider = ? AND s.owner_user_id = ? AND f.source_key NOT LIKE 'otel:%'`,
       [provider, actor.id]);
@@ -119,8 +132,10 @@ export class ReportService {
       const telemetryFactCount = Number(telemetry?.count ?? 0);
       return { provider, status: factCount + telemetryFactCount ? 'ready' : 'idle', fileCount: null,
         factCount, telemetryFactCount, lastTelemetry: telemetry?.latest ? String(telemetry.latest) : null,
-        lastScan: null, detail: factCount + telemetryFactCount
-          ? '已采到本用户记录；完整覆盖仍待诊断' : '已绑定来源；尚无法确认采集覆盖' };
+        lastScan: null, detail: affected
+          ? '部分历史用量归属已暂停，请联系管理员核对；当前覆盖未知'
+          : factCount + telemetryFactCount ? '已采到本用户记录；完整覆盖仍待诊断'
+            : '已绑定来源；尚无法确认采集覆盖' };
     });
   }
 
@@ -136,7 +151,7 @@ export class ReportService {
       suggestion: '普通用户只能查看已归属用量；请联系管理员检查扫描、文件权限及来源归属。' }));
   }
 
-  private scopedCoverage(query: ReportQuery,
+  private scopedCoverage(query: ReportQuery, actor: PublicUser,
     rows: Array<{ fact: FactRow; period: string; pending: boolean }>): SourceStatus[] {
     const providers: Provider[] = query.provider === 'all' ? ['codex', 'claude'] : [query.provider];
     return providers.map(provider => {
@@ -148,7 +163,9 @@ export class ReportService {
       const latest = (values: FactRow[]) => values.reduce<string | null>((value, fact) =>
         !value || fact.occurred_at > value ? fact.occurred_at : value, null);
       const state = 'unknown';
-      const reason = facts.length
+      const reason = this.wasIdentityMigrationAffected(actor)
+        ? '部分历史用量归属已暂停，请联系管理员核对；当前范围覆盖未知'
+        : facts.length
         ? '此范围有已观测记录，但尚无可证的连续采集子区间或历史留存起点，完整覆盖未知'
         : '此范围没有已观测记录；无法证明来源历史留存与连续采集，不能认定为零用量';
       return { provider, status: 'idle', fileCount: null,
@@ -167,7 +184,7 @@ export class ReportService {
     const identities = rows.map(({ fact, period, pending }) => [fact.source_key, fact.provider, fact.model,
       fact.occurred_at, fact.owner_user_id, fact.project_key, fact.project_label, fact.source_label,
       fact.input_tokens, fact.output_tokens, fact.cache_read_tokens, fact.cache_creation_tokens,
-      fact.total_tokens, period, pending]);
+      fact.total_tokens, fact.identity_uncertain, period, pending]);
     identities.sort((a, b) => String(a[0]).localeCompare(String(b[0])));
     digest.update(JSON.stringify(identities));
     return { rows, id: digest.digest('hex') };
@@ -181,9 +198,11 @@ export class ReportService {
 
   private selectFacts(query: ReportQuery): FactRow[] {
     return this.db.all(`SELECT f.*, s.owner_user_id, s.label AS source_label,
+      CASE WHEN u.source_key IS NULL THEN 0 ELSE 1 END AS identity_uncertain,
       p.project_key, p.project_label FROM usage_facts f
       LEFT JOIN source_identities s ON s.key = f.source_identity_key
       LEFT JOIN fact_projects p ON p.source_key = f.source_key
+      LEFT JOIN usage_uncertain_facts u ON u.source_key = f.source_key
       WHERE (? = 'all' OR f.provider = ?)
         AND (? = 'all' OR (? = 'unassigned' AND s.owner_user_id IS NULL) OR s.owner_user_id = ?)
       ORDER BY f.occurred_at`, [query.provider, query.provider, query.userId, query.userId, query.userId]) as FactRow[];
@@ -254,7 +273,7 @@ export class ReportService {
       availableModels: [...availableModels].sort(),
       availableModelOptions: [...availableModelOptions.values()].sort((a, b) => a.provider.localeCompare(b.provider) || a.model.localeCompare(b.model)),
       availableProjects: [...availableProjects].map(([key, label]) => ({ key, label })).sort((a, b) => a.label.localeCompare(b.label) || a.key.localeCompare(b.key)),
-      coverage: this.scopedCoverage(query, snapshot.rows)
+      coverage: this.scopedCoverage(query, actor, snapshot.rows)
     };
   }
 

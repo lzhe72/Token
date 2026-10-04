@@ -8,13 +8,13 @@ import { ReportService } from './report';
 import { TelemetryReceiver } from './telemetry';
 import { TrustedDeviceStore } from './trusted-device';
 import { ServerConnection } from './server-connection';
-import { UsageSync } from './usage-sync';
+import { UsageSync, prepareUsageSync } from './usage-sync';
 import { UpdateClient } from './update-client';
 import { launchAutomaticUpdate } from './update-launch';
 import { bundleFromExecutable, markUpdatedAppReady, readInstallStatus } from './update-install';
 import { FeedbackService } from './feedback';
 import { onboardingStatus } from './onboarding';
-import { SourceBindingService } from './source-binding';
+import { BindingEvidenceError, SourceBindingService } from './source-binding';
 import type { FeedbackItem, PublicUser } from '../shared/types';
 
 let mainWindow: BrowserWindow | null = null;
@@ -173,10 +173,20 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
     requireAdmin(event, auth);
     return sources.identities();
   });
+  ipcMain.handle('sources:deferred', event => sources.deferredSourceKeys(requireAdmin(event, auth).id));
+  ipcMain.handle('sources:set-deferred', (event, key: unknown, deferred: unknown) =>
+    sources.setSourceDeferred(requireAdmin(event, auth).id, key, deferred));
   ipcMain.handle('sources:preview-binding', (event, key: unknown, userId: unknown, filter: unknown) =>
     binding.preview(key, userId, filter, requireAdmin(event, auth)));
-  ipcMain.handle('sources:confirm-binding', (event, previewId: unknown) =>
-    binding.confirm(previewId, requireAdmin(event, auth)));
+  ipcMain.handle('sources:confirm-binding', async (event, previewId: unknown, evidence: unknown) => {
+    const actor = requireAdmin(event, auth);
+    try { return await binding.confirm(previewId, actor, evidence); }
+    catch (error) {
+      if (error instanceof BindingEvidenceError) return { localCommitted: false,
+        validationError: { field: error.field, message: error.message } };
+      throw error;
+    }
+  });
   ipcMain.handle('sources:cancel-binding', (event, previewId: unknown) =>
     binding.cancel(previewId, requireAdmin(event, auth)));
   ipcMain.handle('telemetry:configuration', event => {
@@ -374,7 +384,8 @@ app.whenReady().then(async () => {
   await telemetry.start();
   connection = new ServerConnection(app.getPath('userData'), safeStorage);
   await connection.startLocalService();
-  usageSync = new UsageSync(database, scanner, connection);
+  usageSync = prepareUsageSync(database, scanner, connection,
+    scanner.didQuarantineLegacyFacts() || telemetry.didQuarantineLegacyIdentity());
   scanner.setAfterScan(() => usageSync!.afterScan());
   usageSync.start();
   feedbackService = new FeedbackService(database, connection, app.getVersion(), process.platform);
