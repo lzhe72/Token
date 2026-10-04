@@ -1,5 +1,5 @@
-import React from 'react';
-import type { CollectionDiagnostic, PublicUser, ServerStatus, TelemetryConfiguration, UpdateStatus, UploadStatus } from '../shared/types';
+import React, { useEffect, useState } from 'react';
+import type { CollectionDiagnostic, ManagedStatus, Provider, PublicUser, ServerStatus, TelemetryConfiguration, UpdateStatus, UploadStatus } from '../shared/types';
 import { localLabels, serviceLabels, syncLabels } from './service-state';
 
 interface Props {
@@ -28,6 +28,43 @@ interface Props {
 }
 
 export function SettingsPanel(props: Props) {
+  const [managed, setManaged] = useState<ManagedStatus | null>(null);
+  const [managedProvider, setManagedProvider] = useState<Provider>('codex');
+  const [managedDirectory, setManagedDirectory] = useState('');
+  const [managedDirectoryToken, setManagedDirectoryToken] = useState('');
+  const [managedPrompt, setManagedPrompt] = useState('');
+  const [managedError, setManagedError] = useState('');
+  const [managedBusy, setManagedBusy] = useState(false);
+  useEffect(() => {
+    if (props.user.role === 'viewer') return;
+    let active = true;
+    const refresh = () => window.tokenApi.getManagedStatus().then(value => { if (active) setManaged(value); }).catch(() => {});
+    refresh();
+    const timer = setInterval(refresh, 3000);
+    return () => { active = false; clearInterval(timer); };
+  }, [props.user.id, props.user.role]);
+  async function toggleManaged(provider: Provider) {
+    try { setManagedBusy(true); setManagedError(''); setManaged(await window.tokenApi.setManagedEnabled(provider, !managed?.enabled[provider])); }
+    catch (error) { setManagedError(String(error)); }
+    finally { setManagedBusy(false); }
+  }
+  async function launchManaged(event: React.FormEvent) {
+    event.preventDefault();
+    try {
+      setManagedBusy(true); setManagedError('');
+      await window.tokenApi.launchManagedRun(managedProvider, managedPrompt, managedDirectoryToken);
+      setManagedPrompt('');
+      setManaged(await window.tokenApi.getManagedStatus());
+    } catch (error) { setManagedError(String(error)); }
+    finally { setManagedBusy(false); }
+  }
+  async function chooseManagedDirectory() {
+    try {
+      setManagedError('');
+      const selected = await window.tokenApi.chooseManagedDirectory();
+      if (selected) { setManagedDirectory(selected.directory); setManagedDirectoryToken(selected.token); }
+    } catch (error) { setManagedError(String(error)); }
+  }
   const admin = props.user.role !== 'viewer';
   const permissionIssue = props.diagnostics.some(item => item.reason === 'permission_denied');
   const service = serviceLabels(props.server);
@@ -48,6 +85,28 @@ export function SettingsPanel(props: Props) {
         <p className="hint">应用无法替你授予 macOS 权限。采集诊断会显示实际读取结果。</p>
       </section>
     </div>
+    {admin && <section className="panel managed-panel"><div className="panel-head"><h2>受管命令（试运行）</h2><span>覆盖证明：未知</span></div>
+      <p className="hint">主动启用后，可通过 Token 启动只读 Codex 或计划模式 Claude Code 命令。应用只保存运行状态、版本和计量字段；任务内容与回复仅在当前窗口临时显示、不写入 Token 数据库。登录者是启动者，尚未验证 CLI 账户归属；账本未进入报表，完整性与其他入口的使用量均为未知。</p>
+      <div className="source-actions">
+        {(['codex', 'claude'] as Provider[]).map(provider => <button type="button" key={provider}
+          className="export-button" disabled={managedBusy} onClick={() => toggleManaged(provider)}>
+          {provider === 'codex' ? 'Codex' : 'Claude Code'}：{managed?.enabled[provider] ? '已启用 · 点击关闭' : '未启用 · 点击开启'}
+        </button>)}
+      </div>
+      <form className="managed-form" onSubmit={launchManaged}>
+        <label>工具<select aria-label="受管工具" value={managedProvider} onChange={event => setManagedProvider(event.target.value as Provider)}>
+          <option value="codex">Codex</option><option value="claude">Claude Code</option></select></label>
+        <label>工作目录<input aria-label="受管工作目录" value={managedDirectory} readOnly placeholder="请先选择真实目录" /></label>
+        <button type="button" className="export-button" onClick={chooseManagedDirectory}>选择工作目录</button>
+        <label>只读任务<textarea aria-label="受管任务" value={managedPrompt} onChange={event => setManagedPrompt(event.target.value)} rows={3} placeholder="输入要运行的任务；Token 不保存正文" /></label>
+        <button className="primary" disabled={managedBusy || !managed?.enabled[managedProvider] || !managedDirectoryToken || !managedPrompt.trim()}>启动受管命令</button>
+      </form>
+      {managedError && <p className="error" role="alert">{managedError}</p>}
+      <div aria-label="最近受管运行" className="managed-runs">{managed?.runs.map(run => <div key={run.id}>
+        <p>{run.provider === 'codex' ? 'Codex' : 'Claude Code'} · {run.status === 'running' ? '运行中' : run.status === 'completed' ? '命令已结束' : '未完成'} · {new Date(run.startedAt).toLocaleString('zh-CN')} · 已记录事件 {run.eventCount}，计量事件 {run.usageEventCount}{run.error ? ` · ${run.error}` : ''}</p>
+        {run.result && <details><summary>查看本次结果（仅当前应用会话）</summary><pre>{run.result}</pre></details>}
+      </div>)}</div>
+    </section>}
     {admin && <>
       <section className="panel"><div className="panel-head"><h2>服务器与自动上报</h2><span>{service.type}</span></div>
         <p className="hint">内置服务默认运行在本机；也可显式连接指定服务器，地址允许 127.0.0.1。每次扫描后上报已归属的聚合用量，定时扫描间隔为 10 分钟；上报内容不含会话正文、文件路径或配置密钥。首次登记或调整设备授权范围需服务管理密钥。</p>

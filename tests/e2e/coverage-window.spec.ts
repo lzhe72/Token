@@ -1,5 +1,41 @@
 import { expect, test } from '@playwright/test';
-import { bindSource, createViewer, launchM6 } from './m6-support';
+import fs from 'node:fs';
+import path from 'node:path';
+import { bindSource, createViewer, launchM6, loginViewer } from './m6-support';
+
+test('TC-077 受管入口仅管理员可启用且不会提升报表覆盖', async () => {
+  const context = await launchM6('tc077-managed-ui');
+  try {
+    const { page } = context;
+    await page.getByRole('button', { name: /系统设置/ }).click();
+    await expect(page.getByRole('heading', { name: '受管命令（试运行）' })).toBeVisible();
+    await expect(page.locator('.managed-panel')).toContainText('覆盖证明：未知');
+    await page.getByRole('button', { name: 'Codex：未启用 · 点击开启' }).click();
+    await expect(page.getByRole('button', { name: 'Codex：已启用 · 点击关闭' })).toBeVisible();
+    expect((await page.evaluate(() => window.tokenApi.getManagedStatus())).coverage).toBe('unknown');
+    const alias = path.join(context.workspace.root, 'outside-alias');
+    fs.symlinkSync(fs.realpathSync(context.workspace.root), alias);
+    await context.app.evaluate(({ dialog }, selected) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [selected] });
+    }, alias);
+    await page.getByRole('button', { name: '选择工作目录' }).click();
+    await expect(page.locator('.managed-panel [role="alert"]')).toContainText('符号链接');
+    const directLaunch = await page.evaluate(() => window.tokenApi.launchManagedRun('codex', 'synthetic task', '/tmp')
+      .then(() => 'resolved', () => 'rejected'));
+    expect(directLaunch).toBe('rejected');
+    await page.getByRole('button', { name: /用量报表/ }).first().click();
+    await expect(page.locator('.coverage-strip')).toContainText('覆盖未知');
+    await createViewer(page);
+    await loginViewer(page);
+    await page.getByRole('button', { name: /系统设置/ }).click();
+    await expect(page.getByRole('heading', { name: '受管命令（试运行）' })).toHaveCount(0);
+    const attempts = await page.evaluate(async () => Promise.allSettled([
+      window.tokenApi.getManagedStatus(), window.tokenApi.setManagedEnabled('codex', true),
+      window.tokenApi.launchManagedRun('codex', 'synthetic task', '/tmp')
+    ]));
+    expect(attempts.map(item => item.status)).toEqual(['rejected', 'rejected', 'rejected']);
+  } finally { await context.close(); }
+});
 
 test('TC-077 管理员切换用户和未归属时概览报表不显示假零', async () => {
   const context = await launchM6('tc077-scope-ui', { usage: true, usageDate: new Date().toISOString() });

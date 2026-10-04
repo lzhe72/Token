@@ -17,6 +17,13 @@ export interface AppState {
 
 export type Provider = 'codex' | 'claude';
 
+export interface ManagedStatus {
+  enabled: Record<Provider, boolean>;
+  coverage: 'unknown';
+  runs: Array<{ id: string; provider: Provider; status: 'running' | 'completed' | 'failed' | 'interrupted';
+    startedAt: string; endedAt: string | null; eventCount: number; usageEventCount: number; error: string | null; result: string | null }>;
+}
+
 export interface SourceStatus {
   provider: Provider;
   status: 'scanning' | 'cancelled' | 'ready' | 'no_records' | 'not_found' | 'error' | 'idle';
@@ -278,6 +285,10 @@ export interface TokenApi {
   changePassword(userId: string, password: string): Promise<void>;
   resolveAdminNameConflict(newUsername: string): Promise<void>;
   getSourceStatuses(): Promise<SourceStatus[]>;
+  getManagedStatus(): Promise<ManagedStatus>;
+  setManagedEnabled(provider: Provider, enabled: boolean): Promise<ManagedStatus>;
+  chooseManagedDirectory(): Promise<{ token: string; directory: string } | null>;
+  launchManagedRun(provider: Provider, prompt: string, directoryToken: string): Promise<string>;
   getOnboardingStatus(): Promise<OnboardingStatus>;
   getCollectionDiagnostics(): Promise<CollectionDiagnostic[]>;
   getAccountCollectionStatuses(): Promise<AccountCollectionStatus[]>;

@@ -100,14 +100,28 @@ const cases = [
   ['TC-094', 'unit', 'tests/sync-reconciliation.test.ts', 'TC-094 服务 v2 清除旧聚合并保留冲突状态旧队列重算和权限边界', '服务上报协议 v2 与旧数据迁移']
 ];
 const extraRuns = {
-  'TC-077': [{ kind: 'e2e', file: 'tests/e2e/coverage-window.spec.ts', testName: 'TC-077 管理员切换用户和未归属时概览报表不显示假零' }],
-  'TC-078': [{ kind: 'e2e', file: 'tests/e2e/coverage-window.spec.ts', testName: 'TC-078 只有待核对记录时保留已确认小计零而完整总量未知' }],
+  'TC-077': [
+    { kind: 'e2e', file: 'tests/e2e/coverage-window.spec.ts', testName: 'TC-077 管理员切换用户和未归属时概览报表不显示假零' },
+    { kind: 'e2e', file: 'tests/e2e/coverage-window.spec.ts', testName: 'TC-077 受管入口仅管理员可启用且不会提升报表覆盖' },
+    { kind: 'unit', file: 'tests/managed-runs.test.ts', testName: 'TC-077 受管入口持久记录启动事件水位且未知账号不进入报表' },
+    { kind: 'unit', file: 'tests/managed-runs.test.ts', testName: 'TC-077 格式错误与进程重启使运行及连续区段失效' },
+    { kind: 'unit', file: 'tests/managed-runs.test.ts', testName: 'TC-077 心跳缺口锁存且重启闭合失效区段' },
+    { kind: 'unit', file: 'tests/managed-runs.test.ts', testName: 'TC-077 符号链接目录拒绝且子进程仅接收固定参数和环境白名单' },
+    { kind: 'unit', file: 'tests/managed-runs.test.ts', testName: 'TC-077 未识别事件类型携带正文时不写入账本' }
+  ],
+  'TC-078': [
+    { kind: 'e2e', file: 'tests/e2e/coverage-window.spec.ts', testName: 'TC-078 只有待核对记录时保留已确认小计零而完整总量未知' },
+    { kind: 'unit', file: 'tests/managed-runs.test.ts', testName: 'TC-078 未验证账号与心跳缺口不使两个受管窗口可比' }
+  ],
   'TC-082': [
     { kind: 'unit', file: 'tests/onboarding.test.ts', testName: 'TC-082 大量合成历史记录的引导状态响应保持可用' },
     { kind: 'e2e', file: 'tests/e2e/onboarding.spec.ts', testName: 'TC-082 管理员可跳过重开且四步随真实采集归属更新' }
   ],
   'TC-083': [{ kind: 'e2e', file: 'tests/e2e/onboarding.spec.ts', testName: 'TC-083 普通用户引导不显示他人进度且无权扫描归属' }],
-  'TC-084': [{ kind: 'e2e', file: 'tests/e2e/empty-state.spec.ts', testName: 'TC-084 报表筛选无匹配保持覆盖未知并可清除筛选进入诊断' }],
+  'TC-084': [
+    { kind: 'e2e', file: 'tests/e2e/empty-state.spec.ts', testName: 'TC-084 报表筛选无匹配保持覆盖未知并可清除筛选进入诊断' },
+    { kind: 'e2e', file: 'tests/e2e/managed-privacy.spec.ts', testName: 'TC-084 受管结果仅当前登录窗口暂存且不进入持久数据库' }
+  ],
   'TC-085': [
     { kind: 'unit', file: 'tests/m6-diagnostics.test.ts', testName: 'TC-085 取消等待当前文件提交且续扫不重复或上报残缺快照' },
     { kind: 'unit', file: 'tests/m6-diagnostics.test.ts', testName: 'TC-085 第二个工具取消不把首个工具成功误作完整扫描' },

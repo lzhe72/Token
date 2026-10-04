@@ -15,7 +15,8 @@ export function writeUsage(dir: string, session: string, cwd: string, model: str
 }
 
 export async function launchM6(label: string, options: { usage?: boolean; missingCodex?: boolean;
-  usageDate?: string; sameModel?: boolean; extraRecords?: number; scanDelayMs?: number } = {}) {
+  usageDate?: string; sameModel?: boolean; extraRecords?: number; scanDelayMs?: number;
+  managedBinary?: string } = {}) {
   const workspace = createTestWorkspace(label);
   if (options.sameModel) {
     const timestamp = options.usageDate || '2026-10-02T00:00:00Z';
@@ -35,6 +36,7 @@ export async function launchM6(label: string, options: { usage?: boolean; missin
     args: [...(packaged ? [] : [path.resolve('.')]), `--token-user-data=${workspace.root}`],
     env: { ...process.env, TOKEN_TEST_TELEMETRY_PORT: '0',
       TOKEN_E2E_SCAN_DELAY_MS: String(options.scanDelayMs || 0),
+      TOKEN_TEST_MANAGED_CODEX_BINARY: options.managedBinary || '',
       TOKEN_CODEX_SESSIONS_DIR: options.missingCodex ? path.join(workspace.root, 'missing-codex') : workspace.codexDir,
       TOKEN_CLAUDE_PROJECTS_DIR: workspace.claudeDir } });
   const page = await app.firstWindow();

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, safeStorage, shell } from 'electron';
 import { AppDatabase } from './database';
 import { AuthService } from './auth';
@@ -15,6 +16,7 @@ import { bundleFromExecutable, markUpdatedAppReady, readInstallStatus } from './
 import { FeedbackService } from './feedback';
 import { onboardingStatus } from './onboarding';
 import { BindingEvidenceError, SourceBindingService } from './source-binding';
+import { ManagedRunService } from './managed-runs';
 import type { FeedbackItem, PublicUser } from '../shared/types';
 
 let mainWindow: BrowserWindow | null = null;
@@ -24,7 +26,16 @@ let telemetry: TelemetryReceiver | null = null;
 let connection: ServerConnection | null = null;
 let usageSync: UsageSync | null = null;
 let feedbackService: FeedbackService | null = null;
+let managedRuns: ManagedRunService | null = null;
 const sessions = new Map<number, string>();
+const managedDirectories = new Map<number, { actorId: string; token: string; directory: string }>();
+const managedSessionEpochs = new Map<number, number>();
+
+function revokeManagedWindowAccess(webContentsId: number): void {
+  managedDirectories.delete(webContentsId);
+  managedSessionEpochs.set(webContentsId, (managedSessionEpochs.get(webContentsId) || 0) + 1);
+  managedRuns?.clearTransient();
+}
 
 function checkSender(event: Electron.IpcMainInvokeEvent): void {
   if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed() ||
@@ -52,7 +63,7 @@ function requireAdmin(event: Electron.IpcMainInvokeEvent, auth: AuthService): Pu
 
 function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportService, receiver: TelemetryReceiver, db: AppDatabase,
   trusted: TrustedDeviceStore, server: ServerConnection, sync: UsageSync, updater: UpdateClient, feedback: FeedbackService,
-  binding: SourceBindingService): void {
+  binding: SourceBindingService, managed: ManagedRunService): void {
   function forgetDevice(): void {
     const token = trusted.read();
     if (token) auth.revokeTrustedDevice(token);
@@ -96,6 +107,7 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
   });
   ipcMain.handle('auth:setup', async (event, username: unknown, password: unknown, trustDevice: unknown) => {
     checkSender(event);
+    revokeManagedWindowAccess(event.sender.id);
     const user = await auth.setupAdmin(username, password);
     rememberDevice(user, trustDevice);
     sessions.set(event.sender.id, user.id);
@@ -103,6 +115,7 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
   });
   ipcMain.handle('auth:login', async (event, username: unknown, password: unknown, trustDevice: unknown) => {
     checkSender(event);
+    revokeManagedWindowAccess(event.sender.id);
     const user = await auth.login(username, password);
     rememberDevice(user, trustDevice);
     sessions.set(event.sender.id, user.id);
@@ -110,6 +123,7 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
   });
   ipcMain.handle('auth:logout', event => {
     checkSender(event);
+    revokeManagedWindowAccess(event.sender.id);
     forgetDevice();
     sessions.delete(event.sender.id);
   });
@@ -136,6 +150,39 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
   ipcMain.handle('sources:statuses', event => {
     const actor = currentUser(event, auth);
     return reports.coverage(actor);
+  });
+  ipcMain.handle('managed:status', event => managed.status(requireAdmin(event, auth).id));
+  ipcMain.handle('managed:enable', (event, provider: unknown, enabled: unknown) => {
+    const actor = requireAdmin(event, auth);
+    if ((provider !== 'codex' && provider !== 'claude') || typeof enabled !== 'boolean') throw new Error('受管来源参数无效');
+    managed.setEnabled(actor.id, provider, enabled);
+    return managed.status(actor.id);
+  });
+  ipcMain.handle('managed:choose-directory', async event => {
+    const actor = requireAdmin(event, auth);
+    if (!mainWindow) throw new Error('窗口已关闭');
+    const epoch = managedSessionEpochs.get(event.sender.id) || 0;
+    const selected = await dialog.showOpenDialog(mainWindow, { title: '选择受管命令工作目录', properties: ['openDirectory'] });
+    if ((managedSessionEpochs.get(event.sender.id) || 0) !== epoch || currentUser(event, auth).id !== actor.id) {
+      throw new Error('登录状态已变化，请重新选择工作目录');
+    }
+    if (selected.canceled || !selected.filePaths[0]) return null;
+    // Display and authorize the exact real target, never an unchecked symlink alias.
+    const picked = path.resolve(selected.filePaths[0]);
+    const canonical = fs.realpathSync(picked);
+    if (picked !== canonical || !fs.statSync(canonical).isDirectory()) throw new Error('请选择不含符号链接的真实目录');
+    const token = randomUUID();
+    managedDirectories.set(event.sender.id, { actorId: actor.id, token, directory: canonical });
+    return { token, directory: canonical };
+  });
+  ipcMain.handle('managed:launch', (event, provider: unknown, prompt: unknown, directoryToken: unknown) => {
+    const actor = requireAdmin(event, auth);
+    if ((provider !== 'codex' && provider !== 'claude') || typeof prompt !== 'string' || typeof directoryToken !== 'string') {
+      throw new Error('受管任务参数无效');
+    }
+    const approved = managedDirectories.get(event.sender.id);
+    if (!approved || approved.actorId !== actor.id || approved.token !== directoryToken) throw new Error('请重新选择工作目录');
+    return managed.launch(actor.id, provider, prompt, approved.directory);
   });
   ipcMain.handle('onboarding:status', event => onboardingStatus(db, sources, currentUser(event, auth)));
   ipcMain.handle('sources:diagnostics', event => {
@@ -302,6 +349,8 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
     fs.copyFileSync(source, staged);
     fs.chmodSync(staged, 0o600);
     receiver.stop();
+    managed.stop();
+    managedDirectories.clear();
     sources.stop();
     await sources.waitIdle();
     db.close();
@@ -364,6 +413,8 @@ function createWindow(): void {
   window.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   const webContentsId = window.webContents.id;
   window.on('closed', () => {
+    revokeManagedWindowAccess(webContentsId);
+    managedSessionEpochs.delete(webContentsId);
     sessions.delete(webContentsId);
     if (mainWindow === window) mainWindow = null;
   });
@@ -378,6 +429,12 @@ app.whenReady().then(async () => {
     app.setPath('userData', userDataPath);
   }
   database = await AppDatabase.open(path.join(app.getPath('userData'), 'token.sqlite'));
+  const isolatedTest = process.argv.some(arg => arg.startsWith('--token-user-data='));
+  managedRuns = new ManagedRunService(database, isolatedTest ? {
+    codex: process.env.TOKEN_TEST_MANAGED_CODEX_BINARY || 'codex',
+    claude: process.env.TOKEN_TEST_MANAGED_CLAUDE_BINARY || 'claude'
+  } : undefined);
+  managedRuns.start();
   scanner = new UsageScanner(database);
   telemetry = new TelemetryReceiver(database, app.getPath('userData'),
     process.env.TOKEN_TEST_TELEMETRY_PORT === '0' && process.argv.some(arg => arg.startsWith('--token-user-data=')) ? 0 : undefined);
@@ -399,7 +456,7 @@ app.whenReady().then(async () => {
   const reports = new ReportService(database, scanner);
   const binding = new SourceBindingService(database, scanner, reports, usageSync);
   registerIpc(new AuthService(database), scanner, reports, telemetry, database,
-    new TrustedDeviceStore(app.getPath('userData'), safeStorage), connection, usageSync, updater, feedbackService, binding);
+    new TrustedDeviceStore(app.getPath('userData'), safeStorage), connection, usageSync, updater, feedbackService, binding, managedRuns);
   createWindow();
   scanner.start();
   app.on('activate', () => {
@@ -411,6 +468,7 @@ app.whenReady().then(async () => {
 });
 
 app.on('before-quit', () => {
+  managedRuns?.stop();
   scanner?.stop();
   telemetry?.stop();
   usageSync?.stop();
