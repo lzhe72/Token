@@ -1,8 +1,8 @@
 # 测试执行与数据隔离
 
-2026-10-04 新增 TC-095 当前 Mac 实际安装/可用人工用例，尚未在 `scripts/test-cases.mjs` 注册；下文“94 个编号均有入口”是新增前的固定代码状态。注册后单独运行 `npm run test:case -- TC-095` 获取手工清单，再以已存在的绝对路径脱敏证据文件登记 `pass|fail`。自动测试仅用隔离用户数据，不能写现有生产目录。详见[本机验收](local-mac-acceptance.md)。
+2026-10-04 新增 TC-095 当前 Mac 实际安装/可用人工用例，已于 `c359e6a` 在 `scripts/test-cases.mjs` 注册 manual 入口；下文“94 个编号均有入口”是新增前的固定代码状态。现可单独运行 `npm run test:case -- TC-095` 获取手工清单，再以已存在的绝对路径脱敏证据文件登记 `pass|fail`。自动测试仅用隔离用户数据，不能写现有生产目录。详见[本机验收](local-mac-acceptance.md)。
 
-`TC-001` 至 `TC-095` 的编号以[追溯工作簿](../outputs/20261002-token-docs/Token-需求开发测试追溯.xlsx)为准。现有代码只为前 94 个编号在 `scripts/test-cases.mjs` 注册入口，TC-095 待注册；人工清单有入口不等于已通过。多个旧 TC 可共享覆盖较广的测试；TC-021 保留共享测试及独立分页单元/Electron，TC-073 包含 fallback 归并与 6000 条合成事实性能，TC-074 包含设备授权和服务切换竞态。新增用例时，同步增加注册项和断言。
+`TC-001` 至 `TC-095` 的编号以[追溯工作簿](../outputs/20261002-token-docs/Token-需求开发测试追溯.xlsx)为准。`c359e6a` 已为全部 95 个编号在 `scripts/test-cases.mjs` 注册入口；人工清单有入口不等于已通过。多个旧 TC 可共享覆盖较广的测试；TC-021 保留共享测试及独立分页单元/Electron，TC-073 包含 fallback 归并与 6000 条合成事实性能，TC-074 包含设备授权和服务切换竞态。新增用例时，同步增加注册项和断言。
 
 2026-10-04 TC-076 新增 `scripts/verify-auto-upgrade-faults.mjs` 绑定；真实 DMG 模式需四个 `TOKEN_TC076_*` 路径/摘要环境变量。不带真实包时故障脚本跳过，不能从命令退出码推断真实故障已验。代码 `80e7f10` 的文档会话独立运行曾在最终重试读取一次性状态文件处退出码 1；已观察的五种 installer 模块故障回退不等于整条 TC-076 或打包 helper/UI 故障闭环通过。详见[逐项验收](test-case-acceptance.md)与[验收记录](validation.md)。
 
@@ -30,7 +30,7 @@ M6 的 `TC-050` 至 `TC-071` 已注册自动入口；最终提交 `6223c30` 的 
 
 `test:gate` 依次运行类型检查、用例注册检查、全部 Vitest 测试和构建后的 Electron Playwright 测试。自动用例失败则命令返回非零。涉及打包行为的变更还需运行打包应用端到端测试，并保留实际命令与结果。`TC-021` 单编号运行两项单元和两项 Electron；`TC-030` 和 `TC-038` 各运行单元与 Electron 两层测试；`TC-048`、`TC-049` 运行 Electron 测试。
 
-`test:production-copy` 先用 SQLite 备份把指定数据库复制到系统临时目录，再以该目录作为打包 App 的用户数据目录，传入空的 Codex/Claude 来源目录并核对数据库完整性与账户、事实、来源身份、游标数量。命令结束清理临时副本；只在确认目标是授权读取的数据库和正确版本的打包 App 后运行。它证明隔离副本可启动与数量保持，不代替真实生产账户安装、来源扫描或逐项报表验收。
+`test:production-copy` 先用 SQLite 备份把指定数据库复制到系统临时目录，再以该目录作为打包 App 的用户数据目录，传入空的 Codex/Claude 来源目录。现有 `verify-production-copy.mjs` 在 `integrity_check` 之外要求 `users`、`usage_facts`、`source_identities`、`source_cursors` 四表行数完全相等；旧库身份隔离可能按规则新增 `legacy-unverified` 身份，故单纯身份行数变化不能直接判数据损坏，也不能直接放行。TC-095 要求对身份白名单、事实逐键逐数值、归属/报表授权与兼容旧备份回退做[隔离副本验收](local-mac-acceptance.md#旧生产库身份迁移的可观察验收)。命令结束清理临时副本；只在确认目标是授权读取的数据库和正确版本的打包 App 后运行。它不代替真实生产账户安装、来源扫描或逐项报表验收。
 
 `test:acceptance` 逐编号调用同一个单用例运行器，把输出写入被 Git 忽略的 `test-results/acceptance/TC-###.log`，并生成 `summary.json`（提交、时间、平台、Node、每条退出码和日志文件名）。任何编号失败时批量命令非零退出。该摘要只证明所运行的自动断言；TC-027/028 的真实机器安装、签名和公证以及 TC-072 的真实 Mac 权限操作仍须按人工入口另留证据。固定开发提交前的临时运行结果不得当作最终验收记录。
 
