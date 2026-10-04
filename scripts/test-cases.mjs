@@ -104,9 +104,12 @@ const cases = [
 3. 用受控管理员登录；只读核对原账户/来源/用量，验证权限拒绝、授权重扫、Codex/Claude 可观察采集与归属，未知不写真零。
 4. 固定同一授权用户、时区和筛选，核对概览、明细、CSV 快照及冲突状态；受管 CLI 能力另核管理员边界、未验证归属和结果隐私。
 5. 隔离副本运行真实旧/新 DMG 故障恢复与重试；备份确认后人工触发当前 Mac 已安装旧版的正常自动更新，核安装路径、退出与新版启动。
-6. 比较升级前后脱敏数据计数和受信状态，确认旧版 App/数据库备份、兼容回退步骤及未验项。记录每步时间、结果和截图位置；只有所有通过条件成立才能登记 pass。`]
+6. 比较升级前后脱敏数据计数和受信状态，确认旧版 App/数据库备份、兼容回退步骤及未验项。记录每步时间、结果和截图位置；只有所有通过条件成立才能登记 pass。`],
+  ['TC-096', 'unit', 'tests/single-user-source.test.ts', 'TC-096 Claude 单用户本地来源自动归属、手动解除及异常隔离', '单用户来源默认归属']
 ];
 const extraRuns = {
+  'TC-096': [{ kind: 'e2e', file: 'tests/e2e/single-user-source.spec.ts',
+    testName: 'TC-096 单用户客户端 Claude 文件默认显示归属当前使用者' }],
   'TC-077': [
     { kind: 'e2e', file: 'tests/e2e/coverage-window.spec.ts', testName: 'TC-077 管理员切换用户和未归属时概览报表不显示假零' },
     { kind: 'e2e', file: 'tests/e2e/coverage-window.spec.ts', testName: 'TC-077 受管入口仅管理员可启用且不会提升报表覆盖' },

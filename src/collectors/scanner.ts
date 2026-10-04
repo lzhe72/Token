@@ -13,6 +13,7 @@ import type { LineContext, ParserState, Provider, UsageFact } from './types';
 const CHUNK_SIZE = 128 * 1024;
 const MAX_LINE_SIZE = 32 * 1024 * 1024;
 export const SCAN_INTERVAL_MS = 10 * 60 * 1000;
+const LOCAL_DEFAULT_ACTOR = 'system:local-single-user';
 
 interface Cursor {
   fileId: string;
@@ -113,7 +114,8 @@ export class UsageScanner {
   private afterScan: (() => Promise<void>) | null = null;
   private cancelRequested = false;
 
-  constructor(private readonly db: AppDatabase) {
+  constructor(private readonly db: AppDatabase,
+    private readonly singleUserClaudeDefault = false) {
     db.run(`
       CREATE TABLE IF NOT EXISTS source_identities (
         key TEXT PRIMARY KEY,
@@ -370,7 +372,7 @@ export class UsageScanner {
 
   recordBindingAudit(key: string, actorId: string, oldOwnerId: string | null,
     newOwnerId: string | null, affectedCount: number, evidence?: {
-      evidenceCategory: string; evidenceSource: string; evidenceRef: string
+      evidenceCategory: string; evidenceSource: string; evidenceRef: string; verificationStatus?: string
     }): void {
     const reference = this.sourceAuditRef(key);
     this.db.run(`INSERT INTO source_binding_audit
@@ -379,8 +381,64 @@ export class UsageScanner {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
       randomUUID(), actorId, reference, oldOwnerId, newOwnerId, affectedCount, 'success', new Date().toISOString(),
       evidence?.evidenceCategory ?? '', evidence?.evidenceSource ?? '', evidence?.evidenceRef ?? '',
-      evidence ? 'admin_manual_confirmed' : ''
+      evidence?.verificationStatus ?? (evidence ? 'admin_manual_confirmed' : '')
     ]);
+  }
+
+  private soleLocalOwnerId(): string | null {
+    if (!this.singleUserClaudeDefault) return null;
+    const users = this.db.all('SELECT id, role, active FROM users LIMIT 2');
+    return users.length === 1 && users[0].role === 'admin' && Number(users[0].active) === 1
+      ? String(users[0].id) : null;
+  }
+
+  private autoBindLocalSource(key: string, ownerId: string): boolean {
+    if (!/^claude:local-file:[a-f0-9]{24}$/.test(key)) return false;
+    const source = this.db.one('SELECT owner_user_id FROM source_identities WHERE key = ?', [key]);
+    if (!source || source.owner_user_id !== null) return false;
+    // A manual unbind is an explicit exception to the single-user default.
+    if (this.db.one(`SELECT 1 FROM source_binding_audit a
+      JOIN source_audit_refs r ON r.audit_ref = a.source_ref
+      WHERE r.source_key = ? AND a.actor_id <> ? LIMIT 1`, [key, LOCAL_DEFAULT_ACTOR])) return false;
+    const affected = Number(this.db.one('SELECT COUNT(*) AS count FROM usage_facts WHERE source_identity_key = ?', [key])?.count ?? 0);
+    if (affected === 0) return false;
+    this.db.run('UPDATE source_identities SET owner_user_id = ? WHERE key = ? AND owner_user_id IS NULL', [ownerId, key]);
+    this.recordBindingAudit(key, LOCAL_DEFAULT_ACTOR, null, ownerId, affected, {
+      evidenceCategory: 'local_profile_single_user', evidenceSource: 'macos_user_home',
+      evidenceRef: '', verificationStatus: 'device_scope_assumed'
+    });
+    return true;
+  }
+
+  /** Bind only still-present files whose stored cursor proves the same file generation. */
+  assignKnownLocalSources(): number {
+    const ownerId = this.soleLocalOwnerId();
+    if (!ownerId) return 0;
+    let root: string;
+    try { root = fs.realpathSync(sourceDirectories().claude); }
+    catch { return 0; }
+    const candidates = new Set<string>();
+    for (const row of this.db.all("SELECT file_path, file_id, birthtime_ms FROM source_cursors WHERE provider = 'claude'")) {
+      const file = String(row.file_path);
+      try {
+        const actual = fs.realpathSync(file);
+        const relative = path.relative(root, actual);
+        if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) continue;
+        fs.accessSync(actual, fs.constants.R_OK);
+        const stat = fs.statSync(actual);
+        if (!stat.isFile() || `${stat.dev}:${stat.ino}` !== String(row.file_id) ||
+          stat.birthtimeMs !== Number(row.birthtime_ms)) continue;
+        const fileKey = claudeFileKey(os.userInfo().uid, String(row.file_id), stat.birthtimeMs);
+        if (fileKey) candidates.add(`claude:local-file:${fileKey}`);
+      } catch { /* missing, inaccessible or changed file remains unassigned */ }
+    }
+    const pending = [...candidates].filter(key => this.db.one(
+      'SELECT 1 FROM source_identities WHERE key = ? AND owner_user_id IS NULL', [key]));
+    let changed = 0;
+    if (pending.length) this.db.transactionDurable(() => {
+      for (const key of pending) if (this.autoBindLocalSource(key, ownerId)) changed++;
+    });
+    return changed;
   }
 
   private pruneCodexFallbacks(sessionId: string, identity: string): void {
@@ -606,6 +664,8 @@ export class UsageScanner {
       if (unknownGeneration) this.db.run(`INSERT INTO unknown_claude_file_generations VALUES (?, ?, ?)
         ON CONFLICT(file_path) DO UPDATE SET file_id=excluded.file_id, generation=excluded.generation`,
         [file, fileId, unknownGeneration]);
+      const ownerId = verifiedClaudeFileKey ? this.soleLocalOwnerId() : null;
+      if (ownerId) this.autoBindLocalSource(`claude:local-file:${verifiedClaudeFileKey}`, ownerId);
     });
     return { malformed: state.malformedRecords, oversized: state.oversizedRecords };
   }

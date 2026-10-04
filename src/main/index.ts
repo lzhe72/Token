@@ -109,6 +109,10 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
     checkSender(event);
     revokeManagedWindowAccess(event.sender.id);
     const user = await auth.setupAdmin(username, password);
+    if (sources.assignKnownLocalSources()) {
+      sync.queueSnapshot(['claude']);
+      void sync.flush().catch(() => {});
+    }
     rememberDevice(user, trustDevice);
     sessions.set(event.sender.id, user.id);
     return user;
@@ -117,6 +121,10 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
     checkSender(event);
     revokeManagedWindowAccess(event.sender.id);
     const user = await auth.login(username, password);
+    if (sources.assignKnownLocalSources()) {
+      sync.queueSnapshot(['claude']);
+      void sync.flush().catch(() => {});
+    }
     rememberDevice(user, trustDevice);
     sessions.set(event.sender.id, user.id);
     return user;
@@ -435,14 +443,18 @@ app.whenReady().then(async () => {
     claude: process.env.TOKEN_TEST_MANAGED_CLAUDE_BINARY || 'claude'
   } : undefined);
   managedRuns.start();
-  scanner = new UsageScanner(database);
+  const singleUserClaudeDefault = isolatedTest
+    ? process.env.TOKEN_TEST_SINGLE_USER_DEFAULT === '1'
+    : !process.env.TOKEN_CLAUDE_PROJECTS_DIR;
+  scanner = new UsageScanner(database, singleUserClaudeDefault);
+  const defaultAssignmentsChanged = scanner.assignKnownLocalSources() > 0;
   telemetry = new TelemetryReceiver(database, app.getPath('userData'),
     process.env.TOKEN_TEST_TELEMETRY_PORT === '0' && process.argv.some(arg => arg.startsWith('--token-user-data=')) ? 0 : undefined);
   await telemetry.start();
   connection = new ServerConnection(app.getPath('userData'), safeStorage);
   await connection.startLocalService();
   usageSync = prepareUsageSync(database, scanner, connection,
-    scanner.didQuarantineLegacyFacts() || telemetry.didQuarantineLegacyIdentity());
+    scanner.didQuarantineLegacyFacts() || telemetry.didQuarantineLegacyIdentity() || defaultAssignmentsChanged);
   scanner.setAfterScan(() => usageSync!.afterScan());
   usageSync.start();
   feedbackService = new FeedbackService(database, connection, app.getVersion(), process.platform);
