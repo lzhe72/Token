@@ -1,5 +1,25 @@
 # 首版验收记录
 
+## `508851a` 身份隔离、来源队列与快照续传独立验证（2026-10-04）
+
+文档会话在 macOS 15.7.4 x86_64、Node v24.15.0、npm 11.12.1 的独立工作树验证固定代码 `508851a5ab3377bc9fdfcd1bc7543fac77c4dceb`。测试使用专用临时数据库、用户目录、无正文合成 JSONL 和本机回环服务；未读取真实生产库或第三方历史会话。
+
+| 命令 | 结果 | 证据边界 |
+| --- | --- | --- |
+| `npm run test:case -- TC-040` | 4 个单元绑定逐项通过，退出码 0 | 发送中新增 revision、末次队列读取竞态、失败退避与恢复；非长期运行计时证据 |
+| `npm run test:case -- TC-086` | 3 单元、4 Electron 绑定逐项通过，退出码 0 | Claude 外部登记声明格式、非法字段不消费有效预览、同预览修正；25 文件分页、项目/本机日期/状态组合筛选、未知时间/清除条件；管理员个人暂缓及切换/重启隔离。白名单格式与人工勾选**不是**真实受控登记的真实性验证 |
+| `npm run test:case -- TC-087` | 单元、Electron 各 1，通过，退出码 0 | 既有事务回滚、审计与基线变化回归 |
+| `npm run test:case -- TC-092` | 15 个单元绑定逐项通过，退出码 0 | Codex/Claude 本地和 OTel 键隔离、同毫秒和缺身份观测、旧键及同文件多 session 保守迁移、文件出生代次/游标早退、重扫幂等；合成旧库不能证明生产历史可恢复 |
+| `npm run test:case -- TC-093` | 1 单元、2 Electron，通过，退出码 0 | 授权调和、真实隔离 JSONL/回环 OTel 输入与 viewer/CSV 隔离回归 |
+| `npm run test:case -- TC-094` | 2 单元、1 Electron，通过，退出码 0 | 首次真实 Electron 启动前重算 v2 待传并清理旧 owner 服务聚合；使用合成旧库/回环服务 |
+| `npm run test:cases:check`；`npm run test:gate` | 94 个注册编号；97/97 单元、43/43 Electron，类型检查通过，退出码均 0 | 源码态隔离自动门禁通过 |
+| `CSC_IDENTITY_AUTO_DISCOVERY=false npm run pack:dir` | 退出码 0；未签名 x64 目录包 `app.asar` SHA-256 `8a687bf692b150e59615e338b57e75f94db516477fad5b9e30f98b70d66eb460` | 没有签名、公证、真实安装 |
+| `npm run test:e2e:packaged` | **退出码 1：42/43 通过**；`tests/e2e/app.spec.ts:55` 管理员创建/权限测试未找到预期报表数字 26；错误页面显示开始日期仍为 `2026-09-05`、结束 `2026-01-02`，报“日期范围无效” | 全量打包门禁存在日期输入/校验偶发问题，不标通过；需开发会话定位 |
+| `npm run test:e2e:packaged -- tests/e2e/app.spec.ts` | 单项 1/1 通过，退出码 0 | 仅证单项可复跑，不抹去全量失败 |
+| `TOKEN_TC076_SKIP_BUILD=1 npm run test:case -- TC-076` | 合成旧版本自动升级成功链退出码 0；旧 App 自动退出/替换、新 App 启动、受信登录与合成 1280 Token 延续 | 本次基于当前包版本元数据生成合成旧版；真实旧/新 DMG 及已知 SHA 的故障子段被跳过。此前 `1961de3` 的真实两包与故障证据仍为独立历史结果 |
+
+结论：上述编号在 `508851a` 的**隔离自动子范围**具备通过证据；REQ-023/026/045/048 和 DEV-025/028/054/057 均不据此升级为完整外部验收。真实外部受控文件与账号映射、生产库迁移、真实历史来源、旧服务真实版本互操作、系统目录升级、目标 Mac、签名/公证仍待证；打包全量一次失败待排查。
+
 **REQ-040/044 覆盖证据决议（2026-10-03；文档核对，未执行新测试）**：现有 `source_status`、`source_cursors` 与事实表只证明已观察，不包含完整历史留存起点或连续无漏采证明；全局 `ready`、成功空扫描、最早事实、单次缓存盘点均不能推出完整或真零。官方资料表明 [Codex `exec --ephemeral`](https://learn.chatgpt.com/docs/developer-commands?surface=cli) 不持久化 rollout，[Claude Code OTel](https://code.claude.com/docs/en/monitoring-usage) 的日志 exporter 可设为 `none`。本次只制定 TC-077/078/084 的新证据门槛和合成规则测试计划；此前保守负例通过记录维持，未执行真实来源完整性或正例测试，REQ-040/044 整项待验。
 
 **`1961de3` 打包 helper 隔离故障补证（2026-10-04）**：TC-076 新增 `scripts/verify-packaged-helper-faults.mjs` 和隔离进程预加载 `scripts/tc076-helper-fault.cjs`。脚本从真实 0.3.5 DMG 复制旧 App 到专用临时可写安装目录，经旧 UI 下载真实 0.3.6 DMG；故障注入只在该目录中的实际打包 `update-helper.cjs` 生效。mount、space、replace、launch、health 五种注入各核 helper 命中、旧版自动回退、受信登录/合成 1280 Token、挂载/备份/下载残留清理；随后旧 UI 重试成功到新版。文档会话在固定代码与两包已知 SHA-256 下独立运行完整 `npm run test:case -- TC-076`，三段集成脚本和最后重试均完成、退出码 0；`npm run test:case -- TC-036` 两项单元退出码 0。`npm run test:gate` 类型检查、94 个注册入口、77/77 单元和 39/39 Electron 独立通过，退出码 0；未单独复跑 `test:e2e:packaged`。此结果提升隔离打包 helper/UI 故障子范围；故障是预加载模拟，未制造真实满盘、进程崩溃或系统目录安装，也未执行安装中取消、生产库或签名公证异机验收。REQ-023/DEV-025/TC-076 整项继续按剩余边界待验。
