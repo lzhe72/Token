@@ -30,7 +30,7 @@ M6 的 `TC-050` 至 `TC-071` 已注册自动入口；最终提交 `6223c30` 的 
 
 `test:gate` 依次运行类型检查、用例注册检查、全部 Vitest 测试和构建后的 Electron Playwright 测试。自动用例失败则命令返回非零。涉及打包行为的变更还需运行打包应用端到端测试，并保留实际命令与结果。`TC-021` 单编号运行两项单元和两项 Electron；`TC-030` 和 `TC-038` 各运行单元与 Electron 两层测试；`TC-048`、`TC-049` 运行 Electron 测试。
 
-`test:production-copy` 先用 SQLite 备份把指定数据库复制到系统临时目录，再以该目录作为打包 App 的用户数据目录，传入空的 Codex/Claude 来源目录。现有 `verify-production-copy.mjs` 在 `integrity_check` 之外要求 `users`、`usage_facts`、`source_identities`、`source_cursors` 四表行数完全相等；旧库身份隔离可能按规则新增 `legacy-unverified` 身份，故单纯身份行数变化不能直接判数据损坏，也不能直接放行。TC-095 要求对身份白名单、事实逐键逐数值、归属/报表授权与兼容旧备份回退做[隔离副本验收](local-mac-acceptance.md#旧生产库身份迁移的可观察验收)。命令结束清理临时副本；只在确认目标是授权读取的数据库和正确版本的打包 App 后运行。它不代替真实生产账户安装、来源扫描或逐项报表验收。
+`test:production-copy` 先用 SQLite 备份把指定的**仓库外授权备份库**复制到系统临时目录，再以该目录作为打包 App 的用户数据目录，传入空的 Codex/Claude 来源目录。`ee617f3` 的 `verify-production-copy.mjs` 拒绝实际生产用户目录；在完整性检查外，逐行比较账户、事实、项目关联、身份白名单、待核对标记、游标与第二次启动幂等，容许且只容许确定性旧身份隔离迁移，失败消息不输出私有行。开发会话报告在授权副本与最终 0.3.7 目录包上退出码 0；文档会话只读核对代码，未独立运行。命令结束清理临时副本；运行前核备份与打包 App 版本。它不代替[TC-095](local-mac-acceptance.md) 的真实安装、界面授权/CSV 或旧版兼容备份回退。
 
 `test:acceptance` 逐编号调用同一个单用例运行器，把输出写入被 Git 忽略的 `test-results/acceptance/TC-###.log`，并生成 `summary.json`（提交、时间、平台、Node、每条退出码和日志文件名）。任何编号失败时批量命令非零退出。该摘要只证明所运行的自动断言；TC-027/028 的真实机器安装、签名和公证以及 TC-072 的真实 Mac 权限操作仍须按人工入口另留证据。固定开发提交前的临时运行结果不得当作最终验收记录。
 
