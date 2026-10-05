@@ -105,7 +105,12 @@ const cases = [
 4. 固定同一授权用户、时区和筛选，核对概览、明细、CSV 快照及冲突状态；受管 CLI 能力另核管理员边界、未验证归属和结果隐私。
 5. 隔离副本运行真实旧/新 DMG 故障恢复与重试；备份确认后人工触发当前 Mac 已安装旧版的正常自动更新，核安装路径、退出与新版启动。
 6. 比较升级前后脱敏数据计数和受信状态，确认旧版 App/数据库备份、兼容回退步骤及未验项。记录每步时间、结果和截图位置；只有所有通过条件成立才能登记 pass。`],
-  ['TC-096', 'unit', 'tests/single-user-source.test.ts', 'TC-096 Claude 单用户本地来源自动归属、手动解除及异常隔离', '单用户来源默认归属']
+  ['TC-096', 'unit', 'tests/single-user-source.test.ts', 'TC-096 Claude 单用户本地来源自动归属、手动解除及异常隔离', '单用户来源默认归属'],
+  ['TC-097', 'e2e', 'tests/e2e/page-refinements.spec.ts', 'TC-097 顶部状态一行呈现且详细诊断按需展开', '顶部紧凑状态'],
+  ['TC-098', 'e2e', 'tests/e2e/page-refinements.spec.ts', 'TC-098 输入输出在窄窗口完整显示且覆盖未知不写为零', '输入输出完整可读'],
+  ['TC-099', 'e2e', 'tests/e2e/page-refinements.spec.ts', 'TC-099 报表集中展示已选筛选并随日期与工具更新', '筛选条件集中展示'],
+  ['TC-100', 'e2e', 'tests/e2e/page-refinements.spec.ts', 'TC-100 单用户来源先显示汇总与异常并可按需管理正常归属', '单用户来源减负'],
+  ['TC-101', 'e2e', 'tests/e2e/page-refinements.spec.ts', 'TC-101 引导只突出下一步且扫描归属后进度立即刷新', '首次引导衔接']
 ];
 const extraRuns = {
   'TC-096': [{ kind: 'e2e', file: 'tests/e2e/single-user-source.spec.ts',

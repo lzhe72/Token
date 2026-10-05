@@ -175,7 +175,12 @@ export function ReportPanel({ user, users, destination, backTick, onDrilldownCha
       <div className="report-dates"><label>开始 <input aria-label="开始日期" type="date" value={query.from} onChange={e => update('from', e.target.value)} /></label><span>—</span><label>结束 <input aria-label="结束日期" type="date" value={query.to} onChange={e => update('to', e.target.value)} /></label></div>
       <button className="export-button" disabled={exporting || loading || !report} onClick={exportCsv}>{exporting ? '导出中…' : report?.accounting?.status === 'uncertain' ? '导出含待核对用量 CSV v2' : '导出 CSV'}</button>
     </div>
-    <p className="hint export-summary">导出范围：{query.from} 至 {query.to} · {query.timeZone} · {query.provider === 'all' ? '全部工具' : query.provider === 'codex' ? 'Codex' : 'Claude Code'} · 模型 {query.model || '全部'} · 项目 {query.projectKey || '全部'} · 用户 {user.role === 'viewer' ? '当前用户' : query.userId === 'all' ? '全部' : query.userId === 'unassigned' ? '未归属' : '指定用户'}</p>
+    <div className="selected-filters" role="group" aria-label="当前报表筛选">
+      <strong>当前筛选</strong><span>{query.from} 至 {query.to}</span><span>{query.timeZone}</span>
+      <span>工具：{query.provider === 'all' ? '全部' : query.provider === 'codex' ? 'Codex' : 'Claude Code'}</span>
+      <span>模型：{query.model || '全部'}</span><span>项目：{query.projectKey ? report?.availableProjects.find(item => item.key === query.projectKey)?.label || '指定项目' : '全部'}</span>
+      <span>用户：{user.role === 'viewer' ? '当前用户' : query.userId === 'all' ? '全部与未归属' : query.userId === 'unassigned' ? '未归属' : users.find(item => item.id === query.userId)?.username || '指定用户'}</span>
+    </div>
     <div className="report-filters">
       <label>工具<select aria-label="工具筛选" value={query.provider} onChange={e => { setQuery(current => ({ ...current, provider: e.target.value as Provider | 'all', model: '' })); setDetailPage(1); setDetailPeriod(''); }}><option value="all">全部工具</option><option value="codex">Codex</option><option value="claude">Claude Code</option></select></label>
       <label>模型<select aria-label="模型筛选" value={query.model ? `${query.provider}\0${query.model}` : ''} onChange={e => {
@@ -199,7 +204,7 @@ export function ReportPanel({ user, users, destination, backTick, onDrilldownCha
         <div className="metric-card"><span>{report.accounting?.status === 'uncertain' ? '已确认输出 Token' : '已观测输出 Token'}</span><strong>{(hasObserved || hasCoverage) ? <TokenValue value={report.totals.outputTokens} label={report.accounting?.status === 'uncertain' ? '报表已确认输出' : '报表已观测输出'} /> : metric(report.totals.outputTokens)}</strong><small>包含推理输出</small></div>
         <div className="metric-card"><span>{report.accounting?.status === 'uncertain' ? '已确认缓存读取' : '已观测缓存读取'}</span><strong>{(hasObserved || hasCoverage) ? <TokenValue value={report.totals.cacheReadTokens} label={report.accounting?.status === 'uncertain' ? '报表已确认缓存读取' : '报表已观测缓存读取'} /> : metric(report.totals.cacheReadTokens)}</strong><small>Codex 中属于输入子集</small></div>
       </div>
-      <section className="panel trend-panel"><div className="panel-head"><h2>用量趋势{report.accounting?.status === 'uncertain' ? ' · 仅已确认部分' : ''}</h2><span>{query.from} 至 {query.to}</span></div>
+      <section className="panel trend-panel"><div className="panel-head"><h2>用量趋势{report.accounting?.status === 'uncertain' ? ' · 仅已确认部分' : ''}</h2></div>
         {report.points.length ? <div className="chart-scroll"><div className="bar-chart" style={{ minWidth: `${report.points.length * 76}px` }}>{report.points.map(point => {
           const label = formatPeriodLabel(point.period, query.granularity);
           return <div className="bar-item" key={point.period}><TokenValue className="bar-value" value={point.totalTokens} label={`${label} ${report.accounting?.status === 'uncertain' ? '已确认小计' : '已观测用量'}`} /><button type="button" className={detailPeriod === point.period ? 'bar-column selected' : 'bar-column'} aria-label={`查看 ${label} 用量明细`} onClick={() => { setDetailPeriod(point.period); setDetailPage(1); }}><div className="bar-track"><div className="bar" style={{ height: `${Math.max(3, point.totalTokens / maxPoint * 100)}%` }} /></div><div className="bar-label">{label}</div></button></div>;

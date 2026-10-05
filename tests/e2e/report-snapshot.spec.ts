@@ -75,7 +75,7 @@ test('TC-079 连续修改双日期后保持最终范围并以同一快照导出'
       await toInput.fill(to);
       await expect(fromInput).toHaveValue(from);
       await expect(toInput).toHaveValue(to);
-      await expect(page.locator('.export-summary')).toContainText(`${from} 至 ${to}`);
+      await expect(page.getByRole('group', { name: '当前报表筛选' })).toContainText(`${from} 至 ${to}`);
       await expect(page.getByRole('alert')).toHaveCount(0);
     }
     await expect(page.locator('.metric-card').first().locator('strong')).toHaveText('42');

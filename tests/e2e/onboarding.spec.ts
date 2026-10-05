@@ -9,7 +9,7 @@ test('TC-082 首次建账自动引导且跳过后不常驻，四步随真实采�
     await expect(page.getByRole('button', { name: /首次引导/ })).toHaveCount(0);
     await page.reload();
     await expect(page.getByRole('heading', { name: '首次使用引导' })).toBeVisible();
-    await page.locator('.onboarding-step').first().getByRole('button', { name: '查看采集诊断' }).click();
+    await page.locator('.onboarding-step .primary').click();
     await expect(page.locator('.onboarding-hint')).toBeVisible();
     await page.getByRole('button', { name: '返回引导' }).click();
     const before = await page.evaluate(() => window.tokenApi.getSourceIdentities());
