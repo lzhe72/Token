@@ -1,5 +1,11 @@
 # 首版验收记录
 
+## 0.3.12 发布与实际切页体验立项基线（2026-10-06；未执行新版验收）
+
+用户报告当前实际安装的 Token 在概览与报表之间切换时每次出现加载并感到卡顿，设置页检查更新显示“已是最新”。文档会话只读执行 `/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' /Applications/Token.app/Contents/Info.plist`，结果 **0.3.11**；仓库 `package.json` 亦为 **0.3.11**。这说明 `2e5ee34` 的源码缓存通过结果不能直接证明生产安装已有新行为；用户所见“已是最新”也可能因当前服务尚未发布更高版本，不能单凭文案判更新客户端缺陷。开发侧另报告本机内置服务 `releases/latest.json` 仍为 0.3.7/x64，文档会话未独立核在线授权响应。
+
+按[设计 §24](design.md)和工作簿，0.3.12 目标以真实 0.3.11 DMG 的隔离安装副本验证升级、以最终 0.3.12 隔离副本验证缓存/性能；开发只向当前 App 所连本机服务发布新包。用户之后自行在生产 `/Applications/Token.app` 点击更新并手动验收。**TC-107/108 尚未注册或执行，0.3.12 代码、DMG、清单、实际升级与新版切页性能均没有通过证据。**不读取或提交生产用户数据库、会话正文及凭证。
+
 ## VER-014 概览/报表缓存与五分钟刷新自动验收（`2e5ee34`；2026-10-06）
 
 固定产品提交 `2e5ee34d6c77b4b1eb2d3442b231c4e54d48eced`。`REQ-051→DEV-060→TC-105/106` 已有独立编号入口：`scripts/test-cases.mjs` 绑定 `tests/e2e/usage-refresh.spec.ts` 的两个场景及 `tests/usage-cache.test.ts` 的相应单元断言。开发侧报告 `npm run test:case -- TC-105`、`TC-106`，关联 `TC-079/104`，以及 `TOKEN_PERF_SKIP_BUILD=1 npm run test:case -- TC-102`、`TC-103` 均通过；`npm run test:gate` 通过类型检查、106 个入口、107/107 单元和 57/57 Electron。目录包定向 `tests/e2e/usage-refresh.spec.ts` 为 2/2。文档会话核对固定代码和脱敏结果，未独立重跑完整门禁或打包测试。
