@@ -116,6 +116,22 @@ const cases = [
   ['TC-104', 'e2e', 'tests/e2e/navigation-performance.spec.ts', 'TC-104 过期导航结果不覆盖新页面且普通用户不出现管理入口', '过期响应与账号隔离']
 ];
 const extraRuns = {
+  'TC-102': [{ kind: 'integration', file: 'scripts/measure-navigation.mjs' }],
+  'TC-103': [{ kind: 'integration', file: 'scripts/measure-navigation.mjs', args: ['--scroll-only'] }],
+  'TC-104': [
+    { kind: 'e2e', file: 'tests/e2e/report-snapshot.spec.ts',
+      testName: 'TC-079 快速切换筛选时旧响应不覆盖且导出等待当前快照' },
+    { kind: 'e2e', file: 'tests/e2e/overview-drilldown.spec.ts',
+      testName: 'TC-080 概览趋势继承时间工具并在面包屑返回后保留筛选与焦点' },
+    { kind: 'e2e', file: 'tests/e2e/overlap-privacy.spec.ts',
+      testName: 'TC-093 普通用户来源状态诊断和反馈附件不含其他账户数据' },
+    { kind: 'e2e', file: 'tests/e2e/coverage-window.spec.ts',
+      testName: 'TC-077 管理员切换用户和未归属时概览报表不显示假零' },
+    { kind: 'e2e', file: 'tests/e2e/source-binding.spec.ts',
+      testName: 'TC-086 草稿预览键盘取消与确认后权限转移' },
+    { kind: 'e2e', file: 'tests/e2e/empty-state.spec.ts',
+      testName: 'TC-084 报表筛选无匹配保持覆盖未知并可清除筛选进入诊断' }
+  ],
   'TC-096': [{ kind: 'e2e', file: 'tests/e2e/single-user-source.spec.ts',
     testName: 'TC-096 单用户客户端 Claude 文件默认显示归属当前使用者' }],
   'TC-077': [

@@ -84,7 +84,7 @@ const run = (command, commandArgs) => {
 };
 if (chosen.runs.some(item => item.kind === 'e2e') && !process.env.TOKEN_E2E_EXECUTABLE) run('npm', ['run', 'build']);
 for (const item of chosen.runs) {
-  if (item.kind === 'integration') { run(process.execPath, [path.join(root, item.file)]); continue; }
+  if (item.kind === 'integration') { run(process.execPath, [path.join(root, item.file), ...(item.args || [])]); continue; }
   run(path.join(root, 'node_modules', '.bin', item.kind === 'e2e' ? 'playwright' : 'vitest'),
     item.kind === 'e2e'
       ? ['test', item.file, '--grep', item.testName]

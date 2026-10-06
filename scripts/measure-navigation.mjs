@@ -8,15 +8,18 @@ import { fileURLToPath } from 'node:url';
 // TC-102/TC-103: repeatable, synthetic-only performance measurement.
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const packaged = path.join(project, 'release/mac/Token.app/Contents/MacOS/Token');
-const repetitions = Number(process.argv[2] || 20);
+const scrollOnly = process.argv.includes('--scroll-only');
+const repetitions = Number(scrollOnly ? 1 : process.argv[2] || 20);
+const coldRepetitions = Number(process.argv[3] || repetitions);
 if (!Number.isInteger(repetitions) || repetitions < 1 || repetitions > 100) throw Error('重复次数须为 1–100');
+if (!Number.isInteger(coldRepetitions) || coldRepetitions < 1 || coldRepetitions > 100) throw Error('冷切换次数须为 1–100');
 if (!process.env.TOKEN_PERF_SKIP_BUILD) {
   const built = spawnSync('npm', ['run', 'pack:dir'], { cwd: project, stdio: 'inherit', env: process.env });
   if (built.status !== 0) throw Error('性能测试专用打包失败');
 }
 if (!existsSync(packaged)) throw Error('缺少当前工作树的打包应用，请运行 npm run pack:dir');
 const version = JSON.parse((await import('node:fs')).readFileSync(path.join(project, 'package.json'), 'utf8')).version;
-const outputFile = path.join(project, 'test-results', `performance-${version}.json`);
+const outputFile = path.join(project, 'test-results', `performance-${scrollOnly ? 'scroll-' : ''}${version}.json`);
 const require = createRequire(path.join(project, 'package.json'));
 const { _electron: electron } = require('@playwright/test');
 const root = mkdtempSync(path.join(os.tmpdir(), 'token-performance-'));
@@ -108,7 +111,8 @@ async function scroll(page) {
       if (container.scrollTop + container.clientHeight >= container.scrollHeight - 2) container.scrollTop = 0;
       if (now-start < 10000) requestAnimationFrame(tick);
       else { observer?.disconnect(); resolve({ p95: percentileInPage(intervals,.95), max: Math.max(...intervals),
-        longTasks200: longTasks.filter(v=>v>=200).length, frames: intervals.length }); }
+        longTasks200: longTasks.filter(v=>v>=200).length, frames: intervals.length,
+        frameIntervalsMs: intervals, longTaskDurationsMs: longTasks }); }
     };
     function percentileInPage(values,p) {
       const ordered = [...values].sort((a,b)=>a-b);
@@ -135,15 +139,53 @@ async function measure(page, data, width) {
       }
       samples.push(await nav(page,label,heading));
     }
-    metrics.push({data,width,scenario,iterations:repetitions,
+    metrics.push({data,width,scenario,cohort:'warm',iterations:repetitions,samples,
       feedbackP50:percentile(samples.map(x=>x.feedback),.5),
       feedbackP95:percentile(samples.map(x=>x.feedback),.95),
       contentP50:percentile(samples.map(x=>x.content),.5),
       contentP95:percentile(samples.map(x=>x.content),.95)});
   }
   await nav(page,'用量报表','用量报表');
-  metrics.push({data,width,scenario:'report-scroll-10s',...await scroll(page)});
+  metrics.push({data,width,scenario:'report-scroll-10s',cohort:'warm',...await scroll(page)});
   await nav(page,'概览','用量概览');
+}
+async function measureLongScroll(page, width) {
+  await app.evaluate(({ BrowserWindow }, value) => BrowserWindow.getAllWindows()[0].setSize(value,800), width);
+  await nav(page,'用量报表','用量报表');
+  metrics.push({data:'35000-facts',width,scenario:'report-scroll-10s',cohort:'long-report',...await scroll(page)});
+  await nav(page,'概览','用量概览');
+}
+async function signIn(page) {
+  const login = page.getByPlaceholder('用户名');
+  await login.waitFor();
+  await login.fill('admin');
+  await page.getByPlaceholder('输入密码').fill('safe-password-123');
+  await page.getByRole('button', {name:'登录',exact:true}).click();
+  await page.getByRole('heading',{name:'用量概览'}).waitFor();
+}
+async function measureCold(data,width) {
+  const groups = {
+    'overview-to-sources': [], 'overview-to-users': [], 'overview-to-report': []
+  };
+  for (let iteration=0;iteration<coldRepetitions;iteration++) {
+    const page = await launch();
+    await signIn(page);
+    await app.evaluate(({ BrowserWindow }, value) => BrowserWindow.getAllWindows()[0].setSize(value,800), width);
+    groups['overview-to-sources'].push(await nav(page,'数据来源','数据来源'));
+    await nav(page,'概览','用量概览');
+    groups['overview-to-users'].push(await nav(page,'管理中心','管理中心'));
+    await nav(page,'概览','用量概览');
+    groups['overview-to-report'].push(await nav(page,'用量报表','用量报表'));
+    await app.close();
+    app=undefined;
+  }
+  for (const [scenario,samples] of Object.entries(groups)) metrics.push({
+    data,width,scenario,cohort:'cold',iterations:coldRepetitions,samples,
+    feedbackP50:percentile(samples.map(x=>x.feedback),.5),
+    feedbackP95:percentile(samples.map(x=>x.feedback),.95),
+    contentP50:percentile(samples.map(x=>x.content),.5),
+    contentP95:percentile(samples.map(x=>x.content),.95)
+  });
 }
 try {
   let page = await launch();
@@ -153,23 +195,30 @@ try {
   await page.getByRole('button', { name:/^(跳过引导|完成引导)$/ }).click();
   await page.getByRole('heading', { name:'用量概览' }).waitFor();
   const owner = (await page.evaluate(() => window.tokenApi.getState())).user.id;
-  for (const width of [1180,700]) await measure(page,'empty',width);
-  await app.close();
-  app = undefined;
+  if (!scrollOnly) {
+    for (const width of [1180,700]) await measure(page,'empty',width);
+    await app.close();
+    app = undefined;
+    for (const width of [1180,700]) await measureCold('empty',width);
+  } else {
+    await app.close();
+    app = undefined;
+  }
   seed(owner);
   page = await launch();
-  const login = page.getByPlaceholder('用户名');
-  if (await login.isVisible().catch(()=>false)) {
-    await login.fill('admin');
-    await page.getByPlaceholder('输入密码').fill('safe-password-123');
-    await page.getByRole('button', {name:'登录',exact:true}).click();
+  await signIn(page);
+  if (scrollOnly) {
+    for (const width of [1180,700]) await measureLongScroll(page,width);
+  } else {
+    for (const width of [1180,700]) await measure(page,'35000-facts',width);
+    await app.close();
+    app=undefined;
+    for (const width of [1180,700]) await measureCold('35000-facts',width);
   }
-  await page.getByRole('heading',{name:'用量概览'}).waitFor();
-  for (const width of [1180,700]) await measure(page,'35000-facts',width);
   const result = {version,syntheticFacts:35000,metrics};
   mkdirSync(path.dirname(outputFile), { recursive: true });
   writeFileSync(outputFile, JSON.stringify(result,null,2)+'\n');
-  console.log(JSON.stringify(metrics.map(item => ({data:item.data,width:item.width,
+  console.log(JSON.stringify(metrics.map(item => ({data:item.data,width:item.width,cohort:item.cohort,
     scenario:item.scenario,feedbackP95:item.feedbackP95,contentP95:item.contentP95,
     frameP95:item.p95,longTasks200:item.longTasks200}))));
   const failures = metrics.filter(item => item.scenario === 'report-scroll-10s'

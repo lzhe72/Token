@@ -38,6 +38,15 @@ test('TC-102 标准与窄窗口导航先反馈并显示加载或内容', async (
         }
       }
     }
+    await app.evaluate(() => { process.env.TOKEN_E2E_NAV_DELAY_MS = '400'; });
+    expect(await navigate(page, '数据来源', '数据来源')).toBeLessThan(150);
+    await expect(page.getByRole('status', { name: '正在加载数据来源…' })).toBeVisible();
+    await expect(page.locator('.source-card').first()).toBeVisible();
+    await navigate(page, '概览', '用量概览');
+    expect(await navigate(page, '管理中心', '管理中心')).toBeLessThan(150);
+    await expect(page.getByRole('status', { name: '正在加载管理中心…' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '账号与采集状态' })).toBeVisible();
+    await app.evaluate(() => { delete process.env.TOKEN_E2E_NAV_DELAY_MS; });
   } finally { await context.close(); }
 });
 
@@ -67,7 +76,7 @@ test('TC-103 窄窗口右栏滚动保持响应且左栏固定', async () => {
           last = now;
           panel.scrollTop += 12;
           if (panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 2) panel.scrollTop = 0;
-          if (now - start < 2500) requestAnimationFrame(frame);
+          if (now - start < 10_000) requestAnimationFrame(frame);
           else resolve();
         };
         requestAnimationFrame(frame);
@@ -87,8 +96,18 @@ test('TC-103 窄窗口右栏滚动保持响应且左栏固定', async () => {
 test('TC-104 过期导航结果不覆盖新页面且普通用户不出现管理入口', async () => {
   const context = await launchM6('tc104-stale', { usage: true });
   try {
-    const { page } = context;
+    const { page, app } = context;
     await createViewer(page);
+    await app.evaluate(() => {
+      process.env.TOKEN_E2E_NAV_DELAY_MS = '400';
+      process.env.TOKEN_E2E_NAV_FAIL_ONCE = 'sources:identities';
+    });
+    await page.locator('.sidebar').getByRole('button', { name: /数据来源/ }).click();
+    await expect(page.getByRole('status', { name: '正在加载数据来源…' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '重试加载' })).toBeVisible();
+    await page.getByRole('button', { name: '重试加载' }).click();
+    await expect(page.locator('.source-card').first()).toBeVisible();
+    await app.evaluate(() => { delete process.env.TOKEN_E2E_NAV_FAIL_ONCE; });
     await page.evaluate(() => {
       const buttons = [...document.querySelectorAll<HTMLButtonElement>('.sidebar button.nav')];
       buttons.find(item => item.textContent?.includes('管理中心'))!.click();
@@ -104,7 +123,10 @@ test('TC-104 过期导航结果不覆盖新页面且普通用户不出现管理�
     });
     await page.waitForTimeout(500);
     await expect(page.getByRole('heading', { name: '用量概览' })).toBeVisible();
+    await page.locator('.sidebar').getByRole('button', { name: /管理中心/ }).click();
+    await expect(page.getByRole('status', { name: '正在加载管理中心…' })).toBeVisible();
     await loginViewer(page);
+    await page.waitForTimeout(500);
     await expect(page.locator('.sidebar').getByRole('button', { name: /数据来源|管理中心/ })).toHaveCount(0);
     await page.getByRole('button', { name: /用量报表/ }).first().click();
     await expect(page.getByRole('group', { name: '当前报表筛选' })).not.toContainText('admin');

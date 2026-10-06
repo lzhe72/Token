@@ -64,6 +64,22 @@ function requireAdmin(event: Electron.IpcMainInvokeEvent, auth: AuthService): Pu
 function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportService, receiver: TelemetryReceiver, db: AppDatabase,
   trusted: TrustedDeviceStore, server: ServerConnection, sync: UsageSync, updater: UpdateClient, feedback: FeedbackService,
   binding: SourceBindingService, managed: ManagedRunService): void {
+  const isolatedTest = process.argv.some(arg => arg.startsWith('--token-user-data='));
+  const injectedFailures = new Set<string>();
+  async function navigationTestGate(channel: string): Promise<void> {
+    if (!isolatedTest) return;
+    const delay = Number(process.env.TOKEN_E2E_NAV_DELAY_MS || 0);
+    if (Number.isFinite(delay) && delay > 0 && delay <= 2_000) {
+      await new Promise<void>(resolve => setTimeout(resolve, delay));
+    }
+    if (process.env.TOKEN_E2E_NAV_FAIL_ONCE === channel && !injectedFailures.has(channel)) {
+      injectedFailures.add(channel);
+      throw new Error('合成导航请求失败');
+    }
+  }
+  function confirmActor(event: Electron.IpcMainInvokeEvent, id: string): void {
+    if (currentUser(event, auth).id !== id) throw new Error('登录状态已变化，请重试');
+  }
   function forgetDevice(): void {
     const token = trusted.read();
     if (token) auth.revokeTrustedDevice(token);
@@ -135,8 +151,10 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
     forgetDevice();
     sessions.delete(event.sender.id);
   });
-  ipcMain.handle('users:list', event => {
-    requireAdmin(event, auth);
+  ipcMain.handle('users:list', async event => {
+    const actor = requireAdmin(event, auth);
+    await navigationTestGate('users:list');
+    confirmActor(event, actor.id);
     return auth.listUsers();
   });
   ipcMain.handle('users:create', (event, username: unknown, password: unknown, role: unknown) => {
@@ -201,8 +219,10 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
     requireAdmin(event, auth);
     return sources.scanProgress();
   });
-  ipcMain.handle('admin:account-statuses', event => {
-    requireAdmin(event, auth);
+  ipcMain.handle('admin:account-statuses', async event => {
+    const actor = requireAdmin(event, auth);
+    await navigationTestGate('admin:account-statuses');
+    confirmActor(event, actor.id);
     return auth.listUsers().map(user => {
       const row = db.one(`SELECT COUNT(DISTINCT s.key) AS source_count, COUNT(f.source_key) AS fact_count,
         MAX(f.occurred_at) AS last_record FROM source_identities s
@@ -224,8 +244,10 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
     requireAdmin(event, auth);
     return sources.cancelScan();
   });
-  ipcMain.handle('sources:identities', event => {
-    requireAdmin(event, auth);
+  ipcMain.handle('sources:identities', async event => {
+    const actor = requireAdmin(event, auth);
+    await navigationTestGate('sources:identities');
+    confirmActor(event, actor.id);
     return sources.identities();
   });
   ipcMain.handle('sources:deferred', event => sources.deferredSourceKeys(requireAdmin(event, auth).id));
@@ -370,8 +392,10 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
     setImmediate(() => app.exit(0));
     return true;
   });
-  ipcMain.handle('usage:query', (event, query: unknown) => {
+  ipcMain.handle('usage:query', async (event, query: unknown) => {
     const actor = currentUser(event, auth);
+    await navigationTestGate('usage:query');
+    confirmActor(event, actor.id);
     return reports.query(query, actor);
   });
   ipcMain.handle('usage:details', (event, query: unknown, page: unknown, period: unknown, snapshotId: unknown) => {
