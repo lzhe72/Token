@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
-import { createViewer, launchM6, loginViewer } from './m6-support';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import { bindSource, createViewer, launchM6, loginViewer } from './m6-support';
 
 async function navigate(page: Page, label: string, heading: string): Promise<number> {
   return page.evaluate(async ({ label, heading }) => {
@@ -93,6 +95,17 @@ test('TC-103 窄窗口右栏滚动保持响应且左栏固定', async () => {
     expect(metrics.max).toBeLessThan(200);
     expect(metrics.frozen).toBe(false);
     expect(metrics.sidebarMovement).toBeLessThan(1);
+    await page.getByLabel('工具筛选').selectOption('codex');
+    await expect(page.getByLabel('工具筛选')).toHaveValue('codex');
+    await expect(page.locator('.detail-panel .panel-head span')).not.toHaveText('加载中');
+    const trend = page.locator('.bar-column').first();
+    await expect(trend).toBeVisible();
+    await trend.click();
+    await expect(trend).toBeFocused();
+    await expect(page.locator('.detail-filters')).toBeVisible();
+    await expect(page.locator('.detail-panel tbody tr').first()).toBeVisible();
+    await page.locator('.detail-filters button').first().click();
+    await expect(page.locator('.detail-filters')).toHaveCount(0);
   } finally { await context.close(); }
 });
 
@@ -101,6 +114,12 @@ test('TC-104 过期导航结果不覆盖新页面且普通用户不出现管理�
   try {
     const { page, app } = context;
     await createViewer(page);
+    await page.getByPlaceholder('3–32 位').fill('viewerB');
+    await page.getByPlaceholder('至少 10 位').fill('viewer-b-password-123');
+    await page.getByRole('button', { name: '创建用户' }).click();
+    await page.locator('.sidebar').getByRole('button', { name: /数据来源/ }).click();
+    await page.getByRole('button', { name: '立即扫描', exact: true }).click();
+    await bindSource(page, /Codex · 本机账户/, 'viewer');
     await app.evaluate(() => {
       process.env.TOKEN_E2E_NAV_DELAY_MS = '400';
       process.env.TOKEN_E2E_NAV_FAIL_ONCE = 'sources:identities';
@@ -128,10 +147,32 @@ test('TC-104 过期导航结果不覆盖新页面且普通用户不出现管理�
     await expect(page.getByRole('heading', { name: '用量概览' })).toBeVisible();
     await page.locator('.sidebar').getByRole('button', { name: /管理中心/ }).click();
     await expect(page.getByRole('status').filter({ hasText: '正在加载管理中心…' })).toBeVisible();
-    await loginViewer(page);
+    await page.getByRole('button', { name: '退出登录' }).click();
+    await page.getByPlaceholder('用户名').fill('viewerB');
+    await page.getByPlaceholder('输入密码').fill('viewer-b-password-123');
+    await page.getByRole('button', { name: '登录', exact: true }).click();
+    await expect(page.getByRole('heading', { name: '用量概览' })).toBeVisible();
     await page.waitForTimeout(500);
     await expect(page.locator('.sidebar').getByRole('button', { name: /数据来源|管理中心/ })).toHaveCount(0);
+    await expect(page.locator('.overview-primary strong')).toHaveText('覆盖未知');
+    expect(await page.evaluate(() => window.tokenApi.getAccountCollectionStatuses().then(() => 'allowed', () => 'denied'))).toBe('denied');
+    await loginViewer(page);
+    await app.evaluate(() => { delete process.env.TOKEN_E2E_NAV_DELAY_MS; });
+    await expect(page.locator('.overview-primary strong')).toHaveText('42');
     await page.getByRole('button', { name: /用量报表/ }).first().click();
     await expect(page.getByRole('group', { name: '当前报表筛选' })).not.toContainText('admin');
+    await page.getByLabel('工具筛选').selectOption('claude');
+    await page.getByLabel('工具筛选').selectOption('codex');
+    await expect(page.getByLabel('工具筛选')).toHaveValue('codex');
+    await expect(page.locator('.metric-card').first().locator('strong')).toHaveText('42');
+    const csvFile = path.join(context.workspace.root, 'viewer-usage.csv');
+    await app.evaluate(({ dialog }, target) => {
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath: target });
+    }, csvFile);
+    await page.getByRole('button', { name: '导出 CSV' }).click();
+    await expect.poll(() => existsSync(csvFile)).toBe(true);
+    const csv = readFileSync(csvFile, 'utf8');
+    expect(csv).toContain('"gpt-alpha",12,0,0,0,12,1');
+    expect(csv).toContain('"gpt-beta",30,0,0,0,30,1');
   } finally { await context.close(); }
 });

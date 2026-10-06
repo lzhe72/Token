@@ -183,7 +183,9 @@ async function signIn(page) {
 }
 async function measureCold(data,width) {
   const groups = {
-    'overview-to-sources': [], 'overview-to-users': [], 'overview-to-report': []
+    'overview-to-sources': [], 'sources-to-overview': [],
+    'overview-to-users': [], 'users-to-overview': [],
+    'overview-to-report': [], 'report-to-overview': []
   };
   for (let iteration=0;iteration<coldRepetitions;iteration++) {
     console.log(`[performance] ${data} ${width}px cold launch ${iteration + 1}/${coldRepetitions}`);
@@ -191,10 +193,11 @@ async function measureCold(data,width) {
     await signIn(page);
     await app.evaluate(({ BrowserWindow }, value) => BrowserWindow.getAllWindows()[0].setSize(value,800), width);
     groups['overview-to-sources'].push(await nav(page,'数据来源','数据来源'));
-    await nav(page,'概览','用量概览');
+    groups['sources-to-overview'].push(await nav(page,'概览','用量概览'));
     groups['overview-to-users'].push(await nav(page,'管理中心','管理中心'));
-    await nav(page,'概览','用量概览');
+    groups['users-to-overview'].push(await nav(page,'概览','用量概览'));
     groups['overview-to-report'].push(await nav(page,'用量报表','用量报表'));
+    groups['report-to-overview'].push(await nav(page,'概览','用量概览'));
     await app.close();
     app=undefined;
   }
