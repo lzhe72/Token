@@ -4,6 +4,8 @@ import { formatPeriodLabel, formatTokens } from './format';
 import { TokenValue } from './copy-token';
 import { reportEmptyState } from './empty-state';
 import type { ReportDestination } from './report-navigation';
+import { cachedUsage, cachedUsageDetails, fetchUsage, markUsageDue, rememberUsageDetails,
+  usageCacheKey, usageRefreshDelay, USAGE_REFRESH_MS } from './usage-cache';
 
 function localDate(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -51,23 +53,34 @@ function matchesQuery(report: UsageReport, query: ReportQuery, user: PublicUser)
   return (Object.keys(effective) as Array<keyof ReportQuery>).every(key => report.query[key] === effective[key]);
 }
 
-export function ReportPanel({ user, users, destination, backTick, onDrilldownChange, onDiagnostics, onPermissions }: { user: PublicUser; users: PublicUser[];
+export function ReportPanel({ user, users, destination, rememberedQuery, onQueryChange, usageEpoch, backTick, onDrilldownChange, onDiagnostics, onPermissions }: { user: PublicUser; users: PublicUser[];
+  rememberedQuery?: ReportQuery | null; onQueryChange?: (query: ReportQuery) => void; usageEpoch: number;
   destination?: ReportDestination | null; backTick?: number; onDrilldownChange?: (active: boolean) => void;
   onDiagnostics(): void; onPermissions(): void }) {
-  const [query, setQuery] = React.useState<ReportQuery>(() => destination?.query || initialQuery());
-  const [loadedReport, setLoadedReport] = React.useState<UsageReport | null>(null);
-  const [details, setDetails] = React.useState<UsageDetailsPage | null>(null);
+  const [query, setQuery] = React.useState<ReportQuery>(() => destination?.query || rememberedQuery || initialQuery());
+  const key = usageCacheKey(user, query);
+  const [loaded, setLoaded] = React.useState<{ key: string; report: UsageReport | null }>(() =>
+    ({ key, report: cachedUsage(key)?.report ?? null }));
+  const [loadedDetails, setLoadedDetails] = React.useState<{ key: string; value: UsageDetailsPage } | null>(null);
   const [detailPage, setDetailPage] = React.useState(1);
   const [detailPeriod, setDetailPeriod] = React.useState(destination?.period || '');
-  const [error, setError] = React.useState('');
+  const [error, setError] = React.useState<{ key: string; message: string } | null>(null);
   const [exporting, setExporting] = React.useState(false);
-  const [loading, setLoading] = React.useState(true);
+  const [loading, setLoading] = React.useState(() => !cachedUsage(key)?.report);
+  const [refreshing, setRefreshing] = React.useState(false);
   const [reload, setReload] = React.useState(0);
+  const previousKey = React.useRef(key);
   const [diagnostics, setDiagnostics] = React.useState<CollectionDiagnostic[]>([]);
+  const loadedReport = loaded.key === key ? loaded.report : cachedUsage(key)?.report;
   const report = loadedReport && matchesQuery(loadedReport, query, user) ? loadedReport : null;
+  const detailsKey = report ? JSON.stringify([key, report.snapshotId, detailPage, detailPeriod]) : '';
+  const details = report ? loadedDetails?.key === detailsKey ? loadedDetails.value
+    : cachedUsageDetails(key, report.snapshotId, detailPage, detailPeriod) : null;
   const detailRef = React.useRef<HTMLElement | null>(null);
   const lastBackTick = React.useRef(backTick);
   const focusedDestination = React.useRef(false);
+
+  React.useEffect(() => { onQueryChange?.(query); }, [query, onQueryChange]);
 
   React.useEffect(() => {
     if (lastBackTick.current === backTick) return;
@@ -89,22 +102,37 @@ export function ReportPanel({ user, users, destination, backTick, onDrilldownCha
 
   React.useEffect(() => {
     let active = true;
-    let generation = 0;
-    const refresh = (foreground: boolean) => {
-      const current = ++generation;
-      if (foreground) setLoading(true);
-      return window.tokenApi.queryUsage(query).then(value => {
-        if (active && current === generation) {
-          setLoadedReport(previous => previous?.snapshotId === value.snapshotId ? previous : value);
-          setError('');
+    let timer: number;
+    if (previousKey.current !== key) markUsageDue(key);
+    previousKey.current = key;
+    const cached = cachedUsage(key);
+    setLoaded({ key, report: cached?.report ?? null });
+    setLoading(!cached?.report);
+    setError(cached?.lastError ? { key, message: displayError(cached.lastError) } : null);
+    const refresh = async (): Promise<void> => {
+      if (!active) return;
+      const previous = cachedUsage(key)?.report;
+      setLoading(!previous);
+      setRefreshing(Boolean(previous));
+      try {
+        const value = await fetchUsage(key, query);
+        if (active) {
+          setLoaded({ key, report: value });
+          setError(null);
         }
-      }).catch(e => { if (active && current === generation) { setLoadedReport(null); setError(displayError(e)); } })
-        .finally(() => { if (active && current === generation) setLoading(false); });
+      } catch (reason) {
+        if (active) setError({ key, message: displayError(reason) });
+      } finally {
+        if (active) {
+          setLoading(false);
+          setRefreshing(false);
+          timer = window.setTimeout(() => void refresh(), USAGE_REFRESH_MS);
+        }
+      }
     };
-    void refresh(true);
-    const timer = window.setInterval(() => void refresh(false), 15_000);
-    return () => { active = false; window.clearInterval(timer); };
-  }, [query, reload]);
+    timer = window.setTimeout(() => void refresh(), usageRefreshDelay(key));
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [key, usageEpoch, reload]);
 
   React.useEffect(() => {
     let active = true;
@@ -115,20 +143,24 @@ export function ReportPanel({ user, users, destination, backTick, onDrilldownCha
 
   React.useEffect(() => {
     let active = true;
-    if (!report) { setDetails(null); return () => { active = false; }; }
-    setDetails(null);
+    if (!report) { setLoadedDetails(null); return () => { active = false; }; }
     const snapshotId = report.snapshotId;
-    const refresh = () => window.tokenApi.queryUsageDetails(query, detailPage, detailPeriod, snapshotId)
-      .then(value => { if (active) setDetails(previous => previous && JSON.stringify(previous) === JSON.stringify(value) ? previous : value); })
+    const detailKey = JSON.stringify([key, snapshotId, detailPage, detailPeriod]);
+    const cached = cachedUsageDetails(key, snapshotId, detailPage, detailPeriod);
+    if (cached) { setLoadedDetails({ key: detailKey, value: cached }); return () => { active = false; }; }
+    setLoadedDetails(null);
+    void window.tokenApi.queryUsageDetails(query, detailPage, detailPeriod, snapshotId)
+      .then(value => { if (active) {
+        rememberUsageDetails(key, snapshotId, detailPage, detailPeriod, value);
+        setLoadedDetails({ key: detailKey, value });
+      } })
       .catch(e => { if (active) {
         const message = displayError(e);
-        setError(message);
-        if (message.includes('数据已变化')) setLoadedReport(null);
+        setError({ key, message });
+        if (message.includes('数据已变化')) { markUsageDue(key); setReload(value => value + 1); }
       } });
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 15_000);
-    return () => { active = false; window.clearInterval(timer); };
-  }, [query, detailPage, detailPeriod, report?.snapshotId]);
+    return () => { active = false; };
+  }, [key, detailPage, detailPeriod, report?.snapshotId]);
 
   function update<K extends keyof ReportQuery>(key: K, value: ReportQuery[K]) {
     setQuery(current => ({ ...current, [key]: value }));
@@ -145,12 +177,12 @@ export function ReportPanel({ user, users, destination, backTick, onDrilldownCha
   async function exportCsv() {
     if (!report || loading) return;
     setExporting(true);
-    setError('');
+    setError(null);
     try { await window.tokenApi.exportCsv(query, report.snapshotId); }
     catch (e) {
       const message = displayError(e);
-      setError(message);
-      if (message.includes('数据已变化')) setLoadedReport(null);
+      setError({ key, message });
+      if (message.includes('数据已变化')) markUsageDue(key);
     }
     finally { setExporting(false); }
   }
@@ -176,7 +208,7 @@ export function ReportPanel({ user, users, destination, backTick, onDrilldownCha
         )}
       </div>
       <div className="report-dates"><label>开始 <input aria-label="开始日期" type="date" value={query.from} onChange={e => update('from', e.target.value)} /></label><span>—</span><label>结束 <input aria-label="结束日期" type="date" value={query.to} onChange={e => update('to', e.target.value)} /></label></div>
-      <button className="export-button" disabled={exporting || loading || !report} onClick={exportCsv}>{exporting ? '导出中…' : report?.accounting?.status === 'uncertain' ? '导出含待核对用量 CSV v2' : '导出 CSV'}</button>
+      <button className="export-button" disabled={exporting || loading || refreshing || !report} onClick={exportCsv}>{exporting ? '导出中…' : report?.accounting?.status === 'uncertain' ? '导出含待核对用量 CSV v2' : '导出 CSV'}</button>
     </div>
     <div className="selected-filters" role="group" aria-label="当前报表筛选">
       <strong>当前筛选</strong><span>{query.from} 至 {query.to}</span><span>{query.timeZone}</span>
@@ -196,9 +228,9 @@ export function ReportPanel({ user, users, destination, backTick, onDrilldownCha
         {[...new Set([query.timeZone, 'Asia/Shanghai', 'UTC', 'America/Los_Angeles', 'Europe/London'])].map(zone => <option key={zone} value={zone}>{zone}</option>)}
       </select></label>
     </div>
-    {error && <div className="error" role="alert">{error}</div>}
-    {loading && report && <p className="hint" role="status">正在刷新当前报表，导出暂不可用。</p>}
-    {!report ? <div className="panel empty-row" role="status">{loading ? '正在计算报表…' : '报表暂不可用，请重试。'} <button type="button" className="text-button" onClick={() => setReload(value => value + 1)}>刷新报表</button></div> : <>
+    {error?.key === key && <div className="error" role="alert">{report ? '显示上次结果，未更新：' : ''}{error.message}</div>}
+    {report && <p className="hint usage-refresh-status" role="status">{cachedUsage(key)?.updatedAt ? `上次更新 ${new Date(cachedUsage(key)!.updatedAt!).toLocaleTimeString('zh-CN')}` : '正在读取报表'}{refreshing ? ' · 正在更新，导出暂不可用' : ''} <button type="button" className="text-button" onClick={() => { markUsageDue(key); setReload(value => value + 1); }}>刷新报表</button></p>}
+    {!report ? <div className="panel empty-row" role="status">{loading || (loaded.key !== key && !cachedUsage(key)?.report) ? '正在计算报表…' : '报表暂不可用，请重试。'} <button type="button" className="text-button" onClick={() => { markUsageDue(key); setReload(value => value + 1); }}>刷新报表</button></div> : <>
       {report.accounting?.status === 'uncertain' && <div className="config-warning" role="status">总量不可确认。已确认小计 {number(report.accounting.confirmedSubtotal.totalTokens)} Token；当前授权范围有 {number(report.accounting.conflictCount)} 条待核对记录（{report.accounting.conflictSources.map(source => source === 'local' ? '本地' : '遥测').join('、')}）。下方指标、趋势和排行仅统计已确认部分；明细仍列出待核对原始记录。导出将使用 14 列 CSV v2，冲突组的总 Token 留空。</div>}
       <div className="coverage-strip">{report.coverage.map(source => <div key={source.provider}><strong>{source.provider === 'codex' ? 'Codex' : 'Claude Code'}</strong><span>{coverageLabel(source)} · {source.factCount === null ? '本地条数未知' : `${number(source.factCount)} 条本范围本地已观测`} · {source.telemetryFactCount === null ? '遥测条数未知' : `${number(source.telemetryFactCount)} 条本范围遥测已观测`} · {source.windowCoverage?.reason ?? source.detail}</span></div>)}</div>
       <div className="metric-grid">

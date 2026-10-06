@@ -10,6 +10,7 @@ import { FeedbackPanel } from './feedback';
 import { OnboardingPanel } from './onboarding';
 import { SourceBindingDialog } from './source-binding';
 import type { ReportDestination } from './report-navigation';
+import { clearUsageCache, invalidateUsageCache } from './usage-cache';
 import './style.css';
 
 function errorMessage(error: unknown): string {
@@ -116,12 +117,18 @@ function App() {
   const [conflictUsername, setConflictUsername] = React.useState('');
   const [reportDrilldown, setReportDrilldown] = React.useState(false);
   const [reportDestination, setReportDestination] = React.useState<ReportDestination | null>(null);
+  const reportQueryRef = React.useRef<{ actorId: string; query: ReportQuery } | null>(null);
   const [reportBackTick, setReportBackTick] = React.useState(0);
+  const [usageEpoch, setUsageEpoch] = React.useState(0);
   const [overviewDays, setOverviewDays] = React.useState(30);
   const [overviewProvider, setOverviewProvider] = React.useState<Provider | 'all'>('all');
   const [overviewUserId, setOverviewUserId] = React.useState('all');
   const [overviewTimeZone, setOverviewTimeZone] = React.useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai');
   const [returnFocusId, setReturnFocusId] = React.useState('');
+
+  React.useEffect(() => window.tokenApi.onUsageChanged(revision => {
+    if (invalidateUsageCache(revision)) setUsageEpoch(value => value + 1);
+  }), []);
 
   function openTab(next: typeof tab): number {
     const request = ++navigationRequest.current;
@@ -270,6 +277,8 @@ function App() {
   }
 
   async function logout() {
+    clearUsageCache();
+    reportQueryRef.current = null;
     navigationRequest.current++;
     activeUserId.current = null;
     onboardingRequest.current++;
@@ -737,6 +746,7 @@ function App() {
         {onboardingInProgress && tab !== 'onboarding' && <div className="panel onboarding-hint" role="status"><div><strong>首次设置尚未结束</strong><p>完成当前操作后可返回引导，核对四步进度。</p></div><div><button type="button" onClick={() => openTab('onboarding')}>返回引导</button><button type="button" className="text-button" onClick={finishOnboarding}>结束引导</button></div></div>}
         {tab === 'overview' ? <OverviewPanel sources={sourceStatuses} server={server} upload={upload} update={update} user={state.user} users={users}
           days={overviewDays} provider={overviewProvider} userId={overviewUserId} timeZone={overviewTimeZone}
+          usageEpoch={usageEpoch}
           focusId={returnFocusId} onFocusRestored={() => setReturnFocusId('')}
           setDays={setOverviewDays} setProvider={setOverviewProvider} setUserId={setOverviewUserId} setTimeZone={setOverviewTimeZone}
           onCheckUpdate={checkUpdate} onDownloadUpdate={downloadUpdate} onReport={destination => void showReport(destination)} />
@@ -744,7 +754,11 @@ function App() {
           onNavigate={target => { if (target === 'sources') void showSources(); else if (target === 'diagnostics') void showDiagnostics(); else void showReport(); }}
           onSkip={finishOnboarding}
           onRefresh={refreshOnboarding} />
-        : tab === 'report' ? <ReportPanel user={state.user} users={users} destination={reportDestination} backTick={reportBackTick} onDrilldownChange={setReportDrilldown} onDiagnostics={() => void showDiagnostics()} onPermissions={() => void openFilePermissions()} />
+        : tab === 'report' ? <ReportPanel user={state.user} users={users} destination={reportDestination}
+          rememberedQuery={reportQueryRef.current?.actorId === state.user.id ? reportQueryRef.current.query : null}
+          onQueryChange={query => { reportQueryRef.current = { actorId: state.user!.id, query }; }}
+          usageEpoch={usageEpoch} backTick={reportBackTick} onDrilldownChange={setReportDrilldown}
+          onDiagnostics={() => void showDiagnostics()} onPermissions={() => void openFilePermissions()} />
         : tab === 'settings' ? <SettingsPanel user={state.user} server={server} upload={upload} telemetry={telemetry} update={update} diagnostics={diagnostics}
           serverUrl={serverUrl} serverToken={serverToken} adminToken={serverAdminToken} busy={busy} checking={checkingUpdate}
           setServerUrl={setServerUrl} setServerToken={setServerToken} setAdminToken={setServerAdminToken} saveServer={saveServer}

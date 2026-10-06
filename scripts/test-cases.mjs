@@ -113,9 +113,15 @@ const cases = [
   ['TC-101', 'e2e', 'tests/e2e/page-refinements.spec.ts', 'TC-101 引导只突出下一步且扫描归属后进度立即刷新', '首次引导衔接'],
   ['TC-102', 'e2e', 'tests/e2e/navigation-performance.spec.ts', 'TC-102 标准与窄窗口导航先反馈并显示加载或内容', '页面导航响应'],
   ['TC-103', 'e2e', 'tests/e2e/navigation-performance.spec.ts', 'TC-103 窄窗口右栏滚动保持响应且左栏固定', '右栏滚动流畅性'],
-  ['TC-104', 'e2e', 'tests/e2e/navigation-performance.spec.ts', 'TC-104 过期导航结果不覆盖新页面且普通用户不出现管理入口', '过期响应与账号隔离']
+  ['TC-104', 'e2e', 'tests/e2e/navigation-performance.spec.ts', 'TC-104 过期导航结果不覆盖新页面且普通用户不出现管理入口', '过期响应与账号隔离'],
+  ['TC-105', 'e2e', 'tests/e2e/usage-refresh.spec.ts', 'TC-105 切页复用报表且五分钟到期才重查，筛选和手动刷新即时查询', '五分钟查询与切页缓存'],
+  ['TC-106', 'e2e', 'tests/e2e/usage-refresh.spec.ts', 'TC-106 事实变更即时刷新，失败保留旧值且账号切换隔离', '变更失效与账号隔离']
 ];
 const extraRuns = {
+  'TC-105': [{ kind: 'unit', file: 'tests/usage-cache.test.ts',
+    testName: 'TC-105 同一账号筛选复用结果，4 分 59 秒不触发而五分钟到期' }],
+  'TC-106': [{ kind: 'unit', file: 'tests/usage-cache.test.ts',
+    testName: 'TC-106 账号与授权变化隔离缓存，旧请求不能回填' }],
   'TC-102': [{ kind: 'unit', file: 'tests/report-snapshot.test.ts',
     testName: 'TC-102 相同报表快照复用明细读取，事实变更后重新计算' },
     { kind: 'integration', file: 'scripts/measure-navigation.mjs', args: ['20', '20', '--warm-only'] },

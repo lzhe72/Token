@@ -179,6 +179,7 @@ export interface ProjectTotal extends TokenTotals {
 export interface UsageReport {
   query: ReportQuery;
   snapshotId: string;
+  dataRevision?: number;
   accounting: { status: 'confirmed' | 'uncertain'; confirmedSubtotal: TokenTotals;
     conflictCount: number; conflictSources: Array<'local' | 'telemetry'> };
   totals: TokenTotals;
@@ -318,6 +319,7 @@ export interface TokenApi {
   listFeedback(): Promise<FeedbackItem[]>;
   setFeedbackResolved(id: string, resolved: boolean): Promise<void>;
   queryUsage(query: ReportQuery): Promise<UsageReport>;
+  onUsageChanged(listener: (revision: number) => void): () => void;
   queryUsageDetails(query: ReportQuery, page: number, period: string, snapshotId?: string): Promise<UsageDetailsPage>;
   exportCsv(query: ReportQuery, snapshotId?: string): Promise<boolean>;
 }

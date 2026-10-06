@@ -9,6 +9,9 @@ export type Row = Record<string, SqlValue>;
 export class AppDatabase {
   private inTransaction = false;
   private changeRevision = 0;
+  private observedUsageRevision = 0;
+  private pendingUsageChange = false;
+  private readonly usageListeners = new Set<(revision: number) => void>();
   private lastPersisted: Uint8Array | null = null;
   private constructor(private db: SqlDatabase, private readonly file: string,
     private readonly reopen: (bytes: Uint8Array) => SqlDatabase) {}
@@ -43,6 +46,17 @@ export class AppDatabase {
   }
 
   get revision(): number { return this.changeRevision; }
+  get usageRevision(): number { return this.observedUsageRevision; }
+
+  onUsageChange(listener: (revision: number) => void): () => void {
+    this.usageListeners.add(listener);
+    return () => this.usageListeners.delete(listener);
+  }
+
+  private notifyUsageChange(): void {
+    this.observedUsageRevision++;
+    for (const listener of this.usageListeners) listener(this.observedUsageRevision);
+  }
 
   private migrate(): void {
     this.db.run(`
@@ -95,8 +109,12 @@ export class AppDatabase {
     if (params.length === 0) this.db.run(sql);
     else this.db.run(sql, params);
     this.changeRevision++;
+    const affectsUsage = /\b(?:usage_facts|usage_uncertain_facts|fact_projects|source_identities|identity_migration_events)\b/i.test(sql);
     if (!this.inTransaction) {
       this.persist();
+      if (affectsUsage) this.notifyUsageChange();
+    } else if (affectsUsage) {
+      this.pendingUsageChange = true;
     }
   }
 
@@ -109,13 +127,17 @@ export class AppDatabase {
     } catch (error) {
       this.db.run('ROLLBACK');
       this.inTransaction = false;
+      this.pendingUsageChange = false;
       this.changeRevision++;
       throw error;
     }
     this.db.run('COMMIT');
     this.inTransaction = false;
     this.changeRevision++;
+    const changedUsage = this.pendingUsageChange;
+    this.pendingUsageChange = false;
     this.persist();
+    if (changedUsage) this.notifyUsageChange();
   }
 
   transactionDurable(fn: () => void): void {

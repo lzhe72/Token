@@ -3,6 +3,7 @@ import type { Provider, PublicUser, ReportQuery, ServerStatus, SourceStatus, Upd
 import { TokenValue } from './copy-token';
 import type { ReportDestination } from './report-navigation';
 import { localLabels, serviceLabels, syncLabels } from './service-state';
+import { cachedUsage, fetchUsage, markUsageDue, usageCacheKey, usageRefreshDelay, USAGE_REFRESH_MS } from './usage-cache';
 
 function queryFor(days: number, provider: Provider | 'all', userId: string, timeZone: string): ReportQuery {
   const parts = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
@@ -35,7 +36,7 @@ export function comparisonLabel(current: number, previous: number | null, covere
 }
 
 export function OverviewPanel({ sources, server, upload, update, user, users, days, provider, userId, timeZone,
-  setDays, setProvider, setUserId, setTimeZone, focusId, onFocusRestored, onCheckUpdate, onDownloadUpdate, onReport }: {
+  setDays, setProvider, setUserId, setTimeZone, usageEpoch, focusId, onFocusRestored, onCheckUpdate, onDownloadUpdate, onReport }: {
   sources: SourceStatus[];
   server: ServerStatus | null;
   upload: UploadStatus | null;
@@ -46,6 +47,7 @@ export function OverviewPanel({ sources, server, upload, update, user, users, da
   provider: Provider | 'all';
   userId: string;
   timeZone: string;
+  usageEpoch: number;
   setDays: (days: number) => void;
   setProvider: (provider: Provider | 'all') => void;
   setUserId: (userId: string) => void;
@@ -56,35 +58,56 @@ export function OverviewPanel({ sources, server, upload, update, user, users, da
   onDownloadUpdate: () => void;
   onReport: (destination: ReportDestination) => void;
 }) {
-  const [loadedReport, setLoadedReport] = React.useState<UsageReport | null>(null);
-  const [error, setError] = React.useState('');
-  const [loading, setLoading] = React.useState(true);
+  const currentQuery = queryFor(days, provider, userId, timeZone);
+  const key = usageCacheKey(user, currentQuery);
+  const [loaded, setLoaded] = React.useState<{ key: string; report: UsageReport | null }>(() =>
+    ({ key, report: cachedUsage(key)?.report ?? null }));
+  const [error, setError] = React.useState<{ key: string; message: string } | null>(null);
+  const [loading, setLoading] = React.useState(() => !cachedUsage(key)?.report);
+  const [refreshing, setRefreshing] = React.useState(false);
+  const [reload, setReload] = React.useState(0);
+  const previousKey = React.useRef(key);
 
   React.useEffect(() => {
     let active = true;
-    setLoadedReport(null);
-    setLoading(true);
-    const refresh = async () => {
+    let timer: number;
+    if (previousKey.current !== key) markUsageDue(key);
+    previousKey.current = key;
+    const cached = cachedUsage(key);
+    setLoaded({ key, report: cached?.report ?? null });
+    setLoading(!cached?.report);
+    setError(cached?.lastError ? { key, message: cached.lastError } : null);
+    const refresh = async (): Promise<void> => {
+      if (!active) return;
+      const previous = cachedUsage(key)?.report;
+      setLoading(!previous);
+      setRefreshing(Boolean(previous));
       try {
-        const current = await window.tokenApi.queryUsage(queryFor(days, provider, userId, timeZone));
+        const current = await fetchUsage(key, currentQuery);
         if (active) {
-          setLoadedReport(previous => previous?.snapshotId === current.snapshotId ? previous : current);
-          setError(''); setLoading(false);
+          setLoaded({ key, report: current });
+          setError(null);
         }
       } catch (reason) {
-        if (active) { setError(reason instanceof Error ? reason.message : '概览加载失败'); setLoading(false); }
+        if (active) setError({ key, message: reason instanceof Error ? reason.message : '概览加载失败' });
+      } finally {
+        if (active) {
+          setLoading(false);
+          setRefreshing(false);
+          timer = window.setTimeout(() => void refresh(), USAGE_REFRESH_MS);
+        }
       }
     };
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 15000);
-    return () => { active = false; window.clearInterval(timer); };
-  }, [days, provider, userId, timeZone]);
+    timer = window.setTimeout(() => void refresh(), usageRefreshDelay(key));
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [key, usageEpoch, reload]);
 
-  const currentQuery = queryFor(days, provider, userId, timeZone);
+  const loadedReport = loaded.key === key ? loaded.report : cachedUsage(key)?.report;
   const report = loadedReport && loadedReport.query.from === currentQuery.from && loadedReport.query.to === currentQuery.to &&
     loadedReport.query.provider === provider && loadedReport.query.userId === (user.role === 'viewer' ? user.id : userId) &&
     loadedReport.query.timeZone === timeZone ? loadedReport : null;
-  const loadingCurrent = loading || Boolean(loadedReport && !report);
+  const loadingCurrent = !report && (loading || (loaded.key !== key && !cachedUsage(key)?.report));
+  const updatedAt = cachedUsage(key)?.updatedAt;
   const selectedSources = report?.coverage ?? [];
   const coverage = selectedSources.length > 0 && selectedSources.every(source => source.windowCoverage?.state === 'complete');
   const observed = Boolean(report && (report.totals.requests > 0 || report.accounting?.conflictCount > 0));
@@ -109,7 +132,8 @@ export function OverviewPanel({ sources, server, upload, update, user, users, da
 
   return <div className="overview-page">
     <div className="overview-toolbar"><div><span className="eyebrow">YOUR USAGE</span><p>查看模型、趋势与数据覆盖情况。</p></div><div className="overview-controls"><select aria-label="概览时间范围" value={days} onChange={event => setDays(Number(event.target.value))}><option value={7}>近 7 天</option><option value={30}>近 30 天</option><option value={90}>近 90 天</option></select><select aria-label="概览工具" value={provider} onChange={event => setProvider(event.target.value as Provider | 'all')}><option value="all">全部工具</option><option value="codex">Codex</option><option value="claude">Claude Code</option></select>{user.role !== 'viewer' && <select aria-label="概览用户" value={userId} onChange={event => setUserId(event.target.value)}><option value="all">全部用户与未归属</option><option value="unassigned">未归属</option>{users.map(item => <option value={item.id} key={item.id}>{item.username}</option>)}</select>}<select aria-label="概览时区" value={timeZone} onChange={event => setTimeZone(event.target.value)}>{[...new Set([timeZone, 'Asia/Shanghai', 'UTC', 'America/Los_Angeles', 'Europe/London'])].map(zone => <option value={zone} key={zone}>{zone}</option>)}</select></div></div>
-    {error && <div className="error" role="alert">{error}</div>}
+    {error?.key === key && <div className="error" role="alert">{report ? '显示上次结果，未更新：' : ''}{error.message}</div>}
+    {report && <p className="hint usage-refresh-status" role="status">{updatedAt ? `上次更新 ${new Date(updatedAt).toLocaleTimeString('zh-CN')}` : '正在读取用量'}{refreshing ? ' · 正在更新' : ''} <button type="button" className="text-button" onClick={() => { markUsageDue(key); setReload(value => value + 1); }}>刷新用量</button></p>}
     <div className="overview-metrics">
       <div className="overview-primary"><span>{report?.accounting?.status === 'uncertain' ? '已确认小计 Token' : coverage ? '总 Token' : '已观测 Token'}</span><strong>{loadingCurrent ? '加载中' : !report || !observed && !coverage ? '覆盖未知' : <TokenValue value={currentTotal} label={report.accounting?.status === 'uncertain' ? '概览已确认小计' : '概览已观测总量'} />}</strong><div className="overview-change"><b>{loadingCurrent ? '—' : '不可比较'}</b><span>本期含进行中的今天，缺少同截止覆盖证据</span></div>{report?.accounting?.status === 'uncertain' && <small className="overview-asof">总量不可确认 · {report.accounting.conflictCount} 条跨来源记录待核对</small>}<small className="overview-asof">今日进行中 · {scanEvidence || '本范围采集证据未知'}</small></div>
       <div className="overview-secondary"><div><span>{report?.accounting?.status === 'uncertain' ? '已确认用量记录' : '已观测用量记录'}</span><strong>{loadingCurrent ? '—' : observed || coverage ? report?.totals.requests.toLocaleString('zh-CN') : '覆盖未知'}</strong></div><div><span>{report?.accounting?.status === 'uncertain' ? '已确认模型' : '已观测模型'}</span><strong>{loadingCurrent ? '—' : observed || coverage ? report?.models.length : '覆盖未知'}</strong></div><div className="overview-input-output"><span>{report?.accounting?.status === 'uncertain' ? '已确认输入 / 输出' : '已观测输入 / 输出'}</span>{loadingCurrent ? <strong>—</strong> : (observed || coverage) && report ? <div className="overview-io-values"><div><small>输入</small><strong><TokenValue value={report.totals.inputTokens} label={report.accounting?.status === 'uncertain' ? '概览已确认输入' : '概览已观测输入'} /></strong></div><div><small>输出</small><strong><TokenValue value={report.totals.outputTokens} label={report.accounting?.status === 'uncertain' ? '概览已确认输出' : '概览已观测输出'} /></strong></div></div> : <strong>覆盖未知</strong>}</div></div>

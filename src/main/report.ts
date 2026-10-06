@@ -271,7 +271,7 @@ export class ReportService {
       addFact(providers.get(fact.provider)!, fact);
     }
     return {
-      query, snapshotId: snapshot.id, totals,
+      query, snapshotId: snapshot.id, dataRevision: this.db.usageRevision, totals,
       accounting: { status: conflicts.count ? 'uncertain' : 'confirmed', confirmedSubtotal: { ...totals },
         conflictCount: conflicts.count, conflictSources: (['local', 'telemetry'] as const).filter(source => conflicts.sources.has(source)) },
       points: [...periods.values()].sort((a, b) => a.period.localeCompare(b.period)),

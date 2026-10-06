@@ -47,6 +47,13 @@ const api: TokenApi = {
   listFeedback: () => ipcRenderer.invoke('feedback:list'),
   setFeedbackResolved: (id, resolved) => ipcRenderer.invoke('feedback:set-resolved', id, resolved),
   queryUsage: query => ipcRenderer.invoke('usage:query', query),
+  onUsageChanged: listener => {
+    const handler = (_event: Electron.IpcRendererEvent, revision: unknown) => {
+      if (typeof revision === 'number' && Number.isSafeInteger(revision) && revision >= 0) listener(revision);
+    };
+    ipcRenderer.on('usage:changed', handler);
+    return () => ipcRenderer.removeListener('usage:changed', handler);
+  },
   queryUsageDetails: (query, page, period, snapshotId) => ipcRenderer.invoke('usage:details', query, page, period, snapshotId),
   exportCsv: (query, snapshotId) => ipcRenderer.invoke('reports:export-csv', query, snapshotId)
 };

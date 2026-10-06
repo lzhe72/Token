@@ -394,6 +394,10 @@ function registerIpc(auth: AuthService, sources: UsageScanner, reports: ReportSe
   });
   ipcMain.handle('usage:query', async (event, query: unknown) => {
     const actor = currentUser(event, auth);
+    if (isolatedTest && process.env.TOKEN_E2E_TRACE_USAGE_QUERY === '1') {
+      const trace = globalThis as typeof globalThis & { tokenE2eUsageQueryCount?: number };
+      trace.tokenE2eUsageQueryCount = (trace.tokenE2eUsageQueryCount ?? 0) + 1;
+    }
     await navigationTestGate('usage:query');
     confirmActor(event, actor.id);
     return reports.query(query, actor);
@@ -490,6 +494,17 @@ app.whenReady().then(async () => {
       setTimeout(() => app.quit(), 250);
     });
   const reports = new ReportService(database, scanner);
+  const usageDatabase = database;
+  let usageNotice: ReturnType<typeof setTimeout> | null = null;
+  database.onUsageChange(() => {
+    if (usageNotice) clearTimeout(usageNotice);
+    usageNotice = setTimeout(() => {
+      usageNotice = null;
+      if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send('usage:changed', usageDatabase.usageRevision);
+      }
+    }, 500);
+  });
   const binding = new SourceBindingService(database, scanner, reports, usageSync);
   registerIpc(new AuthService(database), scanner, reports, telemetry, database,
     new TrustedDeviceStore(app.getPath('userData'), safeStorage), connection, usageSync, updater, feedbackService, binding, managedRuns);
