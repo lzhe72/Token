@@ -192,6 +192,7 @@ try {
   app = await electron.launch({ executablePath: executable, args: [`--token-user-data=${userData}`], env: baseEnv });
   page = await app.firstWindow();
   assert.equal(await app.evaluate(({ app: electronApp }) => electronApp.getVersion()), newVersion);
+  await page.getByRole('complementary').getByRole('button', { name: /概览/ }).click();
   await expect(page.getByRole('heading', { name: '用量概览' })).toBeVisible();
   assert.equal((await page.evaluate(() => window.tokenApi.getState())).user?.username, 'admin');
   const report = await page.evaluate(value => window.tokenApi.queryUsage({ from: value, to: value,
