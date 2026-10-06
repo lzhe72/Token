@@ -165,6 +165,16 @@ async function measure(page, data, width) {
   }
   await nav(page,'用量报表','用量报表');
   record({data,width,scenario:'report-scroll-10s',cohort:'warm',...await scroll(page)});
+  if (data === '35000-facts') {
+    for (const [panel,rows] of [['.project-panel','.dimension-item'],['.model-panel','tbody tr']]) {
+      const section = page.locator(panel);
+      if (await section.locator(rows).count() !== 20) throw Error(`${panel} 首屏应只渲染 20 项`);
+      await section.locator('button.text-button[aria-expanded="false"]').click();
+      if (await section.locator(rows).count() !== 200) throw Error(`${panel} 展开后应可查看全部 200 项`);
+      await section.locator('button.text-button[aria-expanded="true"]').click();
+      if (await section.locator(rows).count() !== 20) throw Error(`${panel} 收起后应恢复 20 项`);
+    }
+  }
   await nav(page,'概览','用量概览');
 }
 async function measureLongScroll(page, width) {

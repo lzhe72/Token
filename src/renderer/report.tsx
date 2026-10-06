@@ -29,6 +29,7 @@ function initialQuery(): ReportQuery {
 }
 
 const number = (value: number) => value.toLocaleString('zh-CN');
+const INITIAL_DIMENSION_ROWS = 20;
 
 function coverageLabel(source: SourceStatus): string {
   if (source.status === 'cancelled') return '扫描已取消 · 覆盖未知';
@@ -69,6 +70,8 @@ export function ReportPanel({ user, users, destination, rememberedQuery, onQuery
   const [loading, setLoading] = React.useState(() => !cachedUsage(key)?.report);
   const [refreshing, setRefreshing] = React.useState(false);
   const [reload, setReload] = React.useState(0);
+  const [expandedProjects, setExpandedProjects] = React.useState(false);
+  const [expandedModels, setExpandedModels] = React.useState(false);
   const previousKey = React.useRef(key);
   const [diagnostics, setDiagnostics] = React.useState<CollectionDiagnostic[]>([]);
   const loadedReport = loaded.key === key ? loaded.report : cachedUsage(key)?.report;
@@ -103,7 +106,11 @@ export function ReportPanel({ user, users, destination, rememberedQuery, onQuery
   React.useEffect(() => {
     let active = true;
     let timer: number;
-    if (previousKey.current !== key) markUsageDue(key);
+    if (previousKey.current !== key) {
+      markUsageDue(key);
+      setExpandedProjects(false);
+      setExpandedModels(false);
+    }
     previousKey.current = key;
     const cached = cachedUsage(key);
     setLoaded({ key, report: cached?.report ?? null });
@@ -166,12 +173,16 @@ export function ReportPanel({ user, users, destination, rememberedQuery, onQuery
     setQuery(current => ({ ...current, [key]: value }));
     setDetailPage(1);
     setDetailPeriod('');
+    setExpandedProjects(false);
+    setExpandedModels(false);
   }
 
   function selectModel(provider: Provider, model: string) {
     setQuery(current => ({ ...current, provider, model }));
     setDetailPage(1);
     setDetailPeriod('');
+    setExpandedProjects(false);
+    setExpandedModels(false);
   }
 
   async function exportCsv() {
@@ -247,15 +258,16 @@ export function ReportPanel({ user, users, destination, rememberedQuery, onQuery
       </section>
       <section className="panel project-panel"><div className="panel-head"><h2>项目统计{report.accounting?.status === 'uncertain' ? ' · 仅已确认部分' : ''}</h2><span>{hasObserved || hasCoverage ? `${report.projects.length} 个已确认项目` : '覆盖未知'}</span></div>
         <p className="hint">从本机会话工作目录识别项目；未提供工作目录的记录单列统计。项目路径不上传服务端。</p>
-        <div className="dimension-list">{report.projects.map(item => <div className="dimension-item" key={item.key}><button type="button" className="dimension-row" onClick={() => update('projectKey', item.key)}>
+        <div className="dimension-list">{(expandedProjects ? report.projects : report.projects.slice(0, INITIAL_DIMENSION_ROWS)).map(item => <div className="dimension-item" key={item.key}><button type="button" className="dimension-row" onClick={() => update('projectKey', item.key)}>
           <span className="dimension-name" title={item.label}>{item.label}</span><span>{item.requests.toLocaleString('zh-CN')} 条</span>
           <span className="dimension-meter"><i style={{ width: `${report.totals.totalTokens ? item.totalTokens / report.totals.totalTokens * 100 : 0}%` }} /></span>
         </button><TokenValue value={item.totalTokens} label={`${item.label} 项目${report.accounting?.status === 'uncertain' ? '已确认小计' : '已观测用量'}`} /></div>)}{report.projects.length === 0 && <div className="empty-row">{report.accounting?.status === 'uncertain' ? '项目用量待核对。' : hasCoverage ? '已确认没有项目用量。' : '没有已观测项目，覆盖未知。'}</div>}</div>
+        {report.projects.length > INITIAL_DIMENSION_ROWS && <button type="button" className="text-button" aria-expanded={expandedProjects} onClick={() => setExpandedProjects(value => !value)}>{expandedProjects ? '收起项目' : `显示全部 ${report.projects.length} 个项目`}</button>}
       </section>
-      <section className="panel model-panel"><div className="panel-head"><h2>模型用量{report.accounting?.status === 'uncertain' ? ' · 仅已确认部分' : ''}</h2><span>{hasObserved || hasCoverage ? `${report.models.length} 个已确认模型` : '覆盖未知'}</span></div><div className="table-wrap"><table><thead><tr><th>工具 / 模型</th><th>输入</th><th>输出</th><th>缓存读取</th><th>缓存写入</th><th>总 Token</th></tr></thead><tbody>{report.models.map(item => {
+      <section className="panel model-panel"><div className="panel-head"><h2>模型用量{report.accounting?.status === 'uncertain' ? ' · 仅已确认部分' : ''}</h2><span>{hasObserved || hasCoverage ? `${report.models.length} 个已确认模型` : '覆盖未知'}</span></div><div className="table-wrap"><table><thead><tr><th>工具 / 模型</th><th>输入</th><th>输出</th><th>缓存读取</th><th>缓存写入</th><th>总 Token</th></tr></thead><tbody>{(expandedModels ? report.models : report.models.slice(0, INITIAL_DIMENSION_ROWS)).map(item => {
         const scope = `${item.provider === 'codex' ? 'Codex' : 'Claude Code'} ${item.model} ${report.accounting?.status === 'uncertain' ? '已确认' : '已观测'}`;
         return <tr key={`${item.provider}:${item.model}`}><td><button type="button" className="model-link" onClick={() => selectModel(item.provider, item.model)}>{item.model}</button><small className="model-provider">{item.provider === 'codex' ? 'Codex' : 'Claude Code'}</small></td><td><TokenValue value={item.inputTokens} label={`${scope}输入`} /></td><td><TokenValue value={item.outputTokens} label={`${scope}输出`} /></td><td><TokenValue value={item.cacheReadTokens} label={`${scope}缓存读取`} /></td><td><TokenValue value={item.cacheCreationTokens} label={`${scope}缓存写入`} /></td><td><TokenValue value={item.totalTokens} label={`${scope}总量`} /></td></tr>;
-      })}</tbody></table>{report.models.length === 0 && <div className="empty-row">{report.accounting?.status === 'uncertain' ? '模型用量待核对。' : hasCoverage ? '已确认没有模型用量。' : '没有已观测模型，覆盖未知。'}</div>}</div></section>
+      })}</tbody></table>{report.models.length === 0 && <div className="empty-row">{report.accounting?.status === 'uncertain' ? '模型用量待核对。' : hasCoverage ? '已确认没有模型用量。' : '没有已观测模型，覆盖未知。'}</div>}</div>{report.models.length > INITIAL_DIMENSION_ROWS && <button type="button" className="text-button" aria-expanded={expandedModels} onClick={() => setExpandedModels(value => !value)}>{expandedModels ? '收起模型' : `显示全部 ${report.models.length} 个模型`}</button>}</section>
       <section className="panel detail-panel" ref={detailRef} tabIndex={-1}><div className="panel-head"><h2>用量明细</h2><span>{details ? `${number(details.total)} 条记录` : '加载中'}</span></div>
         <p className="hint">选择趋势柱或模型名称可定位对应记录。时间按 {query.timeZone} 显示；悬停或聚焦数字可查看完整数值并复制。</p>
         {(detailPeriod || query.model || query.projectKey) && <div className="detail-filters">{detailPeriod && <button className="text-button" onClick={() => { setDetailPeriod(''); setDetailPage(1); }}>{detailPeriod} ×</button>}{query.model && <button className="text-button" onClick={() => update('model', '')}>{query.model} ×</button>}{query.projectKey && <button className="text-button" onClick={() => update('projectKey', '')}>项目筛选 ×</button>}</div>}
