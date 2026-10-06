@@ -1,9 +1,31 @@
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { createTestWorkspace } from './support/test-workspace';
 import { AppDatabase } from '../src/main/database';
 import { UsageScanner } from '../src/collectors/scanner';
 import { ReportService } from '../src/main/report';
 import type { PublicUser, ReportQuery } from '../src/shared/types';
+
+test('TC-102 相同报表快照复用明细读取，事实变更后重新计算', async () => {
+  const workspace = createTestWorkspace('tc102-snapshot-cache');
+  const db = await AppDatabase.open(workspace.databasePath);
+  try {
+    const reports = new ReportService(db, new UsageScanner(db));
+    const admin: PublicUser = { id: 'admin', username: 'admin', role: 'admin', active: true, createdAt: '' };
+    const query: ReportQuery = { from: '2026-10-01', to: '2026-10-03', timeZone: 'Asia/Shanghai',
+      granularity: 'day', provider: 'codex', model: '', projectKey: '', userId: 'all' };
+    db.run("INSERT INTO source_identities VALUES ('codex:test', 'codex', '合成来源', NULL)");
+    db.run("INSERT INTO usage_facts VALUES ('a', 'codex', 'codex:test', 'session-a', 'gpt-test', '2026-10-02T00:00:00Z', 12, 0, 0, 0, 12)");
+    const reads = vi.spyOn(db, 'all');
+    const factReadCount = () => reads.mock.calls.filter(([sql]) => String(sql).includes('LEFT JOIN fact_projects p')).length;
+    const first = reports.query(query, admin);
+    expect(reports.details(query, 1, '', admin, first.snapshotId).total).toBe(1);
+    expect(reports.csv(query, admin, first.snapshotId)).toContain(',12,1');
+    expect(factReadCount()).toBe(1);
+    db.run("INSERT INTO usage_facts VALUES ('b', 'codex', 'codex:test', 'session-b', 'gpt-test', '2026-10-02T01:00:00Z', 3, 0, 0, 0, 3)");
+    expect(reports.query(query, admin).totals.totalTokens).toBe(15);
+    expect(factReadCount()).toBe(2);
+  } finally { db.close(); workspace.cleanup(); }
+});
 
 test('TC-079 查询后新增事实必须刷新快照才能导出相同事实集合', async () => {
   const workspace = createTestWorkspace('tc079-snapshot');

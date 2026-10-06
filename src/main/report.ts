@@ -101,6 +101,8 @@ function csvCell(value: string): string {
 }
 
 export class ReportService {
+  private cachedSnapshot: { key: string; revision: number;
+    value: { rows: Array<{ fact: FactRow; period: string; pending: boolean }>; id: string } } | null = null;
   constructor(private readonly db: AppDatabase, private readonly scanner: UsageScanner) {}
 
   private wasIdentityMigrationAffected(actor: PublicUser): boolean {
@@ -176,6 +178,11 @@ export class ReportService {
   }
 
   private snapshot(query: ReportQuery): { rows: Array<{ fact: FactRow; period: string; pending: boolean }>; id: string } {
+    const key = JSON.stringify(query);
+    const revision = this.db.revision;
+    if (this.cachedSnapshot?.key === key && this.cachedSnapshot.revision === revision) {
+      return this.cachedSnapshot.value;
+    }
     const authorized = this.selectFacts(query).filter(fact => this.allowedFact(query, fact));
     const pendingKeys = reconcileFacts(authorized).pendingKeys;
     const scoped = [...this.filteredFacts(query, authorized)];
@@ -187,7 +194,9 @@ export class ReportService {
       fact.total_tokens, fact.identity_uncertain, period, pending]);
     identities.sort((a, b) => String(a[0]).localeCompare(String(b[0])));
     digest.update(JSON.stringify(identities));
-    return { rows, id: digest.digest('hex') };
+    const value = { rows, id: digest.digest('hex') };
+    this.cachedSnapshot = { key, revision, value };
+    return value;
   }
 
   private assertSnapshot(expected: unknown, actual: string): void {

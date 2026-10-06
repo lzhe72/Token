@@ -8,6 +8,7 @@ export type Row = Record<string, SqlValue>;
 
 export class AppDatabase {
   private inTransaction = false;
+  private changeRevision = 0;
   private lastPersisted: Uint8Array | null = null;
   private constructor(private db: SqlDatabase, private readonly file: string,
     private readonly reopen: (bytes: Uint8Array) => SqlDatabase) {}
@@ -40,6 +41,8 @@ export class AppDatabase {
       candidate.close();
     }
   }
+
+  get revision(): number { return this.changeRevision; }
 
   private migrate(): void {
     this.db.run(`
@@ -91,7 +94,10 @@ export class AppDatabase {
   run(sql: string, params: SqlValue[] = []): void {
     if (params.length === 0) this.db.run(sql);
     else this.db.run(sql, params);
-    if (!this.inTransaction) this.persist();
+    this.changeRevision++;
+    if (!this.inTransaction) {
+      this.persist();
+    }
   }
 
   transaction(fn: () => void): void {
@@ -103,10 +109,12 @@ export class AppDatabase {
     } catch (error) {
       this.db.run('ROLLBACK');
       this.inTransaction = false;
+      this.changeRevision++;
       throw error;
     }
     this.db.run('COMMIT');
     this.inTransaction = false;
+    this.changeRevision++;
     this.persist();
   }
 
@@ -122,6 +130,7 @@ export class AppDatabase {
       // Restore the in-memory database to the last durable state in that case.
       this.db.close();
       this.db = this.reopen(previous);
+      this.changeRevision++;
       try { fs.unlinkSync(`${this.file}.tmp`); } catch { /* no temporary file */ }
       throw error;
     }

@@ -116,7 +116,10 @@ const cases = [
   ['TC-104', 'e2e', 'tests/e2e/navigation-performance.spec.ts', 'TC-104 过期导航结果不覆盖新页面且普通用户不出现管理入口', '过期响应与账号隔离']
 ];
 const extraRuns = {
-  'TC-102': [{ kind: 'integration', file: 'scripts/measure-navigation.mjs' }],
+  'TC-102': [{ kind: 'unit', file: 'tests/report-snapshot.test.ts',
+    testName: 'TC-102 相同报表快照复用明细读取，事实变更后重新计算' },
+    { kind: 'integration', file: 'scripts/measure-navigation.mjs', args: ['20', '20', '--warm-only'] },
+    { kind: 'integration', file: 'scripts/measure-navigation.mjs', args: ['20', '20', '--cold-only'] }],
   'TC-103': [{ kind: 'integration', file: 'scripts/measure-navigation.mjs', args: ['--scroll-only'] }],
   'TC-104': [
     { kind: 'e2e', file: 'tests/e2e/report-snapshot.spec.ts',
