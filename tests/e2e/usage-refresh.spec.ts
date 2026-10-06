@@ -142,3 +142,44 @@ test('TC-106 事实变更即时刷新，失败保留旧值且账号切换隔离'
     expect(scoped.coverage.every(source => source.windowCoverage?.state === 'unknown')).toBe(true);
   } finally { await context.close(); }
 });
+
+test('TC-108 最终候选切页无加载回闪和重复查询', async () => {
+  const context = await launchM6('tc108-release-navigation', { usage: true, usageDate: new Date().toISOString() });
+  try {
+    const { app, page } = context;
+    expect(await app.evaluate(({ app: electronApp }) => electronApp.getVersion())).toBe('0.3.12');
+    await page.locator('.sidebar').getByRole('button', { name: /数据来源/ }).click();
+    await page.getByRole('button', { name: '立即扫描', exact: true }).click();
+    await page.locator('.sidebar').getByRole('button', { name: /概览/ }).click();
+    await expect(page.locator('.overview-primary strong')).toHaveText('42');
+    await page.locator('.sidebar').getByRole('button', { name: /用量报表/ }).click();
+    await expect(page.locator('.metric-card').first().locator('strong')).toHaveText('42');
+    await expect(page.locator('.detail-panel .panel-head span')).not.toHaveText('加载中');
+    await page.locator('.sidebar').getByRole('button', { name: /概览/ }).click();
+    await app.evaluate(() => {
+      process.env.TOKEN_E2E_TRACE_USAGE_QUERY = '1';
+      (globalThis as typeof globalThis & { tokenE2eUsageQueryCount?: number }).tokenE2eUsageQueryCount = 0;
+    });
+    await page.evaluate(() => {
+      const observed = window as typeof window & { tokenNavLoading?: string[] };
+      observed.tokenNavLoading = [];
+      const root = document.querySelector('.main-content')!;
+      new MutationObserver(() => {
+        const content = root.textContent || '';
+        if (content.includes('正在计算报表') || content.includes('正在加载用量') ||
+          document.querySelector('.overview-primary strong')?.textContent === '加载中') {
+          observed.tokenNavLoading!.push(document.querySelector('.main-content h1')?.textContent || 'unknown');
+        }
+      }).observe(root, { childList: true, subtree: true, characterData: true });
+    });
+    for (let index = 0; index < 20; index++) {
+      await page.locator('.sidebar').getByRole('button', { name: /用量报表/ }).click();
+      await expect(page.locator('.metric-card').first().locator('strong')).toHaveText('42');
+      await page.locator('.sidebar').getByRole('button', { name: /概览/ }).click();
+      await expect(page.locator('.overview-primary strong')).toHaveText('42');
+    }
+    expect(await page.evaluate(() => (window as typeof window & { tokenNavLoading?: string[] }).tokenNavLoading)).toEqual([]);
+    expect(await app.evaluate(() =>
+      (globalThis as typeof globalThis & { tokenE2eUsageQueryCount?: number }).tokenE2eUsageQueryCount ?? 0)).toBe(0);
+  } finally { await context.close(); }
+});

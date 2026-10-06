@@ -115,13 +115,18 @@ const cases = [
   ['TC-103', 'e2e', 'tests/e2e/navigation-performance.spec.ts', 'TC-103 窄窗口右栏滚动保持响应且左栏固定', '右栏滚动流畅性'],
   ['TC-104', 'e2e', 'tests/e2e/navigation-performance.spec.ts', 'TC-104 过期导航结果不覆盖新页面且普通用户不出现管理入口', '过期响应与账号隔离'],
   ['TC-105', 'e2e', 'tests/e2e/usage-refresh.spec.ts', 'TC-105 切页复用报表且五分钟到期才重查，筛选和手动刷新即时查询', '五分钟查询与切页缓存'],
-  ['TC-106', 'e2e', 'tests/e2e/usage-refresh.spec.ts', 'TC-106 事实变更即时刷新，失败保留旧值且账号切换隔离', '变更失效与账号隔离']
+  ['TC-106', 'e2e', 'tests/e2e/usage-refresh.spec.ts', 'TC-106 事实变更即时刷新，失败保留旧值且账号切换隔离', '变更失效与账号隔离'],
+  ['TC-107', 'integration', 'scripts/verify-0312-release.mjs', 'TC-107 真实旧版隔离升级与当前服务发布', '0.3.12 更新发布与隔离升级'],
+  ['TC-108', 'e2e', 'tests/e2e/usage-refresh.spec.ts', 'TC-108 最终候选切页无加载回闪和重复查询', '0.3.12 最终候选切页与性能']
 ];
 const extraRuns = {
   'TC-105': [{ kind: 'unit', file: 'tests/usage-cache.test.ts',
     testName: 'TC-105 同一账号筛选复用结果，4 分 59 秒不触发而五分钟到期' }],
   'TC-106': [{ kind: 'unit', file: 'tests/usage-cache.test.ts',
     testName: 'TC-106 账号与授权变化隔离缓存，旧请求不能回填' }],
+  'TC-107': [{ kind: 'unit', file: 'tests/next-update.test.ts',
+    testName: 'TC-107 无包、旧包、拒权与新包分别给出准确检查状态' }],
+  'TC-108': [{ kind: 'integration', file: 'scripts/verify-0312-navigation.mjs' }],
   'TC-102': [{ kind: 'unit', file: 'tests/report-snapshot.test.ts',
     testName: 'TC-102 相同报表快照复用明细读取，事实变更后重新计算' },
     { kind: 'integration', file: 'scripts/measure-navigation.mjs', args: ['20', '20', '--warm-only'] },

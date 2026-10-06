@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import type { CollectionDiagnostic, ManagedStatus, Provider, PublicUser, ServerStatus, TelemetryConfiguration, UpdateStatus, UploadStatus } from '../shared/types';
 import { localLabels, serviceLabels, syncLabels } from './service-state';
+import { updateStatusLabel } from './update-state';
 
 interface Props {
   user: PublicUser;
@@ -77,7 +78,7 @@ export function SettingsPanel(props: Props) {
         <p className="hint">从配置的更新服务器检查新版本。下载并校验后，应用会退出、自动安装并启动新版。</p>
         <div className="source-actions"><button className="primary" disabled={props.checking} onClick={props.checkUpdate}>{props.checking ? '检查中…' : '检查更新'}</button>
           {props.update?.available && admin && <button className="export-button" disabled={props.busy} onClick={props.downloadUpdate}>下载并更新到 {props.update.version}</button>}</div>
-        <p className="hint" role="status">{props.update?.error ? `检查失败：${props.update.error}` : props.update?.available ? `发现新版本 ${props.update.version}` : props.update ? '当前已是最新版本，或服务器尚未发布安装包。' : '尚未检查更新。'}</p>
+        <p className="hint" role="status">{updateStatusLabel(props.update)}</p>
       </section>
       <section className="panel"><div className="panel-head"><h2>文件访问权限</h2><span>{permissionIssue ? '需要检查' : '按需授权'}</span></div>
         <p className="hint">Token 只读扫描 Codex 与 Claude Code 的本机会话目录。正常可读取时无需额外授权；遇到“权限不足”时，在 macOS 系统设置中手动检查“隐私与安全性 → 完全磁盘访问权限”，授权后重开应用并扫描。</p>

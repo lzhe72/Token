@@ -4,6 +4,7 @@ import { TokenValue } from './copy-token';
 import type { ReportDestination } from './report-navigation';
 import { localLabels, serviceLabels, syncLabels } from './service-state';
 import { cachedUsage, fetchUsage, markUsageDue, usageCacheKey, usageRefreshDelay, USAGE_REFRESH_MS } from './usage-cache';
+import { updateStatusLabel } from './update-state';
 
 function queryFor(days: number, provider: Provider | 'all', userId: string, timeZone: string): ReportQuery {
   const parts = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
@@ -150,6 +151,6 @@ export function OverviewPanel({ sources, server, upload, update, user, users, da
       const source = selectedSources.find(item => item.provider === name);
       return <div className="source-card" key={name}><div className={`source-icon ${name}`}>{name === 'codex' ? '◈' : '✳'}</div><div><h3>{name === 'codex' ? 'Codex' : 'Claude Code'}</h3><p>{source ? `${((source.factCount ?? 0) + (source.telemetryFactCount ?? 0)).toLocaleString('zh-CN')} 条本范围已观测记录 · ${source.windowCoverage?.reason ?? '覆盖未知'}` : provider !== 'all' && provider !== name ? '当前筛选未包含此工具' : loadingCurrent ? '正在核对本范围来源' : '本范围覆盖未知'}</p></div><span className="status-pill">{source ? statusLabel(source) : '未选中'}</span></div>;
     })}</div>
-    <div className="overview-service"><div><strong>服务端</strong><span>{service.type}</span><span>{service.connection} · {service.authorization} · {service.protocol}</span></div><div><strong>自动上报</strong><span>{sync.delivery}</span><span>{sync.review}</span><span>{upload?.lastError ? `最近失败：${upload.lastError}` : ''}</span></div><div><strong>本机采集与覆盖</strong><span>{localLabels(sources)}</span></div><div><strong>应用更新</strong><span>{update?.available ? `发现 ${update.version}` : update?.error ? update.error : '可检查新版本'}</span><div className="update-buttons"><button className="text-button" onClick={onCheckUpdate}>检查更新</button>{update?.available && <button className="text-button" onClick={onDownloadUpdate}>下载并更新</button>}</div></div></div>
+    <div className="overview-service"><div><strong>服务端</strong><span>{service.type}</span><span>{service.connection} · {service.authorization} · {service.protocol}</span></div><div><strong>自动上报</strong><span>{sync.delivery}</span><span>{sync.review}</span><span>{upload?.lastError ? `最近失败：${upload.lastError}` : ''}</span></div><div><strong>本机采集与覆盖</strong><span>{localLabels(sources)}</span></div><div><strong>应用更新</strong><span>{updateStatusLabel(update)}</span><div className="update-buttons"><button className="text-button" onClick={onCheckUpdate}>检查更新</button>{update?.available && <button className="text-button" onClick={onDownloadUpdate}>下载并更新</button>}</div></div></div>
   </div>;
 }

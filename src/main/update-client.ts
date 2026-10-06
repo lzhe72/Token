@@ -2,14 +2,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { UpdateManifest } from '../server/server';
+import type { UpdateStatus } from '../shared/types';
 import type { ServerConnection } from './server-connection';
 
-export interface UpdateState {
-  available: boolean;
-  version: string | null;
-  currentVersion: string;
-  error: string | null;
-}
+export type UpdateState = UpdateStatus;
 
 export function compareVersions(left: string, right: string): number {
   const parse = (value: string): number[] => {
@@ -34,8 +30,10 @@ export class UpdateClient {
   async check(): Promise<UpdateState> {
     try {
       const response = await this.connection.request('/v1/update/latest');
-      if (response.status === 404) return { available: false, version: null, currentVersion: this.currentVersion, error: null };
-      if (!response.ok) throw new Error('更新服务不可用');
+      if (response.status === 404) return { available: false, version: null, currentVersion: this.currentVersion,
+        error: null, reason: 'no_package', packageArch: null };
+      if (response.status === 401 || response.status === 403) throw new Error('更新服务拒绝访问，请检查服务器访问密钥');
+      if (!response.ok) throw new Error(`更新服务不可用（HTTP ${response.status}）`);
       if (!response.body) throw new Error('更新清单为空');
       const reader = response.body.getReader();
       const chunks: Buffer[] = [];
@@ -54,12 +52,15 @@ export class UpdateClient {
         !['arm64', 'x64'].includes(value.arch) || !Number.isSafeInteger(value.size) || value.size < 1 || value.size > 2 * 1024 * 1024 * 1024 ||
         !/^[a-f0-9]{64}$/.test(value.sha256) || !/^[A-Za-z0-9._-]+\.dmg$/.test(value.filename) ||
         value.downloadPath !== '/v1/update/package') throw new Error('更新清单无效');
-      const available = value.arch === this.arch && compareVersions(value.version, this.currentVersion) > 0;
+      const compatible = value.arch === this.arch;
+      const available = compatible && compareVersions(value.version, this.currentVersion) > 0;
       this.manifest = available ? value : null;
-      return { available, version: available ? value.version : null, currentVersion: this.currentVersion, error: null };
+      return { available, version: value.version, currentVersion: this.currentVersion, error: null,
+        reason: !compatible ? 'incompatible' : available ? 'available' : 'up_to_date', packageArch: value.arch };
     } catch (error) {
       this.manifest = null;
-      return { available: false, version: null, currentVersion: this.currentVersion, error: error instanceof Error ? error.message : '检查更新失败' };
+      return { available: false, version: null, currentVersion: this.currentVersion,
+        error: error instanceof Error ? error.message : '检查更新失败', reason: 'error', packageArch: null };
     }
   }
 

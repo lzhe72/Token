@@ -36,7 +36,7 @@ test('TC-059 新版坏包提示错误且重试后可重新检查', async () => {
     manifest.version = '0.1.0';
     writeFileSync(path.join(releases, 'latest.json'), JSON.stringify(manifest));
     await page.getByRole('button', { name: '检查更新' }).click();
-    await expect(page.getByText('当前已是最新版本，或服务器尚未发布安装包。')).toBeVisible();
+    await expect(page.getByText(`服务器安装包版本 0.1.0，当前版本 ${await context.app.evaluate(({ app }) => app.getVersion())}，暂无更新。`)).toBeVisible();
     await expect(page.getByRole('button', { name: /下载并更新/ })).toHaveCount(0);
   } finally { await context.close(); }
 });

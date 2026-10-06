@@ -6,6 +6,7 @@ import { createTestWorkspace } from './support/test-workspace';
 import { LocalServer } from '../src/server/server';
 import { UpdateClient } from '../src/main/update-client';
 import type { ServerConnection } from '../src/main/server-connection';
+import { updateStatusLabel } from '../src/renderer/update-state';
 
 function release(directory: string, version: string, hashOverride?: string) {
   const releases = path.join(directory, 'releases');
@@ -35,16 +36,44 @@ test('TC-034 只提示较新且架构匹配的版本并校验包摘要', async (
     const downloads = path.join(workspace.root, 'downloads');
     let opened = 0;
     const client = new UpdateClient(connection(`http://127.0.0.1:${port}`, secret), downloads, '1.0.0', 'arm64', async () => { opened++; });
-    expect((await client.check()).available).toBe(false);
+    expect(await client.check()).toMatchObject({ available: false, version: '1.0.0', reason: 'up_to_date' });
     release(directory, '0.9.9');
-    expect((await client.check()).available).toBe(false);
+    expect(await client.check()).toMatchObject({ available: false, version: '0.9.9', reason: 'up_to_date' });
     release(directory, '1.1.0', '0'.repeat(64));
     expect((await client.check()).available).toBe(true);
     await expect(client.downloadAndInstall()).rejects.toThrow('完整性校验失败');
     expect(opened).toBe(0);
     expect(fs.readdirSync(downloads).filter(name => name.endsWith('.download'))).toEqual([]);
     const wrongArch = new UpdateClient(connection(`http://127.0.0.1:${port}`, secret), downloads, '1.0.0', 'x64', async () => {});
-    expect((await wrongArch.check()).available).toBe(false);
+    expect(await wrongArch.check()).toMatchObject({ available: false, reason: 'incompatible', packageArch: 'arm64' });
+  } finally { await server.stop(); workspace.cleanup(); }
+});
+
+test('TC-107 无包、旧包、拒权与新包分别给出准确检查状态', async () => {
+  const workspace = createTestWorkspace('update-check-states');
+  const directory = path.join(workspace.root, 'server');
+  const server = new LocalServer(directory);
+  try {
+    const port = await server.start();
+    const secret = fs.readFileSync(path.join(directory, 'server.secret'), 'utf8');
+    const base = `http://127.0.0.1:${port}`;
+    const client = new UpdateClient(connection(base, secret), path.join(workspace.root, 'downloads'),
+      '0.3.11', 'arm64', async () => {});
+    const missing = await client.check();
+    expect(missing).toMatchObject({ available: false, reason: 'no_package', version: null });
+    expect(updateStatusLabel(missing)).toBe('更新服务器尚未发布安装包。');
+    release(directory, '0.3.7');
+    const older = await client.check();
+    expect(older).toMatchObject({ available: false, reason: 'up_to_date', version: '0.3.7' });
+    expect(updateStatusLabel(older)).toContain('服务器安装包版本 0.3.7');
+    release(directory, '0.3.12');
+    expect(await client.check()).toMatchObject({ available: true, reason: 'available', version: '0.3.12' });
+    const denied = new UpdateClient(connection(base, '0'.repeat(64)), path.join(workspace.root, 'downloads'),
+      '0.3.11', 'arm64', async () => {});
+    const rejected = await denied.check();
+    expect(rejected).toMatchObject({ available: false, reason: 'error',
+      error: '更新服务拒绝访问，请检查服务器访问密钥' });
+    expect(updateStatusLabel(rejected)).toContain('检查失败');
   } finally { await server.stop(); workspace.cleanup(); }
 });
 

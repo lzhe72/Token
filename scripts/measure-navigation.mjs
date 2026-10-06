@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 // TC-102/TC-103: repeatable, synthetic-only performance measurement.
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const packaged = path.join(project, 'release/mac/Token.app/Contents/MacOS/Token');
+const packaged = process.env.TOKEN_PERF_EXECUTABLE || path.join(project, 'release/mac/Token.app/Contents/MacOS/Token');
 const scrollOnly = process.argv.includes('--scroll-only');
 const warmOnly = process.argv.includes('--warm-only');
 const coldOnly = process.argv.includes('--cold-only');

@@ -138,6 +138,8 @@ export interface UpdateStatus {
   version: string | null;
   currentVersion: string;
   error: string | null;
+  reason: 'available' | 'up_to_date' | 'no_package' | 'incompatible' | 'error';
+  packageArch: 'arm64' | 'x64' | null;
 }
 
 export type Granularity = 'day' | 'week' | 'month' | 'year';
