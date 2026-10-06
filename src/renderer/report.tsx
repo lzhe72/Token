@@ -90,16 +90,19 @@ export function ReportPanel({ user, users, destination, backTick, onDrilldownCha
   React.useEffect(() => {
     let active = true;
     let generation = 0;
-    const refresh = () => {
+    const refresh = (foreground: boolean) => {
       const current = ++generation;
-      setLoading(true);
+      if (foreground) setLoading(true);
       return window.tokenApi.queryUsage(query).then(value => {
-        if (active && current === generation) { setLoadedReport(value); setError(''); }
+        if (active && current === generation) {
+          setLoadedReport(previous => previous?.snapshotId === value.snapshotId ? previous : value);
+          setError('');
+        }
       }).catch(e => { if (active && current === generation) { setLoadedReport(null); setError(displayError(e)); } })
         .finally(() => { if (active && current === generation) setLoading(false); });
     };
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 15_000);
+    void refresh(true);
+    const timer = window.setInterval(() => void refresh(false), 15_000);
     return () => { active = false; window.clearInterval(timer); };
   }, [query, reload]);
 
@@ -116,7 +119,7 @@ export function ReportPanel({ user, users, destination, backTick, onDrilldownCha
     setDetails(null);
     const snapshotId = report.snapshotId;
     const refresh = () => window.tokenApi.queryUsageDetails(query, detailPage, detailPeriod, snapshotId)
-      .then(value => { if (active) setDetails(value); })
+      .then(value => { if (active) setDetails(previous => previous && JSON.stringify(previous) === JSON.stringify(value) ? previous : value); })
       .catch(e => { if (active) {
         const message = displayError(e);
         setError(message);

@@ -110,7 +110,10 @@ const cases = [
   ['TC-098', 'e2e', 'tests/e2e/page-refinements.spec.ts', 'TC-098 输入输出在窄窗口完整显示且覆盖未知不写为零', '输入输出完整可读'],
   ['TC-099', 'e2e', 'tests/e2e/page-refinements.spec.ts', 'TC-099 报表集中展示已选筛选并随日期与工具更新', '筛选条件集中展示'],
   ['TC-100', 'e2e', 'tests/e2e/page-refinements.spec.ts', 'TC-100 单用户来源先显示汇总与异常并可按需管理正常归属', '单用户来源减负'],
-  ['TC-101', 'e2e', 'tests/e2e/page-refinements.spec.ts', 'TC-101 引导只突出下一步且扫描归属后进度立即刷新', '首次引导衔接']
+  ['TC-101', 'e2e', 'tests/e2e/page-refinements.spec.ts', 'TC-101 引导只突出下一步且扫描归属后进度立即刷新', '首次引导衔接'],
+  ['TC-102', 'e2e', 'tests/e2e/navigation-performance.spec.ts', 'TC-102 标准与窄窗口导航先反馈并显示加载或内容', '页面导航响应'],
+  ['TC-103', 'e2e', 'tests/e2e/navigation-performance.spec.ts', 'TC-103 窄窗口右栏滚动保持响应且左栏固定', '右栏滚动流畅性'],
+  ['TC-104', 'e2e', 'tests/e2e/navigation-performance.spec.ts', 'TC-104 过期导航结果不覆盖新页面且普通用户不出现管理入口', '过期响应与账号隔离']
 ];
 const extraRuns = {
   'TC-096': [{ kind: 'e2e', file: 'tests/e2e/single-user-source.spec.ts',

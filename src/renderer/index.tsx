@@ -62,6 +62,11 @@ function App() {
   const [scanCancelling, setScanCancelling] = React.useState(false);
   const [scanActive, setScanActive] = React.useState(false);
   const [tab, setTab] = React.useState<'overview' | 'report' | 'sources' | 'users' | 'settings' | 'diagnostics' | 'feedback' | 'onboarding'>('overview');
+  const navigationRequest = React.useRef(0);
+  const activeUserId = React.useRef<string | null>(null);
+  activeUserId.current = state?.user?.id ?? null;
+  const [sourceLoadState, setSourceLoadState] = React.useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [usersLoadState, setUsersLoadState] = React.useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [onboarding, setOnboarding] = React.useState<{ userId: string; status: OnboardingStatus } | null>(null);
   const [onboardingActiveUserId, setOnboardingActiveUserId] = React.useState<string | null>(null);
   const onboardingRequest = React.useRef(0);
@@ -118,6 +123,16 @@ function App() {
   const [overviewTimeZone, setOverviewTimeZone] = React.useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai');
   const [returnFocusId, setReturnFocusId] = React.useState('');
 
+  function openTab(next: typeof tab): number {
+    const request = ++navigationRequest.current;
+    setTab(next);
+    return request;
+  }
+
+  function currentNavigation(request: number, actorId: string): boolean {
+    return navigationRequest.current === request && activeUserId.current === actorId;
+  }
+
   React.useEffect(() => {
     window.tokenApi.getState().then(value => {
       setState(value);
@@ -134,14 +149,27 @@ function App() {
 
   React.useEffect(() => {
     if (!state?.user) return;
+    let active = true;
+    const actorId = state.user.id;
+    const currentActor = () => active && activeUserId.current === actorId;
     const refresh = () => {
-      void window.tokenApi.getSourceStatuses().then(setSourceStatuses).catch(() => {});
-      void window.tokenApi.getServerStatus().then(value => { setServer(value); setServerUrl(current => current || value.url); }).catch(() => {});
-      void window.tokenApi.getUploadStatus().then(setUpload).catch(() => {});
+      void window.tokenApi.getSourceStatuses().then(value => {
+        if (currentActor()) setSourceStatuses(current =>
+          JSON.stringify(current) === JSON.stringify(value) ? current : value);
+      }).catch(() => {});
+      void window.tokenApi.getServerStatus().then(value => {
+        if (!currentActor()) return;
+        setServer(current => JSON.stringify(current) === JSON.stringify(value) ? current : value);
+        setServerUrl(current => current || value.url);
+      }).catch(() => {});
+      void window.tokenApi.getUploadStatus().then(value => {
+        if (currentActor()) setUpload(current =>
+          JSON.stringify(current) === JSON.stringify(value) ? current : value);
+      }).catch(() => {});
     };
     void refresh();
     const timer = window.setInterval(refresh, 5000);
-    return () => window.clearInterval(timer);
+    return () => { active = false; window.clearInterval(timer); };
   }, [state?.user?.id]);
 
   React.useEffect(() => {
@@ -242,6 +270,8 @@ function App() {
   }
 
   async function logout() {
+    navigationRequest.current++;
+    activeUserId.current = null;
     onboardingRequest.current++;
     bindingRequest.current++;
     sourceViewRequest.current++;
@@ -254,6 +284,7 @@ function App() {
     setUsers([]);
     setAccountStatuses([]); setFeedbackItems([]); setSourceIdentities([]); setSourceStatuses([]);
     setDiagnostics([]); setUpload(null); setReportDestination(null);
+    setSourceLoadState('idle'); setUsersLoadState('idle');
     setBindingDraft(null); setBindingPreview(null); setBindingError(''); setBindingBusy(false);
     setNotice(''); setError('');
     setTab('overview');
@@ -265,20 +296,34 @@ function App() {
     localStorage.removeItem(`token:onboarding:active:${userId}`);
     localStorage.removeItem(`token:onboarding:skipped:${userId}`);
     setOnboardingActiveUserId(null);
-    setTab('overview');
+    openTab('overview');
   }
 
   async function showUsers() {
     setError('');
+    const actorId = state?.user?.id;
+    if (!actorId || state?.user?.role === 'viewer') return;
+    const request = openTab('users');
+    setUsersLoadState('loading');
+    setAccountStatuses([]);
+    setFeedbackItems([]);
+    setFeedbackError('');
     try {
       const [allUsers, accountData] = await Promise.all([window.tokenApi.listUsers(), window.tokenApi.getAccountCollectionStatuses()]);
+      if (!currentNavigation(request, actorId)) return;
       setUsers(allUsers);
       setAccountStatuses(accountData);
-      try { setFeedbackItems(await window.tokenApi.listFeedback()); setFeedbackError(''); }
-      catch (reason) { setFeedbackError(errorMessage(reason)); }
-      setTab('users');
+      setUsersLoadState('ready');
+      void window.tokenApi.listFeedback().then(items => {
+        if (currentNavigation(request, actorId)) { setFeedbackItems(items); setFeedbackError(''); }
+      }).catch(reason => {
+        if (currentNavigation(request, actorId)) setFeedbackError(errorMessage(reason));
+      });
     } catch (e) {
-      setError(errorMessage(e));
+      if (currentNavigation(request, actorId)) {
+        setUsersLoadState('error');
+        setError(errorMessage(e));
+      }
     }
   }
 
@@ -288,21 +333,27 @@ function App() {
     setBindingDraft(null); setBindingPreview(null); setBindingError('');
     setShowRoutineSources(false); setEditingSourceKey(null);
     const actorId = state?.user?.id;
-    if (!actorId) return;
+    if (!actorId || state?.user?.role === 'viewer') return;
+    const navigation = openTab('sources');
+    setSourceLoadState('loading');
+    setSourceIdentities([]);
     const request = ++sourceViewRequest.current;
     setDeferredView(null);
     try {
       const [identities, allUsers, deferredKeys] = await Promise.all([
         window.tokenApi.getSourceIdentities(), window.tokenApi.listUsers(), window.tokenApi.getDeferredSourceKeys()
       ]);
-      if (request !== sourceViewRequest.current) return;
+      if (request !== sourceViewRequest.current || !currentNavigation(navigation, actorId)) return;
       setSourceIdentities(identities);
       setUsers(allUsers);
       setDeferredView({ userId: actorId, keys: deferredKeys });
       setSourcePage(1);
-      setTab('sources');
+      setSourceLoadState('ready');
     } catch (e) {
-      setError(errorMessage(e));
+      if (currentNavigation(navigation, actorId)) {
+        setSourceLoadState('error');
+        setError(errorMessage(e));
+      }
     }
   }
 
@@ -336,16 +387,29 @@ function App() {
 
   async function showSettings() {
     setError('');
-    setTab('settings');
-    const requests: Promise<unknown>[] = [window.tokenApi.getCollectionDiagnostics().then(setDiagnostics)];
-    if (state?.user?.role !== 'viewer') requests.push(window.tokenApi.getTelemetryConfiguration().then(setTelemetry));
+    const actorId = state?.user?.id;
+    if (!actorId) return;
+    const request = openTab('settings');
+    const requests: Promise<unknown>[] = [window.tokenApi.getCollectionDiagnostics().then(value => {
+      if (currentNavigation(request, actorId)) setDiagnostics(value);
+    })];
+    if (state?.user?.role !== 'viewer') requests.push(window.tokenApi.getTelemetryConfiguration().then(value => {
+      if (currentNavigation(request, actorId)) setTelemetry(value);
+    }));
     await Promise.allSettled(requests);
   }
 
   async function showDiagnostics() {
-    setError(''); setTab('diagnostics');
-    try { setDiagnostics(await window.tokenApi.getCollectionDiagnostics()); }
-    catch (reason) { setError(errorMessage(reason)); }
+    setError('');
+    const actorId = state?.user?.id;
+    if (!actorId) return;
+    const request = openTab('diagnostics');
+    try {
+      const value = await window.tokenApi.getCollectionDiagnostics();
+      if (currentNavigation(request, actorId)) setDiagnostics(value);
+    } catch (reason) {
+      if (currentNavigation(request, actorId)) setError(errorMessage(reason));
+    }
   }
 
   async function saveServer(event: React.FormEvent) {
@@ -410,19 +474,23 @@ function App() {
 
   async function showReport(destination?: ReportDestination) {
     setError('');
-    try {
-      if (state?.user?.role !== 'viewer') setUsers(await window.tokenApi.listUsers());
-      setReportDestination(destination || null);
-      setReportDrilldown(false);
-      setTab('report');
-    } catch (e) {
-      setError(errorMessage(e));
+    const actorId = state?.user?.id;
+    if (!actorId) return;
+    setReportDestination(destination || null);
+    setReportDrilldown(false);
+    const request = openTab('report');
+    if (state?.user?.role !== 'viewer') {
+      void window.tokenApi.listUsers().then(value => {
+        if (currentNavigation(request, actorId)) setUsers(value);
+      }).catch(e => {
+        if (currentNavigation(request, actorId)) setError(errorMessage(e));
+      });
     }
   }
 
   function returnToOverview() {
     setReturnFocusId(reportDestination?.originId || '');
-    setTab('overview');
+    openTab('overview');
   }
 
   async function scanSources() {
@@ -655,7 +723,7 @@ function App() {
           <button className={tab === 'report' ? 'nav active' : 'nav'} onClick={() => void showReport()}><span>▤</span> 用量报表</button>
           {state.user.role !== 'viewer' && <button className={tab === 'sources' ? 'nav active' : 'nav'} onClick={showSources}><span>◇</span> 数据来源</button>}
           <button className={tab === 'diagnostics' ? 'nav active' : 'nav'} onClick={showDiagnostics}><span>◎</span> 采集诊断</button>
-          <button className={tab === 'feedback' ? 'nav active' : 'nav'} onClick={() => setTab('feedback')}><span>✎</span> 问题反馈</button>
+          <button className={tab === 'feedback' ? 'nav active' : 'nav'} onClick={() => openTab('feedback')}><span>✎</span> 问题反馈</button>
           {state.user.role !== 'viewer' && <button className={tab === 'users' ? 'nav active' : 'nav'} onClick={showUsers}><span>♙</span> 管理中心</button>}
           <button className={tab === 'settings' ? 'nav active' : 'nav'} onClick={showSettings}><span>⚙</span> 系统设置{update?.available ? ' · 新版本' : ''}</button>
         </div>
@@ -666,7 +734,7 @@ function App() {
         <header><div><nav className="breadcrumb" aria-label="当前位置"><button onClick={returnToOverview}>工作台</button><span> / </span>{tab === 'report' && reportDrilldown ? <><button onClick={() => { setReportBackTick(value => value + 1); setReportDrilldown(false); }}>用量报表</button><span> / 明细</span></> : <span>{tab === 'users' ? '管理中心' : tab === 'sources' ? '数据来源' : tab === 'report' ? '用量报表' : tab === 'settings' ? '系统设置' : tab === 'diagnostics' ? '采集诊断' : tab === 'feedback' ? '问题反馈' : tab === 'onboarding' ? '首次引导' : '概览'}</span>}</nav><h1>{tab === 'users' ? '管理中心' : tab === 'sources' ? '数据来源' : tab === 'report' ? '用量报表' : tab === 'settings' ? '系统设置' : tab === 'diagnostics' ? '采集诊断' : tab === 'feedback' ? '问题反馈' : tab === 'onboarding' ? '首次引导' : '用量概览'}</h1></div><HeaderStatus sources={sourceStatuses} server={server} upload={upload} onDiagnostics={() => void showDiagnostics()} onSettings={() => void showSettings()} /></header>
         {error && <div className="error banner" role="alert">{error}</div>}
         {notice && <div className="notice banner" role="status">{notice}</div>}
-        {onboardingInProgress && tab !== 'onboarding' && <div className="panel onboarding-hint" role="status"><div><strong>首次设置尚未结束</strong><p>完成当前操作后可返回引导，核对四步进度。</p></div><div><button type="button" onClick={() => setTab('onboarding')}>返回引导</button><button type="button" className="text-button" onClick={finishOnboarding}>结束引导</button></div></div>}
+        {onboardingInProgress && tab !== 'onboarding' && <div className="panel onboarding-hint" role="status"><div><strong>首次设置尚未结束</strong><p>完成当前操作后可返回引导，核对四步进度。</p></div><div><button type="button" onClick={() => openTab('onboarding')}>返回引导</button><button type="button" className="text-button" onClick={finishOnboarding}>结束引导</button></div></div>}
         {tab === 'overview' ? <OverviewPanel sources={sourceStatuses} server={server} upload={upload} update={update} user={state.user} users={users}
           days={overviewDays} provider={overviewProvider} userId={overviewUserId} timeZone={overviewTimeZone}
           focusId={returnFocusId} onFocusRestored={() => setReturnFocusId('')}
@@ -682,8 +750,9 @@ function App() {
           setServerUrl={setServerUrl} setServerToken={setServerToken} setAdminToken={setServerAdminToken} saveServer={saveServer}
           useBuiltInServer={useBuiltInServer} retryUpload={retryUpload}
           checkUpdate={checkUpdate} downloadUpdate={downloadUpdate} backupDatabase={backupDatabase} restoreDatabase={restoreDatabase} openFilePermissions={openFilePermissions} />
-        : tab === 'diagnostics' ? <DiagnosticsPanel items={diagnostics} busy={busy} scanning={scanActive} cancelling={scanCancelling} canScan={state.user.role !== 'viewer'} onScan={scanSources} onCancel={cancelScan} onPermissions={openFilePermissions} onFeedback={() => setTab('feedback')} />
+        : tab === 'diagnostics' ? <DiagnosticsPanel items={diagnostics} busy={busy} scanning={scanActive} cancelling={scanCancelling} canScan={state.user.role !== 'viewer'} onScan={scanSources} onCancel={cancelScan} onPermissions={openFilePermissions} onFeedback={() => openTab('feedback')} />
         : tab === 'feedback' ? <FeedbackPanel username={state.user.username} />
+        : tab === 'sources' && sourceLoadState !== 'ready' ? <section className="panel empty-row" role="status">{sourceLoadState === 'error' ? '数据来源加载失败。' : '正在加载数据来源…'}{sourceLoadState === 'error' && <button type="button" className="export-button" onClick={() => void showSources()}>重试加载</button>}</section>
         : tab === 'sources' ? <>
           <p className="page-lead">只读取当前 macOS 账户可访问的本机会话记录。采集器不会保存提示词、回复正文或源码。</p>
           <div className="source-grid"><div className="source-card"><div className="source-icon codex">◈</div><div><h3>Codex</h3><p>{singleUserMode ? `已归属 ${assignedCount('codex')} 个来源 · ${sourceIdentities.filter(item => item.provider === 'codex' && !isRoutineSource(item)).length} 个需处理` : codexStatus?.detail || `${codexStatus?.fileCount ?? 0} 个会话文件 · ${codexStatus?.factCount ?? 0} 条本地 · ${codexStatus?.telemetryFactCount ?? 0} 条遥测`}</p>{singleUserMode && codexStatus && !['ready', 'no_records'].includes(codexStatus.status) && <small className="source-card-detail">{codexStatus.detail}</small>}</div><span className="status-pill">{sourceStatusLabel(codexStatus)}</span></div><div className="source-card"><div className="source-icon claude">✳</div><div><h3>Claude Code</h3><p>{singleUserMode ? `已归属 ${assignedCount('claude')} 个来源 · ${sourceIdentities.filter(item => item.provider === 'claude' && !isRoutineSource(item)).length} 个需处理` : claudeStatus?.detail || `${claudeStatus?.fileCount ?? 0} 个会话文件 · ${claudeStatus?.factCount ?? 0} 条本地 · ${claudeStatus?.telemetryFactCount ?? 0} 条遥测`}</p>{singleUserMode && claudeStatus && !['ready', 'no_records'].includes(claudeStatus.status) && <small className="source-card-detail">{claudeStatus.detail}</small>}</div><span className="status-pill">{sourceStatusLabel(claudeStatus)}</span></div></div>
@@ -712,7 +781,7 @@ function App() {
             validationField={bindingValidationField} onEvidenceEdit={() => { setBindingError(''); setBindingValidationField(null); }}
             onCancel={() => { void window.tokenApi.cancelSourceBinding(bindingPreview.id).catch(() => {}); closeBinding(true); }}
             onConfirm={evidence => void confirmBinding(evidence)} />}
-        </> : <>
+        </> : usersLoadState !== 'ready' ? <section className="panel empty-row" role="status">{usersLoadState === 'error' ? '管理中心加载失败。' : '正在加载管理中心…'}{usersLoadState === 'error' && <button type="button" className="export-button" onClick={() => void showUsers()}>重试加载</button>}</section> : <>
           <p className="page-lead">查看账号状态、采集归属和反馈。普通用户只能查看已分配给自己的用量。</p>
           {state.superadminIssue && <section className="panel"><div className="panel-head"><h2>固定 admin 账号状态</h2><span>需要处理</span></div><p className="hint">{state.superadminIssue}</p>
             {state.superadminIssue.includes('占用') && <form className="reset-form" onSubmit={resolveAdminNameConflict}><label>为当前冲突账号设置新用户名<input value={conflictUsername} onChange={e => setConflictUsername(e.target.value)} placeholder="新的普通用户名" /></label><button className="primary">确认改名</button></form>}

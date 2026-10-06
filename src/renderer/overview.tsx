@@ -67,7 +67,10 @@ export function OverviewPanel({ sources, server, upload, update, user, users, da
     const refresh = async () => {
       try {
         const current = await window.tokenApi.queryUsage(queryFor(days, provider, userId, timeZone));
-        if (active) { setLoadedReport(current); setError(''); setLoading(false); }
+        if (active) {
+          setLoadedReport(previous => previous?.snapshotId === current.snapshotId ? previous : current);
+          setError(''); setLoading(false);
+        }
       } catch (reason) {
         if (active) { setError(reason instanceof Error ? reason.message : '概览加载失败'); setLoading(false); }
       }

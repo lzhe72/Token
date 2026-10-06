@@ -139,6 +139,9 @@ try {
   await page.getByPlaceholder('至少 10 位').fill('safe-password-123');
   await page.getByRole('checkbox', { name: /信任此设备/ }).check();
   await page.getByRole('button', { name: '创建并进入' }).click();
+  await page.getByRole('heading', { name: /^(首次引导|用量概览)$/ }).waitFor();
+  const skipOnboarding = page.getByRole('button', { name: '跳过引导' });
+  if (await skipOnboarding.isVisible().catch(() => false)) await skipOnboarding.click();
   await expect(page.getByRole('heading', { name: '用量概览' })).toBeVisible();
   await page.getByRole('button', { name: /数据来源/ }).click();
   await page.getByRole('button', { name: '立即扫描' }).click();
