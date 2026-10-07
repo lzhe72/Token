@@ -1,5 +1,15 @@
 # 首版验收记录
 
+## 0.3.12 GitHub x64 未签名预发布（`f109abc`；2026-10-07）
+
+GitHub 发布页 [`v0.3.12`](https://github.com/lzhe72/Token/releases/tag/v0.3.12) 标记为 **Pre-release**，目标为 macOS x86_64 未签名测试包。发布说明指向从 `main` 提交 `f109abc8ba1637662397659c115abbb7a12627e7` 重建的制品；产品代码仍为 `d9b447c`，后续提交仅改文档。
+
+GitHub DMG `Token-0.3.12-x64.dmg` 为 142,585,538 字节，SHA-256 `01b25b0b9fda31fd28862e612e0125c6743b84b182af0c4c2eea6fa6b34bb21a`，`hdiutil verify` VALID；`app.asar` SHA-256 为 `3f02efcef6be261165869d38445c6658199b53a97bbd4b8ddbb45a32d007390b`。本机更新服务保留此前构建的同版本 DMG，文件 SHA-256 为 `7f431a226dd70ac8b9bbfdcc3dfdeed4edbd48103ce8dff1da8b2770d97caf74`，大小 142,585,554 字节；两者因重新打包时间元数据而文件摘要不同，`app.asar` 摘要相同。不要把 GitHub 文件摘要当成本机服务包摘要。开发统筹随后从公开 GitHub 预发布重新下载该 DMG，复算大小为 142,585,538 字节、SHA-256 为 01b25b0b9fda31fd28862e612e0125c6743b84b182af0c4c2eea6fa6b34bb21a，与本地产物、GitHub 发布源信息和远端 asset digest 一致。
+
+开发统筹报告从最新 `main` 运行 `npm run test:gate`（108 个编号入口、108 个单元测试、58 个 Electron 测试），重新 `pack:dir` 后 `npm run test:e2e:packaged` 58/58；真实 0.3.11 与新 0.3.12 DMG 的 TC-076 在隔离安装目录成功完成旧版 UI 升级，并通过五种 helper 故障回退和重试。`app.asar` 摘要与本机当前安装 0.3.12 及本机更新服务旧 DMG 的应用内容一致，均为开发统筹报告；此次 GitHub 发布没有更改本机更新服务或生产 App。
+
+**边界**：当前无有效代码签名身份；该资产是 GitHub 预发布、未签名测试包，未完成 Developer ID 签名、公证票据、其他 Mac 安装或外部分发验收。VER-014 沿用原未完整交付状态，不因 GitHub 发布而升为完成。此记录按当前复验补充制品发布事实；下方 2026-10-06 的 0.3.11 实装状态是当时快照，当前安装版本另见本节开发侧报告。
+
 ## 0.3.12 更新服务发布与隔离候选验收（`d9b447c`；2026-10-06）
 
 用户报告当前实际安装的 Token 在概览与报表之间切换时每次出现加载并感到卡顿，设置页检查更新显示“已是最新”。文档会话只读执行 `/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' /Applications/Token.app/Contents/Info.plist`，结果 **0.3.11**；仓库 `package.json` 亦为 **0.3.11**。这说明 `2e5ee34` 的源码缓存通过结果不能直接证明生产安装已有新行为；用户所见“已是最新”也可能因当前服务尚未发布更高版本，不能单凭文案判更新客户端缺陷。开发侧另报告本机内置服务 `releases/latest.json` 仍为 0.3.7/x64，文档会话未独立核在线授权响应。
